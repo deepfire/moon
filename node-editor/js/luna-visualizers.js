@@ -1,1 +1,1 @@
-../../atom/lib/luna-visualizers.js
+../../lib/luna-visualizers.js

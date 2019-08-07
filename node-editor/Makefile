@@ -1,14 +1,15 @@
-BROWSERIFY := ./node_modules/browserify/bin/cmd.js
-ROLLUP     := ./node_modules/rollup/bin/rollup
+BROWSERIFY  := ./node_modules/browserify/bin/cmd.js
+ROLLUP      := ./node_modules/rollup/bin/rollup
 
-JSEXE      := ../../dist-newstyle/build/x86_64-linux/ghcjs-8.6.0.1/node-editor-0.1.0.0/x/node-editor/build/node-editor/node-editor.jsexe
+JSEXE       := ../dist-newstyle/build/x86_64-linux/ghcjs-8.6.0.1/node-editor-0.1.0.0/x/node-editor/build/node-editor/node-editor.jsexe
+JSEXETOROOT := ../../../../../../../../../..
 
 ZIPFSROOT   := js/zipfs
 ZIPFS       := $(ZIPFSROOT)/zipfs.zip
 ZIPFSBASE64 := $(ZIPFSROOT)/zipfs.base64
 ZIPJS       := js/zipfs.js
 
-all: lib-suffix main
+all: main lib-suffix
 
 zipfs: $(ZIPFS)
 $(ZIPFS):
@@ -41,3 +42,6 @@ $(JSEXE)/lib-suffix.js: js/lib-suffix-static.js js/lib-suffix-dynamic.js
 main: $(JSEXE)/lib.js
 $(JSEXE)/lib.js: node-editor.cabal
 	cabal new-build exe:node-editor
+	rm -f $(JSEXE)/index.html $(JSEXE)/app.css
+	ln -s $(JSEXETOROOT)/node-editor/index.html     $(JSEXE)/index.html
+	ln -s $(JSEXETOROOT)/node-editor/styles/app.css $(JSEXE)/app.css

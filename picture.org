@@ -1,8 +1,8 @@
 * JS
 - =node.js dependencies=
-- [[file:atom/package.json::"main":%20"./lib/main",]["main"]]: "./lib/main" @ luna-studio/frontend/atom/package.json
-  - [[file:atom/lib/main.coffee::(require%20'./luna-visualizers')()][(require]] './luna-visualizers')()
-    - [[file:atom/lib/luna-visualizers.coffee::module.exports%20=%20()%20->][module.exports]] = () ->
+- [[file:package.json::"main":%20"./lib/main",]["main"]]: "./lib/main" @ luna-studio/package.json
+  - [[file:lib/main.coffee::(require%20'./luna-visualizers')()][(require]] './luna-visualizers')()
+    - [[file:lib/luna-visualizers.coffee::module.exports%20=%20()%20->][module.exports]] = () ->
       window.getInternalVisualizersPath = () -> lunaBaseVisPath
       window.getInternalVisualizers = () -> 
           internalVisualizers = getVisualizersForPath lunaBaseVisPath, internalVisName
@@ -21,7 +21,7 @@
       window.checkLunaVisualizer     = (name, tpeRep)          -> lunaVisualizers[name](tpeRep)
       window.checkProjectVisualizer  = (name, tpeRep)          -> projectVisualizers[name](tpeRep)
       window.checkImportedVisualizer = (libName, name, tpeRep) -> importedVisualizers[libName][name](tpeRep)
-  - [[file:atom/lib/main.coffee::codeEditor%20=%20(require%20'./gen/text-editor-ghcjs.js')()][codeEditor]] = (require './gen/text-editor-ghcjs.js')()
+  - [[file:lib/main.coffee::codeEditor%20=%20(require%20'./gen/text-editor-ghcjs.js')()][codeEditor]] = (require './gen/text-editor-ghcjs.js')()
     - [[file:text-editor/env-text-editor.ghcjs::atomCallbackTextEditor%20=%20require('./atom-callback-text-editor');][atomCallbackTextEditor]] = require('./atom-callback-text-editor');
     - [[file:text-editor/env-text-editor.ghcjs::globalRegistry%20=%20{};][globalRegistry]] = {}
     - var [[file:text-editor/env-text-editor.ghcjs::var%20run%20=%20function()%20{][run]] = function() {
@@ -40,11 +40,11 @@
       , pushInternalEvent  :fn(data)      { atomCallbackTextEditor.pushInternalEvent(data); }
       , onStatus           :fn(callback)  { atomCallbackTextEditor.onStatus(callback); }
       }
-  - [[file:atom/lib/main.coffee::nodeEditor%20=%20(require%20'./gen/node-editor-ghcjs.js')()][nodeEditor]] = (require './gen/node-editor-ghcjs.js') @ frontend/atom/lib/main.coffee
+  - [[file:lib/main.coffee::nodeEditor%20=%20(require%20'./gen/node-editor-ghcjs.js')()][nodeEditor]] = (require './gen/node-editor-ghcjs.js') @ lib/main.coffee
     - .start .connector .onNotification .pushEvent .setEventFilter .onExpectedEvent
-    - prepare_ghcjs([[file:~/luna-studio/scripts_build/atom_prepare.py::prepare_ghcjs('../frontend/atom/lib/gen/node-editor-ghcjs.js',%20'../frontend/node-editor/env-node-editor.ghcjs',%20node_editor_js%5B0%5D)]['../frontend/atom/lib/gen/node-editor-ghcjs.js']],
-                    '../frontend/node-editor/env-node-editor.ghcjs', ..) @ atom-prepare.py
-      - [[file:node-editor/env-node-editor.ghcjs::atomCallback%20=%20require('./atom-callback'),][atomCallback]] = require('./atom-callback'), @ frontend/node-editor/env-node-editor.ghcjs
+    - prepare_ghcjs([[file:~/luna-studio/scripts_build/atom_prepare.py::prepare_ghcjs('../lib/gen/node-editor-ghcjs.js',%20'../node-editor/env-node-editor.ghcjs',%20node_editor_js%5B0%5D)]['../lib/gen/node-editor-ghcjs.js']],
+                    '../node-editor/env-node-editor.ghcjs', ..) @ atom-prepare.py
+      - [[file:node-editor/env-node-editor.ghcjs::atomCallback%20=%20require('./atom-callback'),][atomCallback]] = require('./atom-callback'), @ node-editor/env-node-editor.ghcjs
         - [[file:node-editor/js/atom-callback.coffee::listeners%20=][listeners]] =
             onEvent: []
             onNotification: []
@@ -69,23 +69,23 @@
       , setEventFilter : atomCallback.[[file:node-editor/js/atom-callback.coffee::setEventFilter:%20(blocked,%20allowed,%20expected)%20=>][setEventFilter]]
       , onExpectedEvent: atomCallback.[[file:node-editor/js/atom-callback.coffee::onExpectedEvent:%20(callback)%20=>%20listeners.onExpectedEvent%20=%20callback][onExpectedEvent]]
       }
-    - class [[file:atom/lib/main.coffee::class%20LunaStudio][LunaStudio]]
-      - [[file:atom/lib/main.coffee::activate:%20(state)%20=>][activate]]
-        - [[file:atom/lib/main.coffee::atom.workspace.addOpener%20(uri)%20=>%20@lunaOpener%20uri][atom.workspace.addOpener]] (uri) => @lunaOpener uri
-        - [[file:atom/lib/main.coffee::codeEditor.connect%20nodeEditor.connector][codeEditor.connect]] nodeEditor.connector
+    - class [[file:lib/main.coffee::class%20LunaStudio][LunaStudio]]
+      - [[file:lib/main.coffee::activate:%20(state)%20=>][activate]]
+        - [[file:lib/main.coffee::atom.workspace.addOpener%20(uri)%20=>%20@lunaOpener%20uri][atom.workspace.addOpener]] (uri) => @lunaOpener uri
+        - [[file:lib/main.coffee::codeEditor.connect%20nodeEditor.connector][codeEditor.connect]] nodeEditor.connector
           - [[file:text-editor/env-text-editor.ghcjs::return%20{%20connect%20:%20function(connector)%20{%20connector(globalRegistry);%20}][connect]] : function(connector) { connector(globalRegistry); }
-        - [[file:atom/lib/main.coffee::nodeEditor.onNotification%20report.onNotification][nodeEditor.onNotification]] report.onNotification
-        - [[file:atom/lib/main.coffee::actStatus%20=%20(act,%20arg0,%20arg1)%20=>][actStatus]] = (act, arg0, arg1) => switch act
-          - [[file:atom/lib/main.coffee::when%20'Init'][when]] Init
+        - [[file:lib/main.coffee::nodeEditor.onNotification%20report.onNotification][nodeEditor.onNotification]] report.onNotification
+        - [[file:lib/main.coffee::actStatus%20=%20(act,%20arg0,%20arg1)%20=>][actStatus]] = (act, arg0, arg1) => switch act
+          - [[file:lib/main.coffee::when%20'Init'][when]] Init
                       rootPath = atom.project.getPaths().shift()
                       if rootPath? and rootPath != ""
                           @projects.addRecent rootPath
                           codeEditor.pushInternalEvent(tag: "SetProject", _path: rootPath)
-          - [[file:atom/lib/main.coffee::when%20'ProjectCreated'][when]] ProjectCreated
-          - [[file:atom/lib/main.coffee::when%20'ProjectSet'][when]] ProjectSet
-          - [[file:atom/lib/main.coffee::when%20'FileOpened'][when]] FileOpened
-          - [[file:atom/lib/main.coffee::when%20'ProjectMove'][when]] ProjectMove
-        - [[file:atom/lib/main.coffee::codeEditor.onStatus%20actStatus][codeEditor.onStatus]] actStatus
+          - [[file:lib/main.coffee::when%20'ProjectCreated'][when]] ProjectCreated
+          - [[file:lib/main.coffee::when%20'ProjectSet'][when]] ProjectSet
+          - [[file:lib/main.coffee::when%20'FileOpened'][when]] FileOpened
+          - [[file:lib/main.coffee::when%20'ProjectMove'][when]] ProjectMove
+        - [[file:lib/main.coffee::codeEditor.onStatus%20actStatus][codeEditor.onStatus]] actStatus
         - atom.workspace.onDidChangeActivePaneItem (item) => @handleItemChange item
           atom.workspace.onDidDestroyPaneItem (event) => @handleItemDestroy event
           atom.workspace.observeTextEditors (editor) =>
@@ -115,11 +115,11 @@
                   openTemporaryProject()
               if atom.config.get('luna-studio.showWelcomeGuide')
                   @guide.start()
-      - [[file:atom/lib/main.coffee::codeEditor.start()][codeEditor.start()]] → [[file:text-editor/env-text-editor.ghcjs::,%20start%20:%20function()%20{%20run();}][start]] → [[file:text-editor/env-text-editor.ghcjs::var%20run%20=%20function()%20{][run]] → GHCJS(CodeEditor.main)
+      - [[file:lib/main.coffee::codeEditor.start()][codeEditor.start()]] → [[file:text-editor/env-text-editor.ghcjs::,%20start%20:%20function()%20{%20run();}][start]] → [[file:text-editor/env-text-editor.ghcjs::var%20run%20=%20function()%20{][run]] → GHCJS(CodeEditor.main)
         ========================================================================
-    - [[file:atom/lib/main.coffee::lunaOpener:%20(uri)%20=>][lunaOpener]]: (uri)
-      => new [[file:atom/lib/main.coffee::new%20LunaNodeEditorTab%20null,%20nodeEditor,%20codeEditor,%20@projects][LunaNodeEditorTab]] null, nodeEditor, codeEditor, @projects
-    - [[file:atom/lib/main.coffee::setNodeEditorUri:%20(uri)%20->][setNodeEditorUri]]: (uri) ->
+    - [[file:lib/main.coffee::lunaOpener:%20(uri)%20=>][lunaOpener]]: (uri)
+      => new [[file:lib/main.coffee::new%20LunaNodeEditorTab%20null,%20nodeEditor,%20codeEditor,%20@projects][LunaNodeEditorTab]] null, nodeEditor, codeEditor, @projects
+    - [[file:lib/main.coffee::setNodeEditorUri:%20(uri)%20->][setNodeEditorUri]]: (uri) ->
         nodeEditorTab = @getNodeEditorTab()
         nodeEditorTab.uri = uri if nodeEditorTab?
         if uri?
@@ -127,25 +127,25 @@
         else
             nodeEditor.pushEvent(tag: "UnsetFile")
 * 
-  - [[file:node-editor/js/app.js:://%20Generated%20by%20CoffeeScript%201.12.7][frontend/node-editor/js/app.js]]
+  - [[file:node-editor/js/app.js:://%20Generated%20by%20CoffeeScript%201.12.7][node-editor/js/app.js]]
       window.visualizerFramesManager = require('./visualizers')
       window.searcherEngine          = require('fuzzly')
       window.processedEvents = []
-  - [[file:atom/lib/main.js:://%20Generated%20by%20CoffeeScript%201.12.7][frontend/atom/lib/main.js]] ← [[file:atom/lib/main.coffee][frontend/atom/lib/main.coffee]]
-    - [[file:atom/lib/main.coffee::(require%20'./luna-visualizers')()][(require]] './luna-visualizers')()
-      - [[file:atom/lib/luna-visualizers.js::module.exports%20=%20function()%20{][luna-visualizers.js]] ← [[file:atom/lib/luna-visualizers.coffee::module.exports%20=%20()%20->][../../atom/lib/luna-visualizers.coffee]]
+  - [[file:lib/main.js:://%20Generated%20by%20CoffeeScript%201.12.7][lib/main.js]] ← [[file:lib/main.coffee][lib/main.coffee]]
+    - [[file:lib/main.coffee::(require%20'./luna-visualizers')()][(require]] './luna-visualizers')()
+      - [[file:lib/luna-visualizers.js::module.exports%20=%20function()%20{][luna-visualizers.js]] ← [[file:lib/luna-visualizers.coffee::module.exports%20=%20()%20->][../../lib/luna-visualizers.coffee]]
 * 
   - [[file:node-editor/Makefile::all:][Makefile]] -[[file:node-editor/node-editor.cabal::executable%20node-editor][node-editor.cabal]]→ [[file:~/luna-studio/dist-newstyle/build/x86_64-linux/ghcjs-8.6.0.1/node-editor-0.1.0.0/x/node-editor/build/node-editor/node-editor.jsexe/index.html::<!DOCTYPE%20html>][index.html]]
-  - [[file:node-editor/js/lib-suffix-static.js::var%20process%20=%20{][frontend/node-editor/js/lib-suffix-static.js]]
-  - [[file:node-editor/js/pre-browserified.js::PRE-BROWSERIFIED][frontend/node-editor/js/pre-browserified.js]] -[[file:node-editor/run-browserify.js:://%20EOF][run-browserify.js]]→ [[file:node-editor/js/browserified.js::require('react');][node-editor/js/browserified.js]]
-  - [[file:node-editor/js/rollup.js::import][frontend/node-editor/js/rollup.js]] → [[file:node-editor/js/rollup.out.js::module.exports%20=%20rollup;][node-editor/js/rollup.out.js]]
+  - [[file:node-editor/js/lib-suffix-static.js::var%20process%20=%20{][node-editor/js/lib-suffix-static.js]]
+  - [[file:node-editor/js/pre-browserified.js::PRE-BROWSERIFIED][node-editor/js/pre-browserified.js]] -[[file:node-editor/run-browserify.js:://%20EOF][run-browserify.js]]→ [[file:node-editor/js/browserified.js::require('react');][node-editor/js/browserified.js]]
+  - [[file:node-editor/js/rollup.js::import][node-editor/js/rollup.js]] → [[file:node-editor/js/rollup.out.js::module.exports%20=%20rollup;][node-editor/js/rollup.out.js]]
     - ./node_modules/coffee-script/bin/coffee --compile [[file:node-editor/js/atom-callback.coffee::module.exports%20=][js/atom-callback.coffee]] → [[file:node-editor/js/atom-callback.js:://%20Generated%20by%20CoffeeScript%201.12.7][atom-callback.js]]
       - [[file:node-editor/js/atom-callback.js::listeners%20=%20{][listeners]] = { [[file:node-editor/js/atom-callback.js::onEvent:%20%5B%5D,][onEvent]] = [], [[file:node-editor/js/atom-callback.js::onNotification:%20%5B%5D][onNotification]] = [] }
       - [[file:node-editor/js/atom-callback.js::globalRegistry%20=%20null;][globalRegistry]] = null
       - [[file:node-editor/js/atom-callback.js::eventFilters%20=%20{][eventFilters]] = { [[file:node-editor/js/atom-callback.js::blockedEvents:%20%5B%5D,][blockedEvents]] = [], [[file:node-editor/js/atom-callback.js::allowedEvents:%20%5B%5D,][allowedEvents]] = [], [[file:node-editor/js/atom-callback.js::expectedEvents:%20%5B%5D][expectedEvents]] = [] }
       - [[file:node-editor/js/atom-callback.js::setEventFilter:%20(function(_this)%20{][setEventFilter]](blocked, allowed, expected)
       - [[file:node-editor/js/atom-callback.js::acceptEvent:%20(function(_this)%20{][acceptEvent]](event)
-    - ./node_modules/coffee-script/bin/coffee --compile [[file:atom/lib/luna-visualizers.js::module.exports%20=%20function()%20{][luna-visualizers.js]] ← [[file:atom/lib/luna-visualizers.coffee::module.exports%20=%20()%20->][../../atom/lib/luna-visualizers.coffee]]
+    - ./node_modules/coffee-script/bin/coffee --compile [[file:lib/luna-visualizers.js::module.exports%20=%20function()%20{][luna-visualizers.js]] ← [[file:lib/luna-visualizers.coffee::module.exports%20=%20()%20->][../../lib/luna-visualizers.coffee]]
     - ./node_modules/rollup/bin/rollup -c  # [[file:node-editor/rollup.config.js::export%20default%20{][rollup.config.js]]
   - [[file:node-editor/js/lib-suffix-dynamic.suffix.js:://%20entry][js/lib-suffix-dynamic.suffix.js]] → [[file:node-editor/js/lib-suffix-dynamic.js:://%20EOF][js/lib-suffix-dynamic.js]]
   - (GHCJS, [[file:node-editor/js/lib-suffix-dynamic.js:://%20EOF][js/lib-suffix-dynamic.js]], [[file:node-editor/js/lib-suffix-static.js::var%20process%20=%20{][js/lib-suffix-static.js]]) → [[file:~/luna-studio/dist-newstyle/build/x86_64-linux/ghcjs-8.6.0.1/node-editor-0.1.0.0/x/node-editor/build/node-editor/node-editor.jsexe/lib.js::var%20nodeModulesPaths%20=%20require('./node-modules-paths.js');][lib.js]]
@@ -183,12 +183,12 @@
       - [[file:node-editor/src/NodeEditor/Action/State/NodeEditor.hs::updateVisualizers%20::%20ExternalVisualizers%20FilePath%20->%20Command%20State%20()][updateVisualizers]] ∷ ExternalVisualizers FilePath -> Command State ()
         - ← applyModification.[[file:node-editor/src/NodeEditor/Handler/Backend/Graph.hs::SetExternalVisPath%20m%20->][SetExternalVisPath]]
         - JS.Visualizers.[[file:node-editor/src/JS/Visualizers.hs::getInternalVisualizersLibraryPath%20::%20IO%20FilePath][getInternalVisualizersLibraryPath]]
-          - [[file:atom/lib/luna-visualizers.js::window.getInternalVisualizersPath%20=%20function()%20{][window.getInternalVisualizersPath]]
-            - [[file:atom/lib/luna-visualizers.js::lunaBaseVisPath%20=%20path.join(__dirname,%20'visualizers');][lunaBaseVisPath]] = path.join(__dirname, 'visualizers');
+          - [[file:lib/luna-visualizers.js::window.getInternalVisualizersPath%20=%20function()%20{][window.getInternalVisualizersPath]]
+            - [[file:lib/luna-visualizers.js::lunaBaseVisPath%20=%20path.join(__dirname,%20'visualizers');][lunaBaseVisPath]] = path.join(__dirname, 'visualizers');
         - JS.Visualizers.[[file:node-editor/src/JS/Visualizers.hs::mkInternalVisualizersMap%20::%20IO%20(Map%20String%20String)][mkInternalVisualizersMap]]
           - [[file:node-editor/src/JS/Visualizers.hs::getInternalVisualizers%20::%20IO%20%5BString%5D][getInternalVisualizers]]
-            - [[file:atom/lib/luna-visualizers.js::window.getInternalVisualizers%20=%20function()%20{][window.getInternalVisualizers]]
-              - [[file:atom/lib/luna-visualizers.js::getVisualizersForPath%20=%20function(path,%20name)%20{][getVisualizersForPath]]
+            - [[file:lib/luna-visualizers.js::window.getInternalVisualizers%20=%20function()%20{][window.getInternalVisualizers]]
+              - [[file:lib/luna-visualizers.js::getVisualizersForPath%20=%20function(path,%20name)%20{][getVisualizersForPath]]
     - [[file:node-editor/src/NodeEditor/State/Global.hs::module%20NodeEditor.State.Global%20where][NodeEditor.State.Global]]
       - data [[file:node-editor/src/NodeEditor/State/Global.hs::data%20State%20=%20State][State]]
         - [[file:node-editor/src/NodeEditor/State/Global.hs::,%20_internalVisualizers%20::%20Map%20VisualizerId%20VisualizerPath][_internalVisualisers]] ∷ Map VisualizerId VisualizerPath
