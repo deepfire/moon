@@ -1,0 +1,15 @@
+*~
+.\#*
+\#*\#
+*.rej
+*.swp
+*.zip
+*.js_o
+*.js_hi
+
+zipfs/
+zipfs.js
+
+node_modules
+npm-debug.log
+dist-newstyle

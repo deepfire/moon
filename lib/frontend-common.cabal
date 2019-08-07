@@ -1,0 +1,77 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 2ee564690734ff1906e0e085ac990194a10cf1c10c003f4e26df0a2d7b9edc25
+
+name:           frontend-common
+version:        0.1.0.0
+author:         New Byte Order <contact@luna-lang.org>
+maintainer:     New Byte Order <contact@luna-lang.org>
+build-type:     Simple
+
+flag debug
+  description: Enable debug support
+  manual: False
+  default: False
+
+library
+  exposed-modules:
+      Atom
+      Common.Action.Command
+      Common.Analytics
+      Common.Batch.Connector.Connection
+      Common.ClientId
+      Common.Data.Event
+      Common.Data.JSON
+      Common.Data.Notification
+      Common.Marshal
+      Common.Prelude
+      Common.Prelude.Instances
+      Common.Report
+      GZip
+      IdentityString
+      JS.Analytics
+      Luna.Benchmark
+      Luna.Benchmark.JS
+      Searcher.Data.Class
+      Searcher.Data.Database
+      Searcher.Data.Match
+      Searcher.Data.Result
+      Searcher.Engine
+      WebSocket
+  other-modules:
+      Paths_frontend_common
+  hs-source-dirs:
+      src
+  default-extensions: BangPatterns ConstraintKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse FlexibleContexts FlexibleInstances GeneralizedNewtypeDeriving LambdaCase MultiParamTypeClasses NoImplicitPrelude ScopedTypeVariables StandaloneDeriving TemplateHaskell TupleSections TypeFamilies ViewPatterns
+  ghc-options: -Wall -O2
+  cpp-options: -DCOMPRESS_REQUESTS
+  build-depends:
+      aeson
+    , array
+    , base
+    , base64-bytestring
+    , binary
+    , bytestring
+    , container
+    , convert
+    , data-default
+    , filepath
+    , ghcjs-base
+    , ghcjs-dom-jsffi
+    , hashable
+    , lens
+    , luna-api-definition
+    , mtl
+    , placeholders
+    , prologue
+    , react-flux
+    , text
+    , time
+    , transformers
+    , unordered-containers
+    , uuid-types
+  default-language: Haskell2010

@@ -1,0 +1,5 @@
+compiler: ghcjs
+packages:
+  frontend/lib
+  frontend/node-editor
+  frontend/node-editor-view

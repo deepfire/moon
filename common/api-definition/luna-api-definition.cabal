@@ -1,0 +1,163 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 589294f80a8dd60daafa02b2dc4cf359ae8b9e5acf0833b0110650b3865a8337
+
+name:           luna-api-definition
+version:        0.1.0.0
+author:         Luna Team <contact@luna-lang.org>
+maintainer:     Luna Team <contact@luna-lang.org>
+license:        AGPL-3
+build-type:     Simple
+
+flag debug
+  description: Enable debug support
+  manual: False
+  default: False
+
+library
+  exposed-modules:
+      Compress
+      Data.Portable.Text
+      Debug
+      Debug.Console
+      Debug.Safe
+      Debug.Unsafe
+      LunaStudio.API.AsyncUpdate
+      LunaStudio.API.Atom.CloseFile
+      LunaStudio.API.Atom.Copy
+      LunaStudio.API.Atom.CreateProject
+      LunaStudio.API.Atom.FileChanged
+      LunaStudio.API.Atom.GetBuffer
+      LunaStudio.API.Atom.IsSaved
+      LunaStudio.API.Atom.MoveProject
+      LunaStudio.API.Atom.OpenFile
+      LunaStudio.API.Atom.Paste
+      LunaStudio.API.Atom.SaveFile
+      LunaStudio.API.Atom.SetProject
+      LunaStudio.API.Atom.Substitute
+      LunaStudio.API.Control.EmpireStarted
+      LunaStudio.API.Control.Interpreter
+      LunaStudio.API.Graph.AddConnection
+      LunaStudio.API.Graph.AddImports
+      LunaStudio.API.Graph.AddNode
+      LunaStudio.API.Graph.AddPort
+      LunaStudio.API.Graph.AddSubgraph
+      LunaStudio.API.Graph.AutolayoutNodes
+      LunaStudio.API.Graph.CollaborationUpdate
+      LunaStudio.API.Graph.CollapseToFunction
+      LunaStudio.API.Graph.Copy
+      LunaStudio.API.Graph.DumpGraphViz
+      LunaStudio.API.Graph.GetProgram
+      LunaStudio.API.Graph.GetSubgraphs
+      LunaStudio.API.Graph.MonadsUpdate
+      LunaStudio.API.Graph.MovePort
+      LunaStudio.API.Graph.NodeResultUpdate
+      LunaStudio.API.Graph.NodeTypecheckerUpdate
+      LunaStudio.API.Graph.Paste
+      LunaStudio.API.Graph.Redo
+      LunaStudio.API.Graph.RemoveConnection
+      LunaStudio.API.Graph.RemoveNodes
+      LunaStudio.API.Graph.RemovePort
+      LunaStudio.API.Graph.RenameNode
+      LunaStudio.API.Graph.RenamePort
+      LunaStudio.API.Graph.Request
+      LunaStudio.API.Graph.SaveSettings
+      LunaStudio.API.Graph.SearchNodes
+      LunaStudio.API.Graph.SetCode
+      LunaStudio.API.Graph.SetNodeExpression
+      LunaStudio.API.Graph.SetNodesMeta
+      LunaStudio.API.Graph.SetPortDefault
+      LunaStudio.API.Graph.Transaction
+      LunaStudio.API.Graph.TypeCheck
+      LunaStudio.API.Graph.Undo
+      LunaStudio.API.Library.CreateLibrary
+      LunaStudio.API.Library.ListLibraries
+      LunaStudio.API.Persistence.Envelope
+      LunaStudio.API.Persistence.Library
+      LunaStudio.API.Persistence.Project
+      LunaStudio.API.Request
+      LunaStudio.API.Response
+      LunaStudio.API.Topic
+      LunaStudio.Data.Angle
+      LunaStudio.Data.Breadcrumb
+      LunaStudio.Data.CameraTransformation
+      LunaStudio.Data.Code
+      LunaStudio.Data.Connection
+      LunaStudio.Data.Constants
+      LunaStudio.Data.Diff
+      LunaStudio.Data.Error
+      LunaStudio.Data.Geometry
+      LunaStudio.Data.Graph
+      LunaStudio.Data.GraphLocation
+      LunaStudio.Data.GUIState
+      LunaStudio.Data.LabeledTree
+      LunaStudio.Data.Library
+      LunaStudio.Data.Matrix
+      LunaStudio.Data.MonadPath
+      LunaStudio.Data.Node
+      LunaStudio.Data.NodeCache
+      LunaStudio.Data.NodeId
+      LunaStudio.Data.NodeLoc
+      LunaStudio.Data.NodeMeta
+      LunaStudio.Data.NodeValue
+      LunaStudio.Data.Point
+      LunaStudio.Data.Port
+      LunaStudio.Data.PortDefault
+      LunaStudio.Data.PortRef
+      LunaStudio.Data.Position
+      LunaStudio.Data.Project
+      LunaStudio.Data.Range
+      LunaStudio.Data.ScreenPosition
+      LunaStudio.Data.Searcher.Hint
+      LunaStudio.Data.Searcher.Hint.Class
+      LunaStudio.Data.Searcher.Hint.Library
+      LunaStudio.Data.Size
+      LunaStudio.Data.TextDiff
+      LunaStudio.Data.TypeRep
+      LunaStudio.Data.Vector2
+      LunaStudio.Data.Visualization
+      LunaStudio.Data.Visualizer
+  other-modules:
+      Paths_luna_api_definition
+  hs-source-dirs:
+      src
+  default-extensions: AllowAmbiguousTypes ApplicativeDo Arrows BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse DuplicateRecordFields EmptyDataDecls FlexibleContexts FlexibleInstances FunctionalDependencies GeneralizedNewtypeDeriving InstanceSigs LambdaCase LiberalTypeSynonyms MonadComprehensions MultiWayIf MultiParamTypeClasses NamedWildCards NegativeLiterals NoImplicitPrelude NumDecimals OverloadedLabels OverloadedStrings PackageImports QuasiQuotes RankNTypes RecursiveDo RelaxedPolyRec ScopedTypeVariables StandaloneDeriving TemplateHaskell TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeSynonymInstances TypeOperators ViewPatterns
+  ghc-options: -Wall -O2 -threaded -DCOMPRESS_REQUESTS
+  build-depends:
+      aeson
+    , base
+    , binary
+    , bytestring
+    , clock
+    , containers
+    , convert
+    , deepseq
+    , filepath
+    , hashable
+    , lens
+    , lens-utils
+    , matrix
+    , pretty-show
+    , prologue
+    , storable-tuple
+    , template-haskell
+    , text
+    , time
+    , unordered-containers
+    , uuid
+    , uuid-types
+    , yaml
+    , zlib
+--  if !impl(ghcjs)
+--    build-depends:
+--        luna-core
+--      , luna-cpp-containers
+--      , luna-foreign-utils
+--  if impl(ghcjs)
+--    build-depends:
+    , ghcjs-base
+  default-language: Haskell2010

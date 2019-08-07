@@ -1,0 +1,4 @@
+The visualisation part of this project is based on =luna-studio=:
+
+   https://github.com/luna/luna-studio
+
