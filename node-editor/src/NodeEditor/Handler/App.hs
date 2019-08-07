@@ -64,27 +64,19 @@ updateVisualizers = do
     phv <- State.getPlaceholderVisualizer
     liftIO $ warn "phv" (show phv)
 
-play :: Command Global.State ()
-play = do
-  --liftIO $ warn "keydown" (show ev)
-  updateVisualizers
-  --
+addOne :: Command Global.State ()
+addOne = do
   let bc  = LSBread.Breadcrumb [LSBread.Definition (UUID.nil)]
       nl  = LSLoc.fromPath (LSLoc.NodePath bc)
       pos = fromTuple (300, 300)
       n   = Node.mkExprNode nl "memptee" pos
             & Node.name               .~ Just "wootwoot"
             & Node.code               .~ "yowza"
-            & Node.visEnabled         .~ True
-            & Node.errorVisEnabled    .~ True
   localAddExpressionNode n
-  selectNode nl
   State.setGraphStatus NE.GraphLoaded
-  all <- State.getAllNodes
-  liftIO $ warn "all" (show all)
 
 handle :: Event -> Maybe (Command Global.State ())
-handle (UI (AppEvent     (ev@(App.KeyDown (KeyboardEvent{keyKey="F2"}))))) = Just play
+handle (UI (AppEvent     (ev@(App.KeyDown (KeyboardEvent{keyKey="F2"}))))) = Just addOne
 
 handle (UI (AppEvent     (App.MouseMove evt _)))       = Just $ Global.ui . UI.mousePos <~ mousePosition evt
 handle (UI (SidebarEvent (Sidebar.MouseMove evt _ _))) = Just $ Global.ui . UI.mousePos <~ mousePosition evt
@@ -95,8 +87,7 @@ handle (UI (AppEvent     App.MouseLeave      ))        = Just $ endActions actio
 handle (Shortcut         (Shortcut.Event command _))   = Just $ handleCommand command
 handle  Init                                           = Just $ do
   liftIO $ warn "handle" (show Init)
-  Batch.getProgram def True
-  play
+  addOne
 handle (Atom (Atom.SetFile path))                      = Just $ setFile path
 handle (Atom (Atom.UpdateFilePath path))               = Just $ updateFilePath path
 handle (Atom  Atom.UnsetFile)                          = Just   unsetFile

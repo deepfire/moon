@@ -1,0 +1,40 @@
+cabal-version:       2.4
+name:                moon
+version:             0.1.0.0
+synopsis:            Experiments
+homepage:            https://github.com/deepfire/moon
+license:             GPL-3.0-only
+license-file:        LICENSE
+author:              Kosyrev Serge
+maintainer:          kosyrev.serge@protonmail.com
+category:            System
+extra-source-files:  CHANGELOG.md
+
+library
+  exposed-modules:
+                       Moon.Lift
+                       Moon.Lift.Haskell
+                       Moon.Face.Haskell
+  build-depends:       base
+                     , algebraic-graphs
+                     , containers
+                     , extra
+                     , filepath
+                     , ghc
+                     , ghc-boot
+                     , text
+                     , unagi-chan
+                     , websockets
+                     , zeromq4-haskell
+
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+
+executable moon
+  main-is:             Main.hs
+  build-depends:       moon
+                     , base
+                     , text
+
+  hs-source-dirs:      .
+  default-language:    Haskell2010

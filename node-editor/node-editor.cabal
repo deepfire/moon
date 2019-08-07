@@ -19,7 +19,6 @@ executable node-editor
   main-is: Main.hs
   other-modules:
       Data.Curve
-      Data.Type.Hide
       JS.Atom
       JS.Clipboard
       JS.Config
@@ -134,7 +133,7 @@ executable node-editor
   hs-source-dirs:
       src
   default-extensions: AllowAmbiguousTypes ApplicativeDo Arrows BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse DuplicateRecordFields EmptyDataDecls FlexibleContexts FlexibleInstances FunctionalDependencies GeneralizedNewtypeDeriving InstanceSigs LambdaCase LiberalTypeSynonyms MonadComprehensions MultiWayIf NamedWildCards NegativeLiterals NoImplicitPrelude NumDecimals OverloadedLabels OverloadedStrings PackageImports QuasiQuotes RankNTypes RecursiveDo RelaxedPolyRec ScopedTypeVariables StandaloneDeriving TemplateHaskell TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators ViewPatterns
-  ghc-options: -Wall -O2 -fsimpl-tick-factor=1000
+  ghc-options: -Wall -O2 -fsimpl-tick-factor=1000 -Wno-missing-home-modules
   build-depends:
       aeson
     , base
@@ -168,4 +167,7 @@ executable node-editor
     , uuid-types
     , vector
     , vector-text
+    , zeromq4-haskell
+
+    -- , typed-protocols-cbor -- depends on base:GHC.Event, which is abesnt from ghcjs
   default-language: Haskell2010
