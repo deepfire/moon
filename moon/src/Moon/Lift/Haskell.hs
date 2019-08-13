@@ -98,7 +98,7 @@ fileToModule libDir hsFile = do
 
 liftHsModule dflags (L _ HsModule{..}) = Module{..}
   where
-    modName = ModName . pack . fromMaybe "Main" $ moduleNameString . unLoc <$> hsmodName
+    modName = ModuleName . pack . fromMaybe "Main" $ moduleNameString . unLoc <$> hsmodName
     modDefs = Map.fromList
               [ (n, hd)
               | hd@(Def _ n _) <- catMaybes $ processHsModDeclLoc <$> hsmodDecls]
@@ -225,3 +225,4 @@ alwaysEnabledLanguageExtensions =
   , StaticPointers
   , TypeApplications
   ]
+

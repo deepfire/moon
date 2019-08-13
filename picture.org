@@ -324,6 +324,12 @@
           - [[file:node-editor-view/src/NodeEditor/React/View][View]]: ...
             - [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode][ExpressionNode]]: [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode/NodeValue.hs][NodeValue]] [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode/Properties.hs][Properties]]
             - [[file:node-editor-view/src/NodeEditor/React/View/Visualization][Visualization]]: [[file:node-editor-view/src/NodeEditor/React/View/Visualization/DataFrame.hs][DataFrame]] [[file:node-editor-view/src/NodeEditor/React/View/Visualization/Graphics.hs][Graphics]] [[file:node-editor-view/src/NodeEditor/React/View/Visualization/Image.hs][Image]]
+*** Server
+    - Empire.Server.[[file:~/luna-studio/backend/services/double-representation/src/Empire/Server.hs::run%20endPoints%20topics%20formatted%20packageRoot%20=%20do][run]] <- Main.[[file:~/luna-studio/backend/services/double-representation/src-app/Main.hs::run%20cmd%20=%20case%20cmd%20of][run]]
+*** Websocket adapter
+    - WSConnector.[[file:~/luna-studio/backend/services/ws-connector/src/WSConnector/WSConnector.hs::run%20::%20Bus.Config%20->%20WSConfig.Config%20->%20IO%20()][run]] <- ws-connector/src-app/Main.[[file:~/luna-studio/backend/services/ws-connector/src-app/Main.hs::run%20cmd%20=%20case%20cmd%20of][run]]
+      - BusWorker.[[file:~/luna-studio/backend/services/ws-connector/src/WSConnector/Workers/BusWorker.hs::start%20busEndPoints%20fromBusChan%20toBusChan%20=%20do][start]]
+        - Bus.[[file:~/luna-studio/backend/libs/bus/src/Bus/Framework/App.hs::run%20config%20action%20=%20withEnvironment%20$%20\env%20->%20do][run]]
 * Node editor
   - [[file:default.nix::overrides%20=%20self:%20super:%20with%20pkgs.haskell.lib;][default.nix]] | [[file:node-editor/node-editor.cabal::build-depends:][node-editor.cabal]]
   - Main.[[file:node-editor/src/Main.hs::main%20::%20IO%20()][main]] -> NodeEditor.Event.Loader.[[file:node-editor/src/NodeEditor/Event/Loader.hs::withActiveConnection%20::%20(WebSocket%20->%20IO%20())%20->%20IO%20()][withActiveConnection]] | Main.[[file:node-editor/src/Main.hs::runApp%20::%20Chan%20(IO%20())%20->%20WebSocket%20->%20IO%20()][runApp]]
@@ -351,8 +357,7 @@
         - foreign import javascript safe "[[file:node-editor-view/src/JS/UI.hs::foreign%20import%20javascript%20safe%20"document.getElementById($1).focus()"%20focus'%20::%20JSString%20->%20IO%20()][document.getElementById($1).focus()]]" focus'
 * Moon
   - [[file:moon/shell.nix::ghc.shellFor%20{][shell.nix]] | [[file:moon/moon.cabal::build-depends:][moon.cabal]] | [[file:moon/nix/overrides.nix::pkgs:%20new:%20old:][overrides.nix]] | [[file:moon/nix/github.json::{][nix/github.json]]
-  - [[file:moon/Main.hs::module%20Main%20where][Main]]
   - [[file:moon/src/Moon/Lift.hs::module%20Moon.Lift][Moon.Lift]]
     - [[file:moon/src/Moon/Lift/Haskell.hs::module%20Moon.Lift.Haskell][Moon.Lift.Haskell]] [[file:moon/src/Moon/Lift/Haskell.hs::fileToModule%20libDir%20hsFile%20=%20do][fileToModule]]
-  - Moon.Face
+  - [[file:moon/src/Moon/Face.hs::module%20Moon.Face][Moon.Face]]
     - [[file:moon/src/Moon/Face/Haskell.hs::module%20Moon.Face.Haskell][Moon.Face.Haskell]]

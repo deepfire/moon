@@ -14,14 +14,22 @@ library
   exposed-modules:
                        Moon.Lift
                        Moon.Lift.Haskell
+                       Moon.Face
                        Moon.Face.Haskell
   build-depends:       base
                      , algebraic-graphs
+                     , binary
+                     , bytestring
                      , containers
+                     , contra-tracer
                      , extra
                      , filepath
+                     , generic-monoid
                      , ghc
                      , ghc-boot
+                     , iohk-monitoring
+                     , optparse-applicative
+                     , shelly
                      , text
                      , unagi-chan
                      , websockets
@@ -34,7 +42,6 @@ executable moon
   main-is:             Main.hs
   build-depends:       moon
                      , base
-                     , text
-
+  
   hs-source-dirs:      .
   default-language:    Haskell2010
