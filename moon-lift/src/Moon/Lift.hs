@@ -18,15 +18,21 @@
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
-module Moon.Lift (main) where
+module Moon.Lift
+  ( main
+  , defaultConfig
+  , WSMesg(..)
+  , Config(..)
+  )
+where
 
-import qualified Data.Binary                    as Binary
-import           Data.Binary                      (Binary)
+import           Codec.Serialise
+import           Control.Exception
 import qualified Data.ByteString                as BS
 import qualified Data.ByteString.Lazy           as LBS
 import           Data.Text
 import           GHC.Generics                     (Generic)
--- import           Options.Applicative
+import           Options.Applicative
 
 import qualified Control.Concurrent.Chan.Unagi  as Unagi
 import qualified Control.Concurrent             as Conc
@@ -41,6 +47,8 @@ import qualified Cardano.BM.Configuration.Model as BM
 import qualified Cardano.BM.Setup               as BM
 import qualified Cardano.BM.Backend.Switchboard as BM
 import qualified Cardano.BM.Trace               as BM
+
+import qualified Network.TypedProtocol.Channel  as Net
 
 import           Moon.Face
 import           Moon.Face.Haskell
@@ -70,7 +78,7 @@ type family CFGhcLibDir (a :: ConfigPhase) where
 
 defaultConfig :: Config Initial
 defaultConfig = Config
-  { cfWSBindHost = ""
+  { cfWSBindHost = "127.0.0.1"
   , cfWSPortIn   = 29670
   , cfWSPortOut  = 29671
   , cfWSPingTime = 30
@@ -112,7 +120,15 @@ data WSMesg where
   BS  :: BS.ByteString -> WSMesg
   End :: WSMesg
   deriving (Generic)
-instance Binary WSMesg
+instance Serialise WSMesg
+
+channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
+channelFromWebsocket conn =
+  Net.Channel
+  { recv = catch (Just <$> WS.receiveData conn) $
+           (\(SomeException x) -> pure Nothing)
+  , send = WS.sendBinaryData conn
+  }
 
 runServer :: Runtime -> IO ()
 runServer Runtime{rtConfig=Config{..},..} = forever $ do
@@ -130,34 +146,37 @@ runServer Runtime{rtConfig=Config{..},..} = forever $ do
 
       flip catch handleDisconnect $ forever $ do
         fromCli <- WS.receiveData conn
-        case Binary.decodeOrFail fromCli of
-          Left  (_, _, e)   -> throw . WS.ParseException $ show e
-          Right (_, _, End) -> throw $ WS.ConnectionClosed
-          Right (_, _, BS bs) -> do
+        case deserialiseOrFail fromCli of
+          Left  e       -> throw . WS.ParseException $ show e
+          Right (End)   -> throw $ WS.ConnectionClosed
+          Right (BS bs) -> do
             resp <- handleRequestRaw bs
             case resp of
-              Left e  -> throw $ WS.ParseException $ show e
-              Right r -> WS.sendBinaryData conn r
+              Left e    -> throw $ WS.ParseException $ show e
+              Right r   -> do
+                WS.sendBinaryData conn (serialise $ BS r)
+                WS.sendBinaryData conn (serialise $ End)
       -- IO loop no more.
-      WS.sendClose conn . Binary.encode $ End
+      WS.sendClose conn . serialise $ End
 
 
 handleRequestRaw :: BS.ByteString -> IO (Either Text BS.ByteString)
 handleRequestRaw raw =
-  case Binary.decodeOrFail $ LBS.fromStrict raw of
-    Left  (_, _, e)  -> throwIO $ WS.ParseException e
-    Right (_, _, rr) -> do
+  case deserialiseOrFail $ LBS.fromStrict raw :: Either DeserialiseFailure SomeHaskellRequest of
+    Left  e  -> throwIO $ WS.ParseException (show e)
+    Right rr -> do
       r <- handleRequest rr
       pure $ case r of
-        Sorry e -> Left  e
-        x       -> Right . LBS.toStrict . Binary.encode $ x
+        Left e  -> Left  e
+        Right x -> Right . LBS.toStrict . serialise $ x
 
 -- XXX: coupling with Moon.Face
-handleRequest :: RequestHaskell -> IO (Reply a)
-handleRequest Indexes{}        = pure . Sorry $ ""
-handleRequest RepoURL{}        = pure . Sorry $ ""
-handleRequest RepoPackages{}   = pure . Sorry $ ""
-handleRequest PackageModules{} = pure . Sorry $ ""
-handleRequest ModuleDeps{}     = pure . Sorry $ ""
-handleRequest ModuleDefs{}     = pure . Sorry $ ""
-handleRequest DefLoc{}         = pure . Sorry $ ""
+handleRequest :: SomeHaskellRequest -> IO (Either Text HaskellReply)
+handleRequest (SomeHaskellRequest x) = case x of
+  Indexes{}        -> pure . Right $ PlyIndexes $ RList [Index "hackage" "https://hackage.haskell.org/" mempty]
+  PackageRepo{}    -> pure . Left $ ""
+  RepoPackages{}   -> pure . Left $ ""
+  PackageModules{} -> pure . Left $ ""
+  ModuleDeps{}     -> pure . Left $ ""
+  ModuleDefs{}     -> pure . Left $ ""
+  DefLoc{}         -> pure . Left $ ""

@@ -1,12 +1,12 @@
-(import ./../reflex-platform {}).project ({ pkgs, ... }:
-{
-  name = "luna-derivative";
-
-  packages = {
+let packages = {
     common           = ./common;
     node-editor      = ./node-editor;
     node-editor-view = ./node-editor-view;
   };
+in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
+  name = "luna-derivative";
+
+  inherit packages;
 
   shells = {
     ghcjs = [
@@ -22,51 +22,55 @@
   };
 
   overrides = self: super: with pkgs.haskell.lib;
-  let c = owner: repo: rev: sha256: cabalExtras:
+  let inherit (pkgs.haskell.lib) overrideCabal;
+      c = owner: repo: rev: sha256: cabalExtras:
       doJailbreak
       (self.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub {
           inherit owner repo rev sha256;
           }) cabalExtras {});
+      df = c "deepfire";
       ds = c "deepshared";
       io = repo: rev: s: subdir: c "input-output-hk" repo rev s "--subpath ${subdir}";
       io-on = io "ouroboros-network";
-      io-onp = io-on "bab77eaf56093022d8860d5df4700a836a9c8a47" "1s8nchhs9vl4k5f6v57nv2yfc3prw1nn77mwhan2k5aav0f66rgr";
+      io-mf = io "iohk-monitoring-framework";
+      io-onp = x: dontCheck (io-on "f07df5a9bafb5d7347e9a5f14848b0463f353990" "0bgr7nyb58kazk7ki8rmvw4dyni8lg0alm4y00m5x3vaiwnjx9q6" x);
   in {
-    Glob       = dontCheck super.Glob;      # test failure
-    unliftio   = dontCheck super.unliftio;  # test failure
-    cryptohash-sha1 = dontCheck super.cryptohash-sha1;
-    extra      = dontCheck super.extra;
-    SHA        = dontCheck super.SHA;
-    conduit    = dontCheck super.conduit;
-    yaml       = dontCheck super.yaml;
-    temporary  = dontCheck super.temporary;
-    mono-traversable = dontCheck super.mono-traversable;
+    common                = self.callCabal2nix "common" ./common {};
 
-    constraint = pkgs.haskell.lib.overrideCabal super.constraint (old: { broken = false; });
-    zeromq4-haskell = pkgs.haskell.lib.overrideCabal super.zeromq4-haskell (old: { broken = false; });
-
-    alg = (self.callCabal2nix "alg" (pkgs.fetchFromGitHub {
-      owner = "strake";
-      repo = "alg.hs";
-      rev = "ee1d266587ea8315f224d9ea16ae51279c0c27eb";
-      sha256 = "02kb90glapbs39721p994d5fsw2vkqgi7hi3a0nplnr1q4hb6jg3";
-    }) {});
-    category = dontCheck (doJailbreak (self.callCabal2nix "category" (pkgs.fetchFromGitHub {
-      owner = "deepfire";
-      repo = "category.hs";
-      rev = "fba78a5a1f2487d9a1a7375605f90bdc125f07fa";
-      sha256 = "sha256:1hmfiilwc6rk0si6a96iflhzszyhivwzxz0aclssjbv3fkprw5nd";
-    }) {}));
-    contra-tracer        = io "iohk-monitoring-framework" "0dae43937d2858b437bfc93f7952ba93b88607e6" "1251hgvdak2l5s377vxvcc5nx91w5j5aqks4rb8acjcsxq14nn59" "contra-tracer";
-    typed-protocols-cbor = io-onp "typed-protocols-cbor";
-    io-sim-classes       = io-onp "io-sim-classes";
-    io-sim               = io-onp "io-sim";
-    typed-protocols      = io-onp "typed-protocols";
+    Glob                  = dontCheck super.Glob;      # test failure
+    SHA                   = dontCheck super.SHA;
+    algebraic-graphs      = dontCheck super.algebraic-graphs; 
+    async-timer           = dontCheck (overrideCabal super.async-timer (old: { broken = false; }));
+    conduit               = dontCheck super.conduit;
+    constraint            = overrideCabal super.constraint (old: { broken = false; });
+    cryptohash-sha1       = dontCheck super.cryptohash-sha1;
+    extra                 = dontCheck super.extra;
+    half                  = dontCheck super.half;
+    cborg                 = dontCheck super.cborg;
+    serialise             = dontCheck super.serialise;
+    lifted-async          = dontCheck super.lifted-async;
+    mono-traversable      = dontCheck super.mono-traversable;
+    shelly                = dontCheck super.shelly;
+    temporary             = dontCheck super.temporary;
+    unliftio              = dontCheck super.unliftio;  # test failure
+    yaml                  = dontCheck super.yaml;
+    zeromq4-haskell       = overrideCabal super.zeromq4-haskell (old: { broken = false; });
     datetime              =            doJailbreak (self.callHackage "datetime" "0.3.1" {});
     either                =            doJailbreak (self.callHackage "either" "4.4.1.1" {});
-    frontend-common       = dontCheck (doJailbreak (self.callCabal2nix "frontend-common"           ./lib                     {}));
-    luna-api-definition   = dontCheck (doJailbreak (self.callCabal2nix "luna-api-definition"       ./common/api-definition   {}));
-    luna-node-editor-view = dontCheck (doJailbreak (self.callCabal2nix "luna-node-editor-view"     ./node-editor-view        {}));
+    frontend-common       = dontCheck (doJailbreak (self.callCabal2nix "frontend-common"           ./lib                           {}));
+    luna-api-definition   = dontCheck (doJailbreak (self.callCabal2nix "luna-api-definition"       ./api-definition/api-definition {}));
+    luna-node-editor-view = dontCheck (doJailbreak (self.callCabal2nix "luna-node-editor-view"     ./node-editor-view              {}));
+
+    alg                   = c "strake" "alg"       "ee1d266587ea8315f224d9ea16ae51279c0c27eb" "02kb90glapbs39721p994d5fsw2vkqgi7hi3a0nplnr1q4hb6jg3" "";
+    category              = df "category.hs"       "fba78a5a1f2487d9a1a7375605f90bdc125f07fa" "1hmfiilwc6rk0si6a96iflhzszyhivwzxz0aclssjbv3fkprw5nd" "";
+
+    contra-tracer         = io-mf                  "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w" "contra-tracer";
+    # iohk-monitoring       = io-mf                  "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w" "iohk-monitoring";
+    io-sim                = io-onp "io-sim";
+    io-sim-classes        = io-onp "io-sim-classes";
+    network-mux           = io-onp "network-mux";
+    typed-protocols       = io-onp "typed-protocols";
+    typed-protocols-cbor  = io-onp "typed-protocols-cbor";
 
     container             = ds "container"         "1bac6323943afeb2b13d3e21e69ab4a537d3030e" "124wlvrybalr0xh3jsin2x5r3hcw846zafndg90lkyq529dcgm1x" "";
     convert               = ds "convert"           "d10f56856a656ee515bd0ddcfaba43ad10b70814" "1wxszfxmarrf1i1gcz4bhiv813qiks00wmy03rws7lmpr0009fbc" "";

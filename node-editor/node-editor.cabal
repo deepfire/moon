@@ -135,39 +135,41 @@ executable node-editor
   default-extensions: AllowAmbiguousTypes ApplicativeDo Arrows BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse DuplicateRecordFields EmptyDataDecls FlexibleContexts FlexibleInstances FunctionalDependencies GeneralizedNewtypeDeriving InstanceSigs LambdaCase LiberalTypeSynonyms MonadComprehensions MultiWayIf NamedWildCards NegativeLiterals NoImplicitPrelude NumDecimals OverloadedLabels OverloadedStrings PackageImports QuasiQuotes RankNTypes RecursiveDo RelaxedPolyRec ScopedTypeVariables StandaloneDeriving TemplateHaskell TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators ViewPatterns
   ghc-options: -Wall -O2 -fsimpl-tick-factor=1000 -Wno-missing-home-modules
   build-depends:
-      aeson
-    , base
-    , binary
-    , bytestring
-    , frontend-common
-    , containers
-    , convert
-    , datetime
-    , deepseq
-    , extra
-    , filepath
-    , ghcjs-base
-    , ghcjs-prim
-    , hashable
-    , lens
-    , luna-api-definition
-    , luna-lexer
-    , luna-node-editor-view
-    , matrix
-    , mtl
-    , random
-    , react-flux
-    , scientific
-    , split
-    , text
-    , time
-    , transformers
-    , unordered-containers
-    , uuid
-    , uuid-types
-    , vector
-    , vector-text
-    , zeromq4-haskell
+                common
 
-    -- , typed-protocols-cbor -- depends on base:GHC.Event, which is abesnt from ghcjs
+              , aeson
+              , base
+              , binary
+              , bytestring
+              , frontend-common
+              , containers
+              , convert
+              , datetime
+              , deepseq
+              , extra
+              , filepath
+              , ghcjs-base
+              , ghcjs-prim
+              , hashable
+              , lens
+              , luna-api-definition
+              , luna-lexer
+              , luna-node-editor-view
+              , matrix
+              , mtl
+              , random
+              , react-flux
+              , scientific
+              , split
+              , text
+              , time
+              , transformers
+              , unordered-containers
+              , uuid
+              , uuid-types
+              , vector
+              , vector-text
+
+              , typed-protocols
+              , typed-protocols-cbor
   default-language: Haskell2010

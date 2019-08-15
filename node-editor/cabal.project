@@ -1,0 +1,6 @@
+compiler: ghcjs
+packages:
+  lib
+  common
+  node-editor
+  node-editor-view

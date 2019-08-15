@@ -1,5 +1,3 @@
-compiler: ghcjs
 packages:
-  lib
-  node-editor
-  node-editor-view
+  common
+  moon-lift

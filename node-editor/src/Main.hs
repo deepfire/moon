@@ -21,7 +21,6 @@ import           WebSocket                  (WebSocket)
 import           GHC.Stack                  (HasCallStack)
 
 import           Control.Monad
-import           System.ZMQ4.Monadic
 
 runApp :: Chan (IO ()) -> WebSocket -> IO ()
 runApp chan socket = do

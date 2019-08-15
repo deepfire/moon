@@ -28,8 +28,8 @@ module Moon.Face.Haskell
 where
 
 import Algebra.Graph
-import Data.Binary
 import Data.Map
+import Codec.Serialise
 import Data.Set
 import Data.String
 import Data.Text
@@ -38,8 +38,8 @@ import GHC.Generics
 {-------------------------------------------------------------------------------
   Generic types for externalisation
 -------------------------------------------------------------------------------}
-newtype URL        = URL        Text deriving (Binary, Eq, Generic, IsString, Ord, Show)
-newtype FileName   = FileName   Text deriving (Binary, Eq, Generic, IsString, Ord, Show)
+newtype URL        = URL        Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
+newtype FileName   = FileName   Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
 -- | 1:1 translation of RealSrcSpan
 data Loc
   =  Loc
@@ -50,16 +50,16 @@ data Loc
        srcSpanECol   :: {-# UNPACK #-} !Int
      }
      deriving (Generic, Show)
-instance Binary  Loc
+instance Serialise  Loc
 
 {-------------------------------------------------------------------------------
   Atomics
 -------------------------------------------------------------------------------}
-newtype IndexName   = IndexName   Text deriving (Binary, Eq, Generic, IsString, Ord, Show)
-newtype RepoName    = RepoName    Text deriving (Binary, Eq, Generic, IsString, Ord, Show)
-newtype PackageName = PackageName Text deriving (Binary, Eq, Generic, IsString, Ord, Show)
-newtype ModuleName  = ModuleName  Text deriving (Binary, Eq, Generic, IsString, Ord, Show)
-newtype DefName     = DefName     Text deriving (Binary, Eq, Generic, IsString, Ord, Show)
+newtype IndexName   = IndexName   Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
+newtype RepoName    = RepoName    Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
+newtype PackageName = PackageName Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
+newtype ModuleName  = ModuleName  Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
+newtype DefName     = DefName     Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
 
 {-------------------------------------------------------------------------------
   Composites
@@ -70,14 +70,14 @@ data Index = Index
   , ixURL            :: !URL
   , ixPackages       :: Map PackageName URL
   } deriving (Generic, Show)
-instance Binary Index
+instance Serialise Index
 
 data Repo = Repo
   { repoName         :: !RepoName
   , repoURLs         :: Set URL
   , repoPackages     :: Map PackageName Package
   } deriving (Generic, Show)
-instance Binary Repo
+instance Serialise Repo
 
 -- Not strict, since there's a hope of making it actually lazy.
 data Package = Package
@@ -86,22 +86,22 @@ data Package = Package
   , pkgModuleDeps    :: Graph Module
   , pkgDeps          :: Set PackageName
   } deriving (Generic, Show)
-instance Binary Package
+instance Serialise Package
 deriving instance (Generic (Graph Module))
-instance Binary (Graph Module)
+instance Serialise (Graph Module)
 
 data Module = Module
   { modName          :: !ModuleName
   , modDefs          :: !(Map DefName Def)
   } deriving (Generic, Show)
-instance Binary Module
+instance Serialise Module
 
 data Def = Def
   { defType          :: !DefType
   , defName          :: !DefName
   , defLoc           :: !Loc
   } deriving (Generic, Show)
-instance Binary Def
+instance Serialise Def
 
 data DefType
   = TypeSyn
@@ -114,5 +114,5 @@ data DefType
   | Var
   | Foreign
   deriving (Eq, Generic, Show)
-instance Binary DefType
+instance Serialise DefType
 
