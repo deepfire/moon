@@ -1,14 +1,16 @@
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE EmptyCase                  #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PartialTypeSignatures      #-}
 {-# LANGUAGE PackageImports             #-}
-{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
@@ -28,21 +30,17 @@ module Moon.Face
     -- Specific
   , HaskellRequest(..), parseHaskellRequest
   , SomeHaskellRequest(..)
-  , HaskellReply(..)
+  , SomeHaskellReply(..)
   )
 where
 
-import qualified Algebra.Graph                  as G
-import           Codec.Serialise
-import           Codec.Serialise.Decoding
-import           Codec.Serialise.Encoding
-import           Data.Foldable      (asum)
-import           Data.Text          (Text)
-import           Data.Typeable      (Typeable)
-import           GHC.Generics       (Generic)
+import qualified Algebra.Graph                    as G
+import           Control.Monad.Class.MonadST
+import           Data.Foldable                      (asum)
+import           Data.Typeable                      (Typeable)
+import           GHC.Generics                       (Generic)
 import           Options.Applicative
 
-import qualified Network.TypedProtocol.Channel  as Net
 -- Locals
 import Moon.Face.Haskell
 
@@ -75,24 +73,6 @@ instance Show a => Show (Reply k a) where
 data SomeReply a where
   SomeReply :: Reply k a -> SomeReply a
 
-instance Serialise a => Serialise (SomeReply a) where
-  encode (SomeReply x) = case x of
-    RPoint x -> encodeListLen 2 <> encodeWord 0 <> encode x
-    RList  x -> encodeListLen 2 <> encodeWord 1 <> encode x
-    RTree  x -> encodeListLen 2 <> encodeWord 2 <> encode x
-    RDag   x -> encodeListLen 2 <> encodeWord 3 <> encode x
-    RGraph x -> encodeListLen 2 <> encodeWord 4 <> encode x
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (2, 0) -> SomeReply . RPoint <$> decode
-      (2, 1) -> SomeReply . RList  <$> decode
-      (2, 2) -> SomeReply . RTree  <$> decode
-      (2, 3) -> SomeReply . RDag   <$> decode
-      (2, 4) -> SomeReply . RGraph <$> decode
-      _      -> fail $ "invalid SomeReply encoding: len="<>show len<>" tag="<>show tag
-
 {-------------------------------------------------------------------------------
   Requests (to be compartmentalised..)
 -------------------------------------------------------------------------------}
@@ -105,8 +85,20 @@ data HaskellRequest (k :: Kind) a where
   ModuleDefs         :: ModuleName               -> HaskellRequest List  Package
   DefLoc             :: DefName                  -> HaskellRequest Point Loc    
 
+instance Show (HaskellRequest k a) where
+  show (Indexes)          = "Indexes"
+  show (PackageRepo x y)  = "PackageRepo "    <> show x <> " " <> show y
+  show (RepoPackages  x)  = "RepoPackages "   <> show x
+  show (PackageModules x) = "PackageModules " <> show x
+  show (ModuleDeps     x) = "ModuleDeps "     <> show x
+  show (ModuleDefs     x) = "ModuleDefs "     <> show x
+  show (DefLoc         x) = "DefLoc "         <> show x
+
 data SomeHaskellRequest where
   SomeHaskellRequest :: HaskellRequest k a -> SomeHaskellRequest
+
+instance Show SomeHaskellRequest where
+  show (SomeHaskellRequest x) = show x
 
 cmd name p = command name $ info (p <**> helper) mempty
 opt name   = option auto (long name)
@@ -123,29 +115,7 @@ parseHaskellRequest = subparser $ mconcat
   , cmd "DefLoc"          $ SomeHaskellRequest <$> (DefLoc         <$> (DefName     <$> opt "def"))
   ]
 
-instance Serialise SomeHaskellRequest where
-  encode (SomeHaskellRequest x) = case x of
-    Indexes          -> encodeListLen 1 <> encodeWord 0
-    PackageRepo  x y -> encodeListLen 3 <> encodeWord 1 <> encode x <> encode y
-    RepoPackages   x -> encodeListLen 2 <> encodeWord 2 <> encode x
-    PackageModules x -> encodeListLen 2 <> encodeWord 3 <> encode x
-    ModuleDeps     x -> encodeListLen 2 <> encodeWord 4 <> encode x
-    ModuleDefs     x -> encodeListLen 2 <> encodeWord 5 <> encode x
-    DefLoc         x -> encodeListLen 2 <> encodeWord 6 <> encode x
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (1, 0) -> pure $ SomeHaskellRequest Indexes
-      (3, 1) -> SomeHaskellRequest <$> (PackageRepo    <$> decode <*> decode)
-      (2, 2) -> SomeHaskellRequest <$> (RepoPackages   <$> decode)
-      (2, 3) -> SomeHaskellRequest <$> (PackageModules <$> decode)
-      (2, 4) -> SomeHaskellRequest <$> (ModuleDeps     <$> decode)
-      (2, 5) -> SomeHaskellRequest <$> (ModuleDefs     <$> decode)
-      (2, 6) -> SomeHaskellRequest <$> (DefLoc         <$> decode)
-      _      -> fail $ "invalid SomeHaskellRequest encoding: len="<>show len<>" tag="<>show tag
-
-data HaskellReply
+data SomeHaskellReply
   = PlyIndexes         (Reply List  Index)
   | PlyRepoURL         (Reply Point URL)
   | PlyRepoPackages    (Reply List  Package)
@@ -154,39 +124,3 @@ data HaskellReply
   | PlyModuleDefs      (Reply List  Package)
   | PlyDefLoc          (Reply Point Loc)
   deriving (Generic, Show)
-
-instance Serialise HaskellReply where
-  encode = \case
-    PlyIndexes        x -> encodeListLen 2 <> encodeWord 0 <> encode (SomeReply x)
-    PlyRepoURL        x -> encodeListLen 2 <> encodeWord 1 <> encode (SomeReply x)
-    PlyRepoPackages   x -> encodeListLen 2 <> encodeWord 2 <> encode (SomeReply x)
-    PlyPackageModules x -> encodeListLen 2 <> encodeWord 3 <> encode (SomeReply x)
-    PlyModuleDeps     x -> encodeListLen 2 <> encodeWord 4 <> encode (SomeReply x)
-    PlyModuleDefs     x -> encodeListLen 2 <> encodeWord 5 <> encode (SomeReply x)
-    PlyDefLoc         x -> encodeListLen 2 <> encodeWord 6 <> encode (SomeReply x)
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (2, 0) -> (decode :: Decoder s (SomeReply Index))   >>= \case SomeReply x@(RList _)  -> pure (PlyIndexes        x)
-                                                                    _                      -> fail "invalid PlyIndexes"
-      (2, 1) -> (decode :: Decoder s (SomeReply URL))     >>= \case SomeReply x@(RPoint _) -> pure (PlyRepoURL        x)
-                                                                    _                      -> fail "invalid PlyRepoURL"
-      (2, 2) -> (decode :: Decoder s (SomeReply Package)) >>= \case SomeReply x@(RList _)  -> pure (PlyRepoPackages   x)
-                                                                    _                      -> fail "invalid PlyRepoPackages"
-      (2, 3) -> (decode :: Decoder s (SomeReply Module))  >>= \case SomeReply x@(RTree _)  -> pure (PlyPackageModules x)
-                                                                    _                      -> fail "invalid PlyPackageModules"
-      (2, 4) -> (decode :: Decoder s (SomeReply Package)) >>= \case SomeReply x@(RTree _)  -> pure (PlyModuleDeps     x)
-                                                                    _                      -> fail "invalid PlyModuleDeps"
-      (2, 5) -> (decode :: Decoder s (SomeReply Package)) >>= \case SomeReply x@(RList _)  -> pure (PlyModuleDefs     x)
-                                                                    _                      -> fail "invalid PlyModuleDefs"
-      (2, 6) -> (decode :: Decoder s (SomeReply Loc))     >>= \case SomeReply x@(RPoint _) -> pure (PlyDefLoc         x)
-                                                                    _                      -> fail "invalid PlyDefLoc"
-      _      -> fail $ "invalid HaskellReply encoding: len="<>show len<>" tag="<>show tag
-
-{-------------------------------------------------------------------------------
-  Orphans
--------------------------------------------------------------------------------}
-
-deriving instance Generic (G.Graph a)
-instance Serialise a => Serialise (G.Graph a) where

@@ -356,8 +356,11 @@
       - JS.UI.[[file:node-editor-view/src/JS/UI.hs::focus%20::%20MonadIO%20m%20=>%20JSString%20->%20m%20()][focus]] JS.Scene.[[file:node-editor-view/src/JS/Scene.hs::appId%20::%20JSString][appId]]
         - foreign import javascript safe "[[file:node-editor-view/src/JS/UI.hs::foreign%20import%20javascript%20safe%20"document.getElementById($1).focus()"%20focus'%20::%20JSString%20->%20IO%20()][document.getElementById($1).focus()]]" focus'
 * Moon
-  - [[file:moon/shell.nix::ghc.shellFor%20{][shell.nix]] | [[file:moon/moon.cabal::build-depends:][moon.cabal]] | [[file:moon/nix/overrides.nix::pkgs:%20new:%20old:][overrides.nix]] | [[file:moon/nix/github.json::{][nix/github.json]]
-  - [[file:moon-lift/src/Moon/Lift.hs::module%20Moon.Lift][Moon.Lift]]
+  - [[file:moon/shell.nix::ghc.shellFor%20{][shell.nix]] | [[file:common/common.cabal::build-depends:][common.cabal]] | [[file:moon/nix/overrides.nix::pkgs:%20new:%20old:][overrides.nix]] | [[file:moon/nix/github.json::{][nix/github.json]]
+  - [[file:moon-lift/src/Moon/CLI.hs::main%20=%20do][Moon.CLI]]
+  - [[file:moon-lift/src/Moon/Lift.hs::haskellServer%20tracer%20=][Moon.Lift]]
     - [[file:moon-lift/src/Moon/Lift/Haskell.hs::module%20Moon.Lift.Haskell][Moon.Lift.Haskell]] [[file:moon-lift/src/Moon/Lift/Haskell.hs::fileToModule%20libDir%20hsFile%20=%20do][fileToModule]]
+  - [[file:common/src/Moon/Peer.hs::serverPeer%20::%20forall%20rej%20m%20a][Moon.Peer]]
+  - [[file:common/src/Moon/Protocol.hs::data%20Haskell][Moon.Protocol]]
   - [[file:common/src/Moon/Face.hs::module%20Moon.Face][Moon.Face]]
     - [[file:common/src/Moon/Face/Haskell.hs::module%20Moon.Face.Haskell][Moon.Face.Haskell]]

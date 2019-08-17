@@ -14,18 +14,24 @@ library
   exposed-modules:
                        Moon.Face
                        Moon.Face.Haskell
+                       Moon.Protocol
+                       Moon.Peer
+
   build-depends:       base
                      , algebraic-graphs
                      , binary
                      , bytestring
                      , cborg
                      , containers
+                     , contra-tracer
                      , extra
                      , generic-monoid
                      , optparse-applicative
                      , serialise
                      , text
+                     , websockets
 
+                     , io-sim-classes
                      , typed-protocols
                      , typed-protocols-cbor
 

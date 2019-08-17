@@ -21,7 +21,6 @@
 module Moon.Lift
   ( main
   , defaultConfig
-  , WSMesg(..)
   , Config(..)
   )
 where
@@ -38,6 +37,7 @@ import qualified Control.Concurrent.Chan.Unagi  as Unagi
 import qualified Control.Concurrent             as Conc
 import           Control.Exception
 import           Control.Monad                    (forever)
+import           Control.Tracer
 import qualified Network.WebSockets             as WS
 import           Shelly
 import           System.Environment
@@ -52,6 +52,8 @@ import qualified Network.TypedProtocol.Channel  as Net
 
 import           Moon.Face
 import           Moon.Face.Haskell
+import           Moon.Protocol
+import           Moon.Peer
 import           Moon.Lift.Haskell
 
 
@@ -87,17 +89,17 @@ defaultConfig = Config
   , cfGitRoot    = "."
   }
 
-data Runtime =
-  Runtime
+data RuntimeConfig =
+  RuntimeConfig
   { rtConfig      :: Config Final
   , rtTrace       :: BM.Trace IO Text
   , rtSwitchboard :: BM.Switchboard Text
   }
 
-initialise :: Config Final -> IO Runtime
-initialise rtConfig@Config{..} = do
+finalise :: Config Final -> IO RuntimeConfig
+finalise rtConfig@Config{..} = do
   (rtTrace, rtSwitchboard) <- BM.setupTrace_ cfMonitoring "moon"
-  pure Runtime{..}
+  pure RuntimeConfig{..}
 
 main :: IO ()
 main = do
@@ -111,67 +113,41 @@ main = do
         { cfMonitoring = monitoring
         , cfGhcLibDir  = libDir }
 
-  -- initialise runtime
-  rt <- initialise config
+  wsServer =<< finalise config
 
-  runServer rt
-
-data WSMesg where
-  BS  :: BS.ByteString -> WSMesg
-  End :: WSMesg
-  deriving (Generic)
-instance Serialise WSMesg
-
-channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
-channelFromWebsocket conn =
-  Net.Channel
-  { recv = catch (Just <$> WS.receiveData conn) $
-           (\(SomeException x) -> pure Nothing)
-  , send = WS.sendBinaryData conn
-  }
-
-runServer :: Runtime -> IO ()
-runServer Runtime{rtConfig=Config{..},..} = forever $ do
+wsServer :: RuntimeConfig -> IO ()
+wsServer RuntimeConfig{rtConfig=Config{..},..} = forever $ do
   -- (,) fromWebW fromWebR <- Unagi.newChan
 
-  -- Conc.forkIO $ WS.runServer cfWSBindHost cfWSPortIn $ fromWebForwarder cfWSPingTime fromWebW
   WS.runServer cfWSBindHost cfWSPortOut $
-    -- server cfWSPingTime
     \pending-> do
       conn <- WS.acceptRequest pending
       WS.forkPingThread conn cfWSPingTime
 
       let handleDisconnect :: WS.ConnectionException -> IO ()
           handleDisconnect x = putStrLn $ "Web disconnected: " <> show x
+          tracer = stdoutTracer
 
       flip catch handleDisconnect $ forever $ do
-        fromCli <- WS.receiveData conn
-        case deserialiseOrFail fromCli of
-          Left  e       -> throw . WS.ParseException $ show e
-          Right (End)   -> throw $ WS.ConnectionClosed
-          Right (BS bs) -> do
-            resp <- handleRequestRaw bs
-            case resp of
-              Left e    -> throw $ WS.ParseException $ show e
-              Right r   -> do
-                WS.sendBinaryData conn (serialise $ BS r)
-                WS.sendBinaryData conn (serialise $ End)
-      -- IO loop no more.
-      WS.sendClose conn . serialise $ End
+        runServer tracer (haskellServer tracer) $ channelFromWebsocket conn
 
-
-handleRequestRaw :: BS.ByteString -> IO (Either Text BS.ByteString)
-handleRequestRaw raw =
-  case deserialiseOrFail $ LBS.fromStrict raw :: Either DeserialiseFailure SomeHaskellRequest of
-    Left  e  -> throwIO $ WS.ParseException (show e)
-    Right rr -> do
-      r <- handleRequest rr
-      pure $ case r of
-        Left e  -> Left  e
-        Right x -> Right . LBS.toStrict . serialise $ x
+haskellServer
+  :: forall rej m a
+  . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
+  => Tracer m String
+  -> HaskellServer rej m a
+haskellServer tracer =
+    server
+  where
+    server = HaskellServer {
+      recvMsgRequest = \req -> do
+        traceWith (showTracing tracer) req
+        r <- handleRequest req
+        pure (r, server)
+    , recvMsgDone = ()
+    }
 
--- XXX: coupling with Moon.Face
-handleRequest :: SomeHaskellRequest -> IO (Either Text HaskellReply)
+handleRequest :: SomeHaskellRequest -> IO (Either Text SomeHaskellReply)
 handleRequest (SomeHaskellRequest x) = case x of
   Indexes{}        -> pure . Right $ PlyIndexes $ RList [Index "hackage" "https://hackage.haskell.org/" mempty]
   PackageRepo{}    -> pure . Left $ ""
