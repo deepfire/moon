@@ -76,17 +76,14 @@ addOne = do
   State.setGraphStatus NE.GraphLoaded
 
 handle :: Event -> Maybe (Command Global.State ())
-handle (UI (AppEvent     (ev@(App.KeyDown (KeyboardEvent{keyKey="F2"}))))) = Just addOne
-
 handle (UI (AppEvent     (App.MouseMove evt _)))       = Just $ Global.ui . UI.mousePos <~ mousePosition evt
 handle (UI (SidebarEvent (Sidebar.MouseMove evt _ _))) = Just $ Global.ui . UI.mousePos <~ mousePosition evt
-handle (UI (AppEvent     App.Resize          ))        = Just $ do
-  liftIO $ warn "handle" (show App.Resize)
-  updateScene
+handle (UI (AppEvent     App.Resize          ))        = Just $ updateScene
 handle (UI (AppEvent     App.MouseLeave      ))        = Just $ endActions actionsClosingOnMouseLeave
 handle (Shortcut         (Shortcut.Event command _))   = Just $ handleCommand command
 handle  Init                                           = Just $ do
   liftIO $ warn "handle" (show Init)
+  updateVisualizers
   addOne
 handle (Atom (Atom.SetFile path))                      = Just $ setFile path
 handle (Atom (Atom.UpdateFilePath path))               = Just $ updateFilePath path

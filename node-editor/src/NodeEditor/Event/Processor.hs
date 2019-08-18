@@ -39,6 +39,7 @@ import qualified NodeEditor.Handler.Undo                as Undo
 import qualified NodeEditor.Handler.Visualization       as Visualization
 import           NodeEditor.State.Global                (State)
 import qualified NodeEditor.React.Event.App             as Event
+import qualified NodeEditor.React.Event.Port            as Port
 import           WebSocket                              (WebSocket)
 
 actions :: LoopRef -> [Event -> Maybe (Command State ())]
@@ -75,8 +76,10 @@ processEvent :: LoopRef -> Event -> IO ()
 processEvent loop ev = handle handleAnyException $ modifyMVar_ (loop ^. Loop.state) $ \state -> do
     realEvent <- preprocessEvent ev
     case realEvent of
-      Event.UI (Event.AppEvent Event.MouseMove{}) -> pure ()
-      ev -> warn "processEvent" (show ev)
+      Event.UI (Event.AppEvent  Event.MouseMove{}) -> pure ()
+      Event.UI (Event.PortEvent Port.MouseEnter{}) -> pure ()
+      Event.UI (Event.PortEvent Port.MouseLeave{}) -> pure ()
+      ev -> warn "processEvent" (show ev<>"\n→ "<>show realEvent)
     filterEvents state realEvent $ do
         Analytics.track realEvent
         handle (handleExcept state realEvent) $

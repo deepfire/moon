@@ -29,7 +29,6 @@ library
                      , optparse-applicative
                      , serialise
                      , text
-                     , websockets
 
                      , io-sim-classes
                      , typed-protocols

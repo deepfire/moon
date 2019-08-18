@@ -1,8 +1,8 @@
 BROWSERIFY  := ./node_modules/browserify/bin/cmd.js
 ROLLUP      := ./node_modules/rollup/bin/rollup
 
-JSEXE       := ../dist-newstyle/build/x86_64-linux/ghcjs-8.6.0.1/node-editor-0.1.0.0/x/node-editor/build/node-editor/node-editor.jsexe
-JSEXETOROOT := ../../../../../../../../../..
+JSEXE       := dist-newstyle/build/x86_64-linux/ghcjs-8.6.0.1/node-editor-0.1.0.0/x/node-editor/build/node-editor/node-editor.jsexe
+JSEXETOROOT := ../../../../../../../../../../..
 
 ZIPFSROOT   := js/zipfs
 ZIPFS       := $(ZIPFSROOT)/zipfs.zip

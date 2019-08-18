@@ -1,6 +1,6 @@
 compiler: ghcjs
 packages:
-  lib
-  common
-  node-editor
-  node-editor-view
+  ./.
+  ../common
+  ../lib
+  ../node-editor-view

@@ -1,4 +1,8 @@
 * Understanding =luna-studio=
+*** Websocket adapter
+    - WSConnector.[[file:~/luna-studio/backend/services/ws-connector/src/WSConnector/WSConnector.hs::run%20::%20Bus.Config%20->%20WSConfig.Config%20->%20IO%20()][run]] <- ws-connector/src-app/Main.[[file:~/luna-studio/backend/services/ws-connector/src-app/Main.hs::run%20cmd%20=%20case%20cmd%20of][run]]
+      - BusWorker.[[file:~/luna-studio/backend/services/ws-connector/src/WSConnector/Workers/BusWorker.hs::start%20busEndPoints%20fromBusChan%20toBusChan%20=%20do][start]]
+        - Bus.[[file:~/luna-studio/backend/libs/bus/src/Bus/Framework/App.hs::run%20config%20action%20=%20withEnvironment%20$%20\env%20->%20do][run]]
 *** JS
   - =node.js dependencies=
   - [[file:package.json::"main":%20"./lib/main",]["main"]]: "./lib/main" @ luna-studio/package.json
@@ -127,6 +131,53 @@
               nodeEditor.pushEvent(tag: "SetFile", path: uri)
           else
               nodeEditor.pushEvent(tag: "UnsetFile")
+*** Server
+    - Empire.Server.[[file:~/luna-studio/backend/services/double-representation/src/Empire/Server.hs::run%20endPoints%20topics%20formatted%20packageRoot%20=%20do][run]] <- Main.[[file:~/luna-studio/backend/services/double-representation/src-app/Main.hs::run%20cmd%20=%20case%20cmd%20of][run]]
+*** Modules
+    - [[file:common/api-definition][api-definition/src]]: [[file:common/api-definition/src/Compress.hs][Compress]] [[file:common/api-definition/src/Debug.hs][Debug]]
+      - [[file:common/api-definition/src/Data][Data]]: [[file:common/api-definition/src/Data/Portable][Portable]]: [[file:common/api-definition/src/Data/Portable/Text.hs][Text]]
+      - [[file:common/api-definition/src/Debug][Debug]]: [[file:common/api-definition/src/Debug/Console.hs][Console]] [[file:common/api-definition/src/Debug/Safe.hs][Safe]] [[file:common/api-definition/src/Debug/Unsafe.hs][Unsafe]]
+      - [[file:common/api-definition/src/LunaStudio][LunaStudio]]
+        - [[file:common/api-definition/src/LunaStudio/API][API]]: ...
+        - [[file:common/api-definition/src/LunaStudio/Data][Data]]: ...
+    - [[file:node-editor/src][node-editor/src]]: [[file:node-editor/src/Main.hs::main%20::%20IO%20()][Main]]
+      - [[file:node-editor/src/Data][Data]]: [[file:node-editor/src/Data/Curve.hs][Curve]]
+      - [[file:node-editor/src/JS][JS]]: [[file:node-editor/src/JS/Atom.hs][Atom]] [[file:node-editor/src/JS/Clipboard.hs][Clipboard]] [[file:node-editor/src/JS/Config.hs][Config]] [[file:node-editor/src/JS/DownloadFile.hs][DownloadFile]] [[file:node-editor/src/JS/Event.hs][Event]] [[file:node-editor/src/JS/FontSize.hs][FontSize]] [[file:node-editor/src/JS/Node.hs][Node]] [[file:node-editor/src/JS/UUID.hs][UUID]] [[file:node-editor/src/JS/Visualizers.hs][Visualizers]]
+      - [[file:node-editor/src/NodeEditor][NodeEditor]]
+        - [[file:node-editor/src/NodeEditor/Action][Action]]
+          - [[file:node-editor/src/NodeEditor/Action/Basic][Basic]]: ...
+          - [[file:node-editor/src/NodeEditor/Action/Camera][Camera]]: [[file:node-editor/src/NodeEditor/Action/Camera/Pan.hs][Pan]] [[file:node-editor/src/NodeEditor/Action/Camera/Zoom.hs][Zoom]]
+          - [[file:node-editor/src/NodeEditor/Action/ConnectionPen][ConnectionPen]]: [[file:node-editor/src/NodeEditor/Action/ConnectionPen/ConnectionPen.hs][ConnectionPen]] [[file:node-editor/src/NodeEditor/Action/ConnectionPen/DisconnectionPen.hs][DisconnectionPen]] [[file:node-editor/src/NodeEditor/Action/ConnectionPen/SmoothLine.hs][SmoothLine]]
+          - [[file:node-editor/src/NodeEditor/Action/Port][Port]]: 
+          - [[file:node-editor/src/NodeEditor/Action/State][State]]: [[file:node-editor/src/NodeEditor/Action/State/Action.hs][Action]] [[file:node-editor/src/NodeEditor/Action/State/App.hs][App]] [[file:node-editor/src/NodeEditor/Action/State/Graph.hs][Graph]] [[file:node-editor/src/NodeEditor/Action/State/Model.hs][Model]] [[file:node-editor/src/NodeEditor/Action/State/NodeEditor.hs][NodeEditor]] [[file:node-editor/src/NodeEditor/Action/State/Scene.hs][Scene]]
+            - [[file:node-editor/src/NodeEditor/Action/State/Internal][Internal]]: [[file:node-editor/src/NodeEditor/Action/State/Internal/NodeEditor.hs][NodeEditor]]
+            - [[file:node-editor/src/NodeEditor/Action/State/Model][Model]]: [[file:node-editor/src/NodeEditor/Action/State/Model/Connection.hs][Connection]] [[file:node-editor/src/NodeEditor/Action/State/Model/ExpressionNode.hs][ExpressionNode]]
+        - [[file:node-editor/src/NodeEditor/Batch][Batch]]: [[file:node-editor/src/NodeEditor/Batch/Connector][Connector]]: [[file:node-editor/src/NodeEditor/Batch/Connector/Commands.hs][Commands]]
+        - [[file:node-editor/src/NodeEditor/Data][Data]]: [[file:node-editor/src/NodeEditor/Data/Graph.hs][Graph]]
+        - [[file:node-editor/src/NodeEditor/Event][Event]]: [[file:node-editor/src/NodeEditor/Event/Atom.hs][Atom]] [[file:node-editor/src/NodeEditor/Event/Batch.hs][Batch]] [[file:node-editor/src/NodeEditor/Event/Connection.hs][Connection]] [[file:node-editor/src/NodeEditor/Event/Engine.hs][Engine]] [[file:node-editor/src/NodeEditor/Event/Event.hs][Event]] [[file:node-editor/src/NodeEditor/Event/Filter.hs][Filter]] [[file:node-editor/src/NodeEditor/Event/Loader.hs][Loader]] [[file:node-editor/src/NodeEditor/Event/Loop.hs][Loop]] [[file:node-editor/src/NodeEditor/Event/Processor.hs][Processor]] [[file:node-editor/src/NodeEditor/Event/Source.hs][Source]]
+          - [[file:node-editor/src/NodeEditor/Event/Preprocessor][Preprocessor]]: [[file:node-editor/src/NodeEditor/Event/Preprocessor/Batch.hs][Batch]] [[file:node-editor/src/NodeEditor/Event/Preprocessor/Shortcut.hs][Shortcut]]
+        - [[file:node-editor/src/NodeEditor/Handler][Handler]]: ...
+          - [[file:node-editor/src/NodeEditor/Handler/Backend][Backend]]: [[file:node-editor/src/NodeEditor/Handler/Backend/Common.hs][Common]] [[file:node-editor/src/NodeEditor/Handler/Backend/Control.hs][Control]] [[file:node-editor/src/NodeEditor/Handler/Backend/Graph.hs][Graph]]
+        - [[file:node-editor/src/NodeEditor/React][React]]: [[file:node-editor/src/NodeEditor/React/Store.hs][Store]]
+          - [[file:node-editor/src/NodeEditor/React/Store][Store]]: [[file:node-editor/src/NodeEditor/React/Store/Ref.hs][Ref]]
+        - [[file:node-editor/src/NodeEditor/State][State]]: [[file:node-editor/src/NodeEditor/State/Action.hs][Action]] [[file:node-editor/src/NodeEditor/State/Collaboration.hs][Collaboration]] [[file:node-editor/src/NodeEditor/State/Global.hs][Global]] [[file:node-editor/src/NodeEditor/State/Mouse.hs][Mouse]] [[file:node-editor/src/NodeEditor/State/UI.hs][UI]]
+    - [[file:node-editor-view/src][node-editor-view/src]]
+      - [[file:node-editor-view/src/Data][Data]]: [[file:node-editor-view/src/Data/Color.hs][Color]] [[file:node-editor-view/src/Data/Timestamp.hs][Timestamp]]
+      - [[file:node-editor-view/src/JS][JS]]: [[file:node-editor-view/src/JS/Key.hs][Key]] [[file:node-editor-view/src/JS/Lexer.hs][Lexer]] [[file:node-editor-view/src/JS/Mount.hs][Mount]] [[file:node-editor-view/src/JS/Name.hs][Name]] [[file:node-editor-view/src/JS/Scene.hs][Scene]] [[file:node-editor-view/src/JS/Searcher.hs][Searcher]] [[file:node-editor-view/src/JS/UI.hs][UI]]
+      - [[file:node-editor-view/src/NodeEditor][NodeEditor]]
+        - [[file:node-editor-view/src/NodeEditor/Batch][Batch]]: [[file:node-editor-view/src/NodeEditor/Batch/Workspace.hs][Workspace]]
+        - [[file:node-editor-view/src/NodeEditor/Data][Data]]: [[file:node-editor-view/src/NodeEditor/Data/Color.hs][Color]] [[file:node-editor-view/src/NodeEditor/Data/Slider.hs][Slider]]
+        - [[file:node-editor-view/src/NodeEditor/Event][Event]]: [[file:node-editor-view/src/NodeEditor/Event/KeyMap.hs][KeyMap]] [[file:node-editor-view/src/NodeEditor/Event/Keys.hs][Keys]] [[file:node-editor-view/src/NodeEditor/Event/Mouse.hs][Mouse]] [[file:node-editor-view/src/NodeEditor/Event/Shortcut.hs][Shortcut]] [[file:node-editor-view/src/NodeEditor/Event/UI.hs][UI]]
+        - [[file:node-editor-view/src/NodeEditor/React][React]]: [[file:node-editor-view/src/NodeEditor/React/IsRef.hs][IsRef]]
+          - [[file:node-editor-view/src/NodeEditor/React/Event][Event]]: [[file:node-editor-view/src/NodeEditor/React/Event/App.hs][App]] [[file:node-editor-view/src/NodeEditor/React/Event/Breadcrumbs.hs][Breadcrumbs]] [[file:node-editor-view/src/NodeEditor/React/Event/Connection.hs][Connection]] [[file:node-editor-view/src/NodeEditor/React/Event/Node.hs][Node]] [[file:node-editor-view/src/NodeEditor/React/Event/Port.hs][Port]] [[file:node-editor-view/src/NodeEditor/React/Event/Searcher.hs][Searcher]] [[file:node-editor-view/src/NodeEditor/React/Event/Sidebar.hs][Sidebar]] [[file:node-editor-view/src/NodeEditor/React/Event/Visualization.hs][Visualization]]
+          - [[file:node-editor-view/src/NodeEditor/React/Model][Model]]: ...
+            - [[file:node-editor-view/src/NodeEditor/React/Model/Node][Node]]: [[file:node-editor-view/src/NodeEditor/React/Model/Node/ExpressionNode.hs][ExpressionNode]] [[file:node-editor-view/src/NodeEditor/React/Model/Node/ExpressionNodeProperties.hs][ExpressionNodeProperties]] [[file:node-editor-view/src/NodeEditor/React/Model/Node/SidebarNode.hs][SidebarNode]]
+            - [[file:node-editor-view/src/NodeEditor/React/Model/Searcher][Searcher]]: [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint.hs][Hint]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Input.hs][Input]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Mode.hs][Mode]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/UndoRedo.hs][UndoRedo]]
+              - [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint][Hint]]: [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint/Command.hs][Command]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint/Node.hs][Node]]
+              - [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Mode][Mode]]: [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Mode/Node.hs][Node]]
+          - [[file:node-editor-view/src/NodeEditor/React/View][View]]: ...
+            - [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode][ExpressionNode]]: [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode/NodeValue.hs][NodeValue]] [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode/Properties.hs][Properties]]
+            - [[file:node-editor-view/src/NodeEditor/React/View/Visualization][Visualization]]: [[file:node-editor-view/src/NodeEditor/React/View/Visualization/DataFrame.hs][DataFrame]] [[file:node-editor-view/src/NodeEditor/React/View/Visualization/Graphics.hs][Graphics]] [[file:node-editor-view/src/NodeEditor/React/View/Visualization/Image.hs][Image]]
 *** Totality
     - [[file:node-editor/js/app.js:://%20Generated%20by%20CoffeeScript%201.12.7][node-editor/js/app.js]]
         window.visualizerFramesManager = require('./visualizers')
@@ -279,59 +330,29 @@
               - [[file:node-editor/src/NodeEditor/Batch/Connector/Commands.hs::cancelCollaborativeTouch%20::%20ClientId%20->%20%5BNodeLoc%5D%20->%20Workspace%20->%20IO%20()][cancelCollaborativeTouch]]
           - [[file:lib/src/Common/Batch/Connector/Connection.hs::sendRequests%20::%20(MonadIO%20m,%20BinaryRequest%20a)%20=>%20%5BMessage%20a%5D%20->%20m%20()][sendRequests]]
         - [[file:node-editor/src/NodeEditor/Event/Loader.hs::withActiveConnection%20::%20(WebSocket%20->%20IO%20())%20->%20IO%20()][withActiveConnection]]
-*** Modules
-    - [[file:common/api-definition][api-definition/src]]: [[file:common/api-definition/src/Compress.hs][Compress]] [[file:common/api-definition/src/Debug.hs][Debug]]
-      - [[file:common/api-definition/src/Data][Data]]: [[file:common/api-definition/src/Data/Portable][Portable]]: [[file:common/api-definition/src/Data/Portable/Text.hs][Text]]
-      - [[file:common/api-definition/src/Debug][Debug]]: [[file:common/api-definition/src/Debug/Console.hs][Console]] [[file:common/api-definition/src/Debug/Safe.hs][Safe]] [[file:common/api-definition/src/Debug/Unsafe.hs][Unsafe]]
-      - [[file:common/api-definition/src/LunaStudio][LunaStudio]]
-        - [[file:common/api-definition/src/LunaStudio/API][API]]: ...
-        - [[file:common/api-definition/src/LunaStudio/Data][Data]]: ...
-    - [[file:node-editor/src][node-editor/src]]: [[file:node-editor/src/Main.hs::main%20::%20IO%20()][Main]]
-      - [[file:node-editor/src/Data][Data]]: [[file:node-editor/src/Data/Curve.hs][Curve]]
-      - [[file:node-editor/src/JS][JS]]: [[file:node-editor/src/JS/Atom.hs][Atom]] [[file:node-editor/src/JS/Clipboard.hs][Clipboard]] [[file:node-editor/src/JS/Config.hs][Config]] [[file:node-editor/src/JS/DownloadFile.hs][DownloadFile]] [[file:node-editor/src/JS/Event.hs][Event]] [[file:node-editor/src/JS/FontSize.hs][FontSize]] [[file:node-editor/src/JS/Node.hs][Node]] [[file:node-editor/src/JS/UUID.hs][UUID]] [[file:node-editor/src/JS/Visualizers.hs][Visualizers]]
-      - [[file:node-editor/src/NodeEditor][NodeEditor]]
-        - [[file:node-editor/src/NodeEditor/Action][Action]]
-          - [[file:node-editor/src/NodeEditor/Action/Basic][Basic]]: ...
-          - [[file:node-editor/src/NodeEditor/Action/Camera][Camera]]: [[file:node-editor/src/NodeEditor/Action/Camera/Pan.hs][Pan]] [[file:node-editor/src/NodeEditor/Action/Camera/Zoom.hs][Zoom]]
-          - [[file:node-editor/src/NodeEditor/Action/ConnectionPen][ConnectionPen]]: [[file:node-editor/src/NodeEditor/Action/ConnectionPen/ConnectionPen.hs][ConnectionPen]] [[file:node-editor/src/NodeEditor/Action/ConnectionPen/DisconnectionPen.hs][DisconnectionPen]] [[file:node-editor/src/NodeEditor/Action/ConnectionPen/SmoothLine.hs][SmoothLine]]
-          - [[file:node-editor/src/NodeEditor/Action/Port][Port]]: 
-          - [[file:node-editor/src/NodeEditor/Action/State][State]]: [[file:node-editor/src/NodeEditor/Action/State/Action.hs][Action]] [[file:node-editor/src/NodeEditor/Action/State/App.hs][App]] [[file:node-editor/src/NodeEditor/Action/State/Graph.hs][Graph]] [[file:node-editor/src/NodeEditor/Action/State/Model.hs][Model]] [[file:node-editor/src/NodeEditor/Action/State/NodeEditor.hs][NodeEditor]] [[file:node-editor/src/NodeEditor/Action/State/Scene.hs][Scene]]
-            - [[file:node-editor/src/NodeEditor/Action/State/Internal][Internal]]: [[file:node-editor/src/NodeEditor/Action/State/Internal/NodeEditor.hs][NodeEditor]]
-            - [[file:node-editor/src/NodeEditor/Action/State/Model][Model]]: [[file:node-editor/src/NodeEditor/Action/State/Model/Connection.hs][Connection]] [[file:node-editor/src/NodeEditor/Action/State/Model/ExpressionNode.hs][ExpressionNode]]
-        - [[file:node-editor/src/NodeEditor/Batch][Batch]]: [[file:node-editor/src/NodeEditor/Batch/Connector][Connector]]: [[file:node-editor/src/NodeEditor/Batch/Connector/Commands.hs][Commands]]
-        - [[file:node-editor/src/NodeEditor/Data][Data]]: [[file:node-editor/src/NodeEditor/Data/Graph.hs][Graph]]
-        - [[file:node-editor/src/NodeEditor/Event][Event]]: [[file:node-editor/src/NodeEditor/Event/Atom.hs][Atom]] [[file:node-editor/src/NodeEditor/Event/Batch.hs][Batch]] [[file:node-editor/src/NodeEditor/Event/Connection.hs][Connection]] [[file:node-editor/src/NodeEditor/Event/Engine.hs][Engine]] [[file:node-editor/src/NodeEditor/Event/Event.hs][Event]] [[file:node-editor/src/NodeEditor/Event/Filter.hs][Filter]] [[file:node-editor/src/NodeEditor/Event/Loader.hs][Loader]] [[file:node-editor/src/NodeEditor/Event/Loop.hs][Loop]] [[file:node-editor/src/NodeEditor/Event/Processor.hs][Processor]] [[file:node-editor/src/NodeEditor/Event/Source.hs][Source]]
-          - [[file:node-editor/src/NodeEditor/Event/Preprocessor][Preprocessor]]: [[file:node-editor/src/NodeEditor/Event/Preprocessor/Batch.hs][Batch]] [[file:node-editor/src/NodeEditor/Event/Preprocessor/Shortcut.hs][Shortcut]]
-        - [[file:node-editor/src/NodeEditor/Handler][Handler]]: ...
-          - [[file:node-editor/src/NodeEditor/Handler/Backend][Backend]]: [[file:node-editor/src/NodeEditor/Handler/Backend/Common.hs][Common]] [[file:node-editor/src/NodeEditor/Handler/Backend/Control.hs][Control]] [[file:node-editor/src/NodeEditor/Handler/Backend/Graph.hs][Graph]]
-        - [[file:node-editor/src/NodeEditor/React][React]]: [[file:node-editor/src/NodeEditor/React/Store.hs][Store]]
-          - [[file:node-editor/src/NodeEditor/React/Store][Store]]: [[file:node-editor/src/NodeEditor/React/Store/Ref.hs][Ref]]
-        - [[file:node-editor/src/NodeEditor/State][State]]: [[file:node-editor/src/NodeEditor/State/Action.hs][Action]] [[file:node-editor/src/NodeEditor/State/Collaboration.hs][Collaboration]] [[file:node-editor/src/NodeEditor/State/Global.hs][Global]] [[file:node-editor/src/NodeEditor/State/Mouse.hs][Mouse]] [[file:node-editor/src/NodeEditor/State/UI.hs][UI]]
-    - [[file:node-editor-view/src][node-editor-view/src]]
-      - [[file:node-editor-view/src/Data][Data]]: [[file:node-editor-view/src/Data/Color.hs][Color]] [[file:node-editor-view/src/Data/Timestamp.hs][Timestamp]]
-      - [[file:node-editor-view/src/JS][JS]]: [[file:node-editor-view/src/JS/Key.hs][Key]] [[file:node-editor-view/src/JS/Lexer.hs][Lexer]] [[file:node-editor-view/src/JS/Mount.hs][Mount]] [[file:node-editor-view/src/JS/Name.hs][Name]] [[file:node-editor-view/src/JS/Scene.hs][Scene]] [[file:node-editor-view/src/JS/Searcher.hs][Searcher]] [[file:node-editor-view/src/JS/UI.hs][UI]]
-      - [[file:node-editor-view/src/NodeEditor][NodeEditor]]
-        - [[file:node-editor-view/src/NodeEditor/Batch][Batch]]: [[file:node-editor-view/src/NodeEditor/Batch/Workspace.hs][Workspace]]
-        - [[file:node-editor-view/src/NodeEditor/Data][Data]]: [[file:node-editor-view/src/NodeEditor/Data/Color.hs][Color]] [[file:node-editor-view/src/NodeEditor/Data/Slider.hs][Slider]]
-        - [[file:node-editor-view/src/NodeEditor/Event][Event]]: [[file:node-editor-view/src/NodeEditor/Event/KeyMap.hs][KeyMap]] [[file:node-editor-view/src/NodeEditor/Event/Keys.hs][Keys]] [[file:node-editor-view/src/NodeEditor/Event/Mouse.hs][Mouse]] [[file:node-editor-view/src/NodeEditor/Event/Shortcut.hs][Shortcut]] [[file:node-editor-view/src/NodeEditor/Event/UI.hs][UI]]
-        - [[file:node-editor-view/src/NodeEditor/React][React]]: [[file:node-editor-view/src/NodeEditor/React/IsRef.hs][IsRef]]
-          - [[file:node-editor-view/src/NodeEditor/React/Event][Event]]: [[file:node-editor-view/src/NodeEditor/React/Event/App.hs][App]] [[file:node-editor-view/src/NodeEditor/React/Event/Breadcrumbs.hs][Breadcrumbs]] [[file:node-editor-view/src/NodeEditor/React/Event/Connection.hs][Connection]] [[file:node-editor-view/src/NodeEditor/React/Event/Node.hs][Node]] [[file:node-editor-view/src/NodeEditor/React/Event/Port.hs][Port]] [[file:node-editor-view/src/NodeEditor/React/Event/Searcher.hs][Searcher]] [[file:node-editor-view/src/NodeEditor/React/Event/Sidebar.hs][Sidebar]] [[file:node-editor-view/src/NodeEditor/React/Event/Visualization.hs][Visualization]]
-          - [[file:node-editor-view/src/NodeEditor/React/Model][Model]]: ...
-            - [[file:node-editor-view/src/NodeEditor/React/Model/Node][Node]]: [[file:node-editor-view/src/NodeEditor/React/Model/Node/ExpressionNode.hs][ExpressionNode]] [[file:node-editor-view/src/NodeEditor/React/Model/Node/ExpressionNodeProperties.hs][ExpressionNodeProperties]] [[file:node-editor-view/src/NodeEditor/React/Model/Node/SidebarNode.hs][SidebarNode]]
-            - [[file:node-editor-view/src/NodeEditor/React/Model/Searcher][Searcher]]: [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint.hs][Hint]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Input.hs][Input]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Mode.hs][Mode]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/UndoRedo.hs][UndoRedo]]
-              - [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint][Hint]]: [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint/Command.hs][Command]] [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Hint/Node.hs][Node]]
-              - [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Mode][Mode]]: [[file:node-editor-view/src/NodeEditor/React/Model/Searcher/Mode/Node.hs][Node]]
-          - [[file:node-editor-view/src/NodeEditor/React/View][View]]: ...
-            - [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode][ExpressionNode]]: [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode/NodeValue.hs][NodeValue]] [[file:node-editor-view/src/NodeEditor/React/View/ExpressionNode/Properties.hs][Properties]]
-            - [[file:node-editor-view/src/NodeEditor/React/View/Visualization][Visualization]]: [[file:node-editor-view/src/NodeEditor/React/View/Visualization/DataFrame.hs][DataFrame]] [[file:node-editor-view/src/NodeEditor/React/View/Visualization/Graphics.hs][Graphics]] [[file:node-editor-view/src/NodeEditor/React/View/Visualization/Image.hs][Image]]
-*** Server
-    - Empire.Server.[[file:~/luna-studio/backend/services/double-representation/src/Empire/Server.hs::run%20endPoints%20topics%20formatted%20packageRoot%20=%20do][run]] <- Main.[[file:~/luna-studio/backend/services/double-representation/src-app/Main.hs::run%20cmd%20=%20case%20cmd%20of][run]]
-*** Websocket adapter
-    - WSConnector.[[file:~/luna-studio/backend/services/ws-connector/src/WSConnector/WSConnector.hs::run%20::%20Bus.Config%20->%20WSConfig.Config%20->%20IO%20()][run]] <- ws-connector/src-app/Main.[[file:~/luna-studio/backend/services/ws-connector/src-app/Main.hs::run%20cmd%20=%20case%20cmd%20of][run]]
-      - BusWorker.[[file:~/luna-studio/backend/services/ws-connector/src/WSConnector/Workers/BusWorker.hs::start%20busEndPoints%20fromBusChan%20toBusChan%20=%20do][start]]
-        - Bus.[[file:~/luna-studio/backend/libs/bus/src/Bus/Framework/App.hs::run%20config%20action%20=%20withEnvironment%20$%20\env%20->%20do][run]]
+*** Event handling
+    - Main.[[file:node-editor/src/Main.hs::runApp%20chan%20socket%20=%20do][runApp]]
+      - NodeEditor.Event.Processor.[[file:node-editor/src/NodeEditor/Event/Processor.hs::scheduleEvent%20::%20LoopRef%20->%20Event%20->%20IO%20()][scheduleEvent]] <- [[file:node-editor/src/NodeEditor/Event/Processor.hs::scheduleInit%20::%20LoopRef%20->%20IO%20()][scheduleInit]]
+        - [[file:node-editor/src/NodeEditor/Event/Processor.hs::preprocessEvent%20::%20Event%20->%20IO%20Event][preprocessEvent]]
+        - NodeEditor.Event.Processor.[[file:node-editor/src/NodeEditor/Event/Processor.hs::processEvent%20::%20LoopRef%20->%20Event%20->%20IO%20()][processEvent]]
+          - [[file:lib/src/Common/Action/Command.hs::execCommand%20::%20Command%20a%20b%20->%20a%20->%20IO%20a][execCommand]] ([[file:node-editor/src/NodeEditor/Event/Processor.hs::runCommands%20::%20%5BEvent%20->%20Maybe%20(Command%20State%20())%5D%20->%20Event%20->%20Command%20State%20()][runCommands]] ([[file:node-editor/src/NodeEditor/Event/Processor.hs::actions%20::%20LoopRef%20->%20%5BEvent%20->%20Maybe%20(Command%20State%20())%5D][actions]] loop) realEvent)
+            - NodeEditor.Handler.Searcher.[[file:node-editor/src/NodeEditor/Handler/Searcher.hs::handle%20_%20(Shortcut%20(Shortcut.Event%20Shortcut.SearcherOpen%20arg))][handle]] Shortcut.SearcherOpen
+              - NodeEditor.Action.Searcher.[[file:node-editor/src/NodeEditor/Action/Searcher.hs::open%20mayPosition%20=%20do][open]]
+                - Searcher.[[file:node-editor/src/NodeEditor/Action/Searcher.hs::openWith%20input%20mode%20=%20do][openWith]]
+                  - [[file:node-editor/src/NodeEditor/Action/Searcher.hs::begin%20=%20beginActionWithKey%20searcherAction][begin]]
+                    - [[file:node-editor/src/NodeEditor/Action/State/Action.hs::beginActionWithKey%20::%20Action%20(Command%20State)%20a%20=>%20ActionRep%20->%20a%20->%20Command%20State%20()][beginActionWithKey]] [[file:node-editor/src/NodeEditor/State/Action.hs::searcherAction%20=%20ActionRep%20(typeOf%20Searcher)][searcherAction]]
+                      - [[file:node-editor/src/NodeEditor/Action/Basic/UpdateSearcherHints.hs::updateHints'%20=%20unlessM%20inTopLevelBreadcrumb%20$%20do][updateHints']]
+          - [[file:node-editor/src/NodeEditor/Action/State/App.hs::renderIfNeeded%20::%20Command%20State%20()][renderIfNeeded]]
+      - NodeEditor.React.Store.[[file:node-editor/src/NodeEditor/React/Store.hs::createApp%20::%20MonadIO%20m%20=>%20App%20->%20SendEvent%20->%20m%20(Ref%20App)][createApp]]
+*** Searcher
+    - data [[file:~/luna-studio/frontend/node-editor-view/src/NodeEditor/React/Model/App.hs::data%20App%20=%20App%20{%20_breadcrumbs%20::%20Breadcrumbs][App]] breadcrumbs nodeEditor workspace
+    - data [[file:~/luna-studio/frontend/node-editor-view/src/NodeEditor/React/Model/NodeEditor.hs::data%20NodeEditor%20=%20NodeEditor][NodeEditor]]
+    - data [[file:~/luna-studio/frontend/node-editor-view/src/NodeEditor/React/Model/Searcher.hs::data%20Searcher%20=%20Searcher][Searcher]]
+    - NodeEditor.Action.Searcher.[[file:~/luna-studio/frontend/node-editor/src/NodeEditor/Action/Searcher.hs::handleTabPressed%20::%20Searcher%20->%20Command%20State%20()][handleTabPressed]]
+    - NodeEditor.Action.State.NodeEditor.[[file:~/luna-studio/frontend/node-editor/src/NodeEditor/Action/State/NodeEditor.hs::getSearcher%20::%20Command%20State%20(Maybe%20Searcher)][getSearcher]]
+    - NodeEditor.Handler.Searcher.[[file:node-editor/src/NodeEditor/Handler/Searcher.hs::handle%20_%20(Shortcut%20(Shortcut.Event%20Shortcut.SearcherOpen%20arg))][handle]] Shortcut.SearcherOpen
 * Node editor
-  - [[file:default.nix::overrides%20=%20self:%20super:%20with%20pkgs.haskell.lib;][default.nix]] | [[file:node-editor/node-editor.cabal::build-depends:][node-editor.cabal]]
+  - [[file:default.nix::overrides%20=%20self:%20super:%20with%20pkgs.haskell.lib;][default.nix]] | [[file:node-editor/node-editor.cabal::build-depends:][node-editor.cabal]] | [[file:node-editor/Makefile::main:%20$(JSEXE)/lib.js][Makefile]]
   - Main.[[file:node-editor/src/Main.hs::main%20::%20IO%20()][main]] -> NodeEditor.Event.Loader.[[file:node-editor/src/NodeEditor/Event/Loader.hs::withActiveConnection%20::%20(WebSocket%20->%20IO%20())%20->%20IO%20()][withActiveConnection]] | Main.[[file:node-editor/src/Main.hs::runApp%20::%20Chan%20(IO%20())%20->%20WebSocket%20->%20IO%20()][runApp]]
     - NodeEditor.Event.Processor.[[file:node-editor/src/NodeEditor/Event/Processor.hs::scheduleInit%20::%20LoopRef%20->%20IO%20()][scheduleInit]]
       - NodeEditor.Event.Processor.[[file:node-editor/src/NodeEditor/Event/Processor.hs::processEvent%20::%20LoopRef%20->%20Event%20->%20IO%20()][processEvent]]
@@ -356,11 +377,12 @@
       - JS.UI.[[file:node-editor-view/src/JS/UI.hs::focus%20::%20MonadIO%20m%20=>%20JSString%20->%20m%20()][focus]] JS.Scene.[[file:node-editor-view/src/JS/Scene.hs::appId%20::%20JSString][appId]]
         - foreign import javascript safe "[[file:node-editor-view/src/JS/UI.hs::foreign%20import%20javascript%20safe%20"document.getElementById($1).focus()"%20focus'%20::%20JSString%20->%20IO%20()][document.getElementById($1).focus()]]" focus'
 * Moon
-  - [[file:moon/shell.nix::ghc.shellFor%20{][shell.nix]] | [[file:common/common.cabal::build-depends:][common.cabal]] | [[file:moon/nix/overrides.nix::pkgs:%20new:%20old:][overrides.nix]] | [[file:moon/nix/github.json::{][nix/github.json]]
+  - [[file:moon/shell.nix::ghc.shellFor%20{][shell.nix]] | [[file:common/common.cabal::build-depends:][common]] [[file:moon-lift/moon-lift.cabal::build-depends:%20common][moon-lift]] | [[file:moon/nix/overrides.nix::pkgs:%20new:%20old:][overrides.nix]] | [[file:moon/nix/github.json::{][nix/github.json]]
   - [[file:moon-lift/src/Moon/CLI.hs::main%20=%20do][Moon.CLI]]
-  - [[file:moon-lift/src/Moon/Lift.hs::haskellServer%20tracer%20=][Moon.Lift]]
+  - [[file:moon-lift/src/Moon/Lift.hs::haskellServer%20env@Env{..}%20=][Moon.Lift]]
     - [[file:moon-lift/src/Moon/Lift/Haskell.hs::module%20Moon.Lift.Haskell][Moon.Lift.Haskell]] [[file:moon-lift/src/Moon/Lift/Haskell.hs::fileToModule%20libDir%20hsFile%20=%20do][fileToModule]]
+    - [[file:moon-lift/src/Moon/Lift/Hackage.hs::import%20Moon.Face.Haskell][Moon.Lift.Hackage]]
   - [[file:common/src/Moon/Peer.hs::serverPeer%20::%20forall%20rej%20m%20a][Moon.Peer]]
   - [[file:common/src/Moon/Protocol.hs::data%20Haskell][Moon.Protocol]]
-  - [[file:common/src/Moon/Face.hs::module%20Moon.Face][Moon.Face]]
+  - [[file:common/src/Moon/Face.hs::data%20HaskellRequest%20(k%20::%20Kind)%20a%20where][Moon.Face]]
     - [[file:common/src/Moon/Face/Haskell.hs::module%20Moon.Face.Haskell][Moon.Face.Haskell]]

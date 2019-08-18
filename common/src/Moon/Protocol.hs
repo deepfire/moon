@@ -58,70 +58,77 @@ import Moon.Face.Haskell
 instance Serialise SomeHaskellRequest where
   encode (SomeHaskellRequest x) = case x of
     Indexes          -> encodeListLen 1 <> encodeWord 0
-    PackageRepo  x y -> encodeListLen 3 <> encodeWord 1 <> encode x <> encode y
-    RepoPackages   x -> encodeListLen 2 <> encodeWord 2 <> encode x
-    PackageModules x -> encodeListLen 2 <> encodeWord 3 <> encode x
-    ModuleDeps     x -> encodeListLen 2 <> encodeWord 4 <> encode x
-    ModuleDefs     x -> encodeListLen 2 <> encodeWord 5 <> encode x
-    DefLoc         x -> encodeListLen 2 <> encodeWord 6 <> encode x
+    Packages       x -> encodeListLen 2 <> encodeWord 1 <> encode x
+    PackageRepo  x y -> encodeListLen 3 <> encodeWord 2 <> encode x <> encode y
+    RepoPackages   x -> encodeListLen 2 <> encodeWord 3 <> encode x
+    PackageModules x -> encodeListLen 2 <> encodeWord 4 <> encode x
+    ModuleDeps     x -> encodeListLen 2 <> encodeWord 5 <> encode x
+    ModuleDefs     x -> encodeListLen 2 <> encodeWord 6 <> encode x
+    DefLoc         x -> encodeListLen 2 <> encodeWord 7 <> encode x
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
       (1, 0) -> pure $ SomeHaskellRequest Indexes
-      (3, 1) -> SomeHaskellRequest <$> (PackageRepo    <$> decode <*> decode)
-      (2, 2) -> SomeHaskellRequest <$> (RepoPackages   <$> decode)
-      (2, 3) -> SomeHaskellRequest <$> (PackageModules <$> decode)
-      (2, 4) -> SomeHaskellRequest <$> (ModuleDeps     <$> decode)
-      (2, 5) -> SomeHaskellRequest <$> (ModuleDefs     <$> decode)
-      (2, 6) -> SomeHaskellRequest <$> (DefLoc         <$> decode)
+      (2, 1) -> SomeHaskellRequest <$> (Packages       <$> decode)
+      (3, 2) -> SomeHaskellRequest <$> (PackageRepo    <$> decode <*> decode)
+      (2, 3) -> SomeHaskellRequest <$> (RepoPackages   <$> decode)
+      (2, 4) -> SomeHaskellRequest <$> (PackageModules <$> decode)
+      (2, 5) -> SomeHaskellRequest <$> (ModuleDeps     <$> decode)
+      (2, 6) -> SomeHaskellRequest <$> (ModuleDefs     <$> decode)
+      (2, 7) -> SomeHaskellRequest <$> (DefLoc         <$> decode)
       _      -> fail $ "invalid SomeHaskellRequest encoding: len="<>show len<>" tag="<>show tag
 
 instance Serialise SomeHaskellReply where
   encode = \case
     PlyIndexes        x -> encodeListLen 2 <> encodeWord 0 <> encode (SomeReply x)
-    PlyRepoURL        x -> encodeListLen 2 <> encodeWord 1 <> encode (SomeReply x)
-    PlyRepoPackages   x -> encodeListLen 2 <> encodeWord 2 <> encode (SomeReply x)
-    PlyPackageModules x -> encodeListLen 2 <> encodeWord 3 <> encode (SomeReply x)
-    PlyModuleDeps     x -> encodeListLen 2 <> encodeWord 4 <> encode (SomeReply x)
-    PlyModuleDefs     x -> encodeListLen 2 <> encodeWord 5 <> encode (SomeReply x)
-    PlyDefLoc         x -> encodeListLen 2 <> encodeWord 6 <> encode (SomeReply x)
+    PlyPackages       x -> encodeListLen 2 <> encodeWord 1 <> encode (SomeReply x)
+    PlyRepoURL        x -> encodeListLen 2 <> encodeWord 2 <> encode (SomeReply x)
+    PlyRepoPackages   x -> encodeListLen 2 <> encodeWord 3 <> encode (SomeReply x)
+    PlyPackageModules x -> encodeListLen 2 <> encodeWord 4 <> encode (SomeReply x)
+    PlyModuleDeps     x -> encodeListLen 2 <> encodeWord 5 <> encode (SomeReply x)
+    PlyModuleDefs     x -> encodeListLen 2 <> encodeWord 6 <> encode (SomeReply x)
+    PlyDefLoc         x -> encodeListLen 2 <> encodeWord 7 <> encode (SomeReply x)
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (2, 0) -> (decode :: Decoder s (SomeReply Index))   >>= \case SomeReply x@(RList _)  -> pure (PlyIndexes        x)
-                                                                    _                      -> fail "invalid PlyIndexes"
-      (2, 1) -> (decode :: Decoder s (SomeReply URL))     >>= \case SomeReply x@(RPoint _) -> pure (PlyRepoURL        x)
-                                                                    _                      -> fail "invalid PlyRepoURL"
-      (2, 2) -> (decode :: Decoder s (SomeReply Package)) >>= \case SomeReply x@(RList _)  -> pure (PlyRepoPackages   x)
-                                                                    _                      -> fail "invalid PlyRepoPackages"
-      (2, 3) -> (decode :: Decoder s (SomeReply Module))  >>= \case SomeReply x@(RTree _)  -> pure (PlyPackageModules x)
-                                                                    _                      -> fail "invalid PlyPackageModules"
-      (2, 4) -> (decode :: Decoder s (SomeReply Package)) >>= \case SomeReply x@(RTree _)  -> pure (PlyModuleDeps     x)
-                                                                    _                      -> fail "invalid PlyModuleDeps"
-      (2, 5) -> (decode :: Decoder s (SomeReply Package)) >>= \case SomeReply x@(RList _)  -> pure (PlyModuleDefs     x)
-                                                                    _                      -> fail "invalid PlyModuleDefs"
-      (2, 6) -> (decode :: Decoder s (SomeReply Loc))     >>= \case SomeReply x@(RPoint _) -> pure (PlyDefLoc         x)
-                                                                    _                      -> fail "invalid PlyDefLoc"
+      (2, 0) -> (decode :: Decoder s (SomeReply Index))      >>= \case SomeReply x@(RSet  _)  -> pure (PlyIndexes        x)
+                                                                       _                      -> fail "invalid PlyIndexes"
+      (2, 1) -> (decode :: Decoder s (SomeReply PackageName))>>= \case SomeReply x@(RSet  _)  -> pure (PlyPackages       x)
+                                                                       _                      -> fail "invalid PlyPackages"
+      (2, 2) -> (decode :: Decoder s (SomeReply URL))        >>= \case SomeReply x@(RPoint _) -> pure (PlyRepoURL        x)
+                                                                       _                      -> fail "invalid PlyRepoURL"
+      (2, 3) -> (decode :: Decoder s (SomeReply PackageName))>>= \case SomeReply x@(RSet  _)  -> pure (PlyRepoPackages   x)
+                                                                       _                      -> fail "invalid PlyRepoPackages"
+      (2, 4) -> (decode :: Decoder s (SomeReply ModuleName)) >>= \case SomeReply x@(RTree _)  -> pure (PlyPackageModules x)
+                                                                       _                      -> fail "invalid PlyPackageModules"
+      (2, 5) -> (decode :: Decoder s (SomeReply Package))    >>= \case SomeReply x@(RTree _)  -> pure (PlyModuleDeps     x)
+                                                                       _                      -> fail "invalid PlyModuleDeps"
+      (2, 6) -> (decode :: Decoder s (SomeReply Package))    >>= \case SomeReply x@(RSet  _)  -> pure (PlyModuleDefs     x)
+                                                                       _                      -> fail "invalid PlyModuleDefs"
+      (2, 7) -> (decode :: Decoder s (SomeReply Loc))        >>= \case SomeReply x@(RPoint _) -> pure (PlyDefLoc         x)
+                                                                       _                      -> fail "invalid PlyDefLoc"
       _      -> fail $ "invalid SomeHaskellReply encoding: len="<>show len<>" tag="<>show tag
 
-instance Serialise a => Serialise (SomeReply a) where
+instance (Ord a, Serialise a) => Serialise (SomeReply a) where
   encode (SomeReply x) = case x of
     RPoint x -> encodeListLen 2 <> encodeWord 0 <> encode x
     RList  x -> encodeListLen 2 <> encodeWord 1 <> encode x
-    RTree  x -> encodeListLen 2 <> encodeWord 2 <> encode x
-    RDag   x -> encodeListLen 2 <> encodeWord 3 <> encode x
-    RGraph x -> encodeListLen 2 <> encodeWord 4 <> encode x
+    RSet   x -> encodeListLen 2 <> encodeWord 2 <> encode x
+    RTree  x -> encodeListLen 2 <> encodeWord 3 <> encode x
+    RDag   x -> encodeListLen 2 <> encodeWord 4 <> encode x
+    RGraph x -> encodeListLen 2 <> encodeWord 5 <> encode x
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
       (2, 0) -> SomeReply . RPoint <$> decode
       (2, 1) -> SomeReply . RList  <$> decode
-      (2, 2) -> SomeReply . RTree  <$> decode
-      (2, 3) -> SomeReply . RDag   <$> decode
-      (2, 4) -> SomeReply . RGraph <$> decode
+      (2, 2) -> SomeReply . RSet   <$> decode
+      (2, 3) -> SomeReply . RTree  <$> decode
+      (2, 4) -> SomeReply . RDag   <$> decode
+      (2, 5) -> SomeReply . RGraph <$> decode
       _      -> fail $ "invalid SomeReply encoding: len="<>show len<>" tag="<>show tag
 
 data Haskell rej

@@ -38,6 +38,7 @@ import qualified Algebra.Graph                    as G
 import           Control.Monad.Class.MonadST
 import           Data.Foldable                      (asum)
 import           Data.Typeable                      (Typeable)
+import qualified Data.Set                         as S
 import           GHC.Generics                       (Generic)
 import           Options.Applicative
 
@@ -50,6 +51,7 @@ import Moon.Face.Haskell
 data Kind
   = Point
   | List
+  | Set
   | Tree
   | Dag
   | Graph
@@ -58,6 +60,7 @@ data Kind
 data Reply (k :: Kind) a where
   RPoint ::         a  -> Reply Point a
   RList  ::        [a] -> Reply List  a
+  RSet   ::   S.Set a  -> Reply Set   a
   RTree  :: G.Graph a  -> Reply Tree  a
   RDag   :: G.Graph a  -> Reply Dag   a
   RGraph :: G.Graph a  -> Reply Graph a
@@ -66,6 +69,7 @@ data Reply (k :: Kind) a where
 instance Show a => Show (Reply k a) where
   show (RPoint x) = "Point " <> show x
   show (RList  x) = "List "  <> show x
+  show (RSet   x) = "Set "   <> show x
   show (RTree  x) = "Tree "  <> show x
   show (RDag   x) = "Dag "   <> show x
   show (RGraph x) = "Graph " <> show x
@@ -76,36 +80,47 @@ data SomeReply a where
 {-------------------------------------------------------------------------------
   Requests (to be compartmentalised..)
 -------------------------------------------------------------------------------}
-data HaskellRequest (k :: Kind) a where
-  Indexes            ::                             HaskellRequest List  Index
-  PackageRepo        :: IndexName -> PackageName -> HaskellRequest Point URL
-  RepoPackages       :: URL                      -> HaskellRequest List  Package
-  PackageModules     :: PackageName              -> HaskellRequest Tree  Module
-  ModuleDeps         :: ModuleName               -> HaskellRequest Tree  Package
-  ModuleDefs         :: ModuleName               -> HaskellRequest List  Package
-  DefLoc             :: DefName                  -> HaskellRequest Point Loc    
-
-instance Show (HaskellRequest k a) where
-  show (Indexes)          = "Indexes"
-  show (PackageRepo x y)  = "PackageRepo "    <> show x <> " " <> show y
-  show (RepoPackages  x)  = "RepoPackages "   <> show x
-  show (PackageModules x) = "PackageModules " <> show x
-  show (ModuleDeps     x) = "ModuleDeps "     <> show x
-  show (ModuleDefs     x) = "ModuleDefs "     <> show x
-  show (DefLoc         x) = "DefLoc "         <> show x
-
 data SomeHaskellRequest where
   SomeHaskellRequest :: HaskellRequest k a -> SomeHaskellRequest
 
 instance Show SomeHaskellRequest where
   show (SomeHaskellRequest x) = show x
 
-cmd name p = command name $ info (p <**> helper) mempty
-opt name   = option auto (long name)
+data HaskellRequest (k :: Kind) a where
+  Indexes            ::                             HaskellRequest Set   Index
+  Packages           :: IndexName                -> HaskellRequest Set   PackageName
+  PackageRepo        :: IndexName -> PackageName -> HaskellRequest Point URL
+  RepoPackages       :: URL                      -> HaskellRequest Set   PackageName
+  PackageModules     :: PackageName              -> HaskellRequest Tree  ModuleName
+  ModuleDeps         :: ModuleName               -> HaskellRequest Tree  Package
+  ModuleDefs         :: ModuleName               -> HaskellRequest Set   Package
+  DefLoc             :: DefName                  -> HaskellRequest Point Loc
+
+data SomeHaskellReply
+  = PlyIndexes         (Reply Set   Index)
+  | PlyPackages        (Reply Set   PackageName)
+  | PlyRepoURL         (Reply Point URL)
+  | PlyRepoPackages    (Reply Set   PackageName)
+  | PlyPackageModules  (Reply Tree  ModuleName)
+  | PlyModuleDeps      (Reply Tree  Package)
+  | PlyModuleDefs      (Reply Set   Package)
+  | PlyDefLoc          (Reply Point Loc)
+  deriving (Generic, Show)
+
+instance Show (HaskellRequest k a) where
+  show (Indexes)          = "Indexes"
+  show (Packages       x) = "Packages "       <> show x
+  show (PackageRepo  x y) = "PackageRepo "    <> show x <> " " <> show y
+  show (RepoPackages   x) = "RepoPackages "   <> show x
+  show (PackageModules x) = "PackageModules " <> show x
+  show (ModuleDeps     x) = "ModuleDeps "     <> show x
+  show (ModuleDefs     x) = "ModuleDefs "     <> show x
+  show (DefLoc         x) = "DefLoc "         <> show x
 
 parseHaskellRequest :: Parser SomeHaskellRequest
 parseHaskellRequest = subparser $ mconcat
   [ cmd "Indexes"         $ SomeHaskellRequest <$> pure Indexes
+  , cmd "Packages"        $ SomeHaskellRequest <$> (Packages       <$> (IndexName   <$> opt "index"))
   , cmd "PackageRepo"     $ SomeHaskellRequest <$> (PackageRepo    <$> (IndexName   <$> opt "index")
                                                                    <*> (PackageName <$> opt "package-name"))
   , cmd "RepoPackages"    $ SomeHaskellRequest <$> (RepoPackages   <$> (URL         <$> opt "repo-url"))
@@ -114,13 +129,6 @@ parseHaskellRequest = subparser $ mconcat
   , cmd "ModuleDefs"      $ SomeHaskellRequest <$> (ModuleDefs     <$> (ModuleName  <$> opt "module"))
   , cmd "DefLoc"          $ SomeHaskellRequest <$> (DefLoc         <$> (DefName     <$> opt "def"))
   ]
-
-data SomeHaskellReply
-  = PlyIndexes         (Reply List  Index)
-  | PlyRepoURL         (Reply Point URL)
-  | PlyRepoPackages    (Reply List  Package)
-  | PlyPackageModules  (Reply Tree  Module)
-  | PlyModuleDeps      (Reply Tree  Package)
-  | PlyModuleDefs      (Reply List  Package)
-  | PlyDefLoc          (Reply Point Loc)
-  deriving (Generic, Show)
+  where
+    cmd name p = command name $ info (p <**> helper) mempty
+    opt name   = option auto (long name)

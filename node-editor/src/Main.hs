@@ -10,6 +10,7 @@ import qualified Control.Concurrent.Chan    as Chan
 import           Control.Concurrent.MVar
 import qualified JS.Mount                   as Mount
 import           NodeEditor.Event.Engine    (LoopRef (LoopRef))
+import qualified NodeEditor.Event.Event                 as Event
 import qualified NodeEditor.Event.Engine    as Engine
 import qualified NodeEditor.React.Model.App as App
 import qualified NodeEditor.React.Store     as Store
@@ -27,8 +28,9 @@ runApp chan socket = do
     random         <- newStdGen
     mdo
         let loop = LoopRef chan state
-        Engine.scheduleInit loop
-        appRef <- Store.createApp (App.mk Nothing) $ Engine.scheduleEvent loop
+            evScheduler = Engine.scheduleEvent loop
+        evScheduler Event.Init
+        appRef <- Store.createApp (App.mk Nothing) evScheduler
         React.reactRender Mount.mountPoint (App.app appRef) ()
         let initState = mkState appRef clientId random
         state <- newMVar initState

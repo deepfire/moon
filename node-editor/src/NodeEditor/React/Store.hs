@@ -27,21 +27,15 @@ instance Typeable a => StoreData (Store a) where
         return store
 
 instance Typeable a => IsRef (Ref a) where
-    dispatch s = dispatch' s . Event.UI
+    dispatch s a = [SomeStoreAction s (Event.UI a)]
 
 instance HasApp (Store App) where
     app = dt
 
-dispatch' :: Typeable a => Ref a -> Event -> [SomeStoreAction]
-dispatch' s a = [SomeStoreAction s a]
-
-create' :: (StoreData (Store a), MonadIO m) => SendEvent -> a -> m (Ref a)
-create' se a = liftIO $ mkStore $ Store a se
-
 create :: (StoreData (Store a), MonadIO m) => a -> SendEventM m (Ref a)
 create a = do
     se <- ask
-    create' se a
+    liftIO $ mkStore $ Store a se
 
 createApp :: MonadIO m => App -> SendEvent -> m (Ref App)
 createApp app' = runReaderT $ create app'

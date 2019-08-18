@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE EmptyCase                  #-}
 {-# LANGUAGE FlexibleContexts           #-}
@@ -25,7 +26,7 @@ module Moon.Peer
   , runServer
   , HaskellClient(..)
   , runClient
-  , channelFromWebsocket)
+  )
 where
 
 import qualified Algebra.Graph                    as G
@@ -54,7 +55,6 @@ import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
 import           Network.TypedProtocol.Core         (Peer(..), Protocol(..))
 import qualified Network.TypedProtocol.Core       as Net
 import qualified Network.TypedProtocol.Driver     as Net
-import qualified Network.WebSockets               as WS
 
 import Moon.Face
 import Moon.Face.Haskell
@@ -151,12 +151,3 @@ clientPeer client =
       Yield (ClientAgency TokIdle)
             MsgDone
             (Net.Done TokDone ())
-
-
-channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
-channelFromWebsocket conn =
-  Net.Channel
-  { recv = catch (Just <$> WS.receiveData conn) $
-           (\(SomeException x) -> pure Nothing)
-  , send = WS.sendBinaryData conn
-  }

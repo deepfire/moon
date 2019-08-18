@@ -262,12 +262,12 @@ updateInput input selectionStart selectionEnd action = do
         modifySearcher $ Searcher.mode
             . Mode._Node . NodeMode.mode
             . NodeMode._ExpressionMode . NodeMode.arguments .= lambdaArgs
-        maybe
-            updateHints
-            (\endPos -> if selectionStart < endPos
-                then clearHints
-                else updateHints)
-            mayLambdaEndPos
+        -- maybe
+        --     updateHints
+        --     (\endPos -> if selectionStart < endPos
+        --         then clearHints
+        --         else updateHints)
+        --     mayLambdaEndPos
     else updateHints
 
 openParen :: Searcher -> Command State ()

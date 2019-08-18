@@ -22,6 +22,7 @@ module Moon.Lift
   ( main
   , defaultConfig
   , Config(..)
+  , channelFromWebsocket
   )
 where
 
@@ -29,7 +30,12 @@ import           Codec.Serialise
 import           Control.Exception
 import qualified Data.ByteString                as BS
 import qualified Data.ByteString.Lazy           as LBS
+import qualified Data.Map                       as Map
+import           Data.Map                         (Map)
+import qualified Data.Set                       as Set
+import           Data.Set                         (Set)
 import           Data.Text
+import           Data.Time
 import           GHC.Generics                     (Generic)
 import           Options.Applicative
 
@@ -54,6 +60,7 @@ import           Moon.Face
 import           Moon.Face.Haskell
 import           Moon.Protocol
 import           Moon.Peer
+import           Moon.Lift.Hackage
 import           Moon.Lift.Haskell
 
 
@@ -70,6 +77,7 @@ data Config a =
   , cfMonitoring :: CFMonitoring a
   , cfGhcLibDir  :: CFGhcLibDir a
   , cfGitRoot    :: FileName
+  , cfHackageTmo :: NominalDiffTime
   }
 type family CFMonitoring (a :: ConfigPhase) where
   CFMonitoring Initial = IO BM.Configuration
@@ -87,19 +95,8 @@ defaultConfig = Config
   , cfMonitoring = BM.empty
   , cfGhcLibDir  = Nothing
   , cfGitRoot    = "."
+  , cfHackageTmo = fromInteger 3600
   }
-
-data RuntimeConfig =
-  RuntimeConfig
-  { rtConfig      :: Config Final
-  , rtTrace       :: BM.Trace IO Text
-  , rtSwitchboard :: BM.Switchboard Text
-  }
-
-finalise :: Config Final -> IO RuntimeConfig
-finalise rtConfig@Config{..} = do
-  (rtTrace, rtSwitchboard) <- BM.setupTrace_ cfMonitoring "moon"
-  pure RuntimeConfig{..}
 
 main :: IO ()
 main = do
@@ -115,8 +112,32 @@ main = do
 
   wsServer =<< finalise config
 
-wsServer :: RuntimeConfig -> IO ()
-wsServer RuntimeConfig{rtConfig=Config{..},..} = forever $ do
+data Env =
+  Env
+  { envConfig      :: !(Config Final)
+  , envTrace       :: !(BM.Trace IO Text)
+  , envSwitchboard :: !(BM.Switchboard Text)
+  , envTracer      :: !(Tracer IO String)
+  , envGetHackage  :: !(IO (Either Text (Set PackageName)))
+  }
+
+finalise :: Config Final -> IO Env
+finalise envConfig@Config{..} = do
+  (envTrace, envSwitchboard) <- BM.setupTrace_ cfMonitoring "moon"
+  envGetHackage <- setupHackageCache cfHackageTmo
+  let envTracer = stdoutTracer
+  pure Env{..}
+
+channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
+channelFromWebsocket conn =
+  Net.Channel
+  { recv = catch (Just <$> WS.receiveData conn) $
+           (\(SomeException x) -> pure Nothing)
+  , send = WS.sendBinaryData conn
+  }
+
+wsServer :: Env -> IO ()
+wsServer env@Env{envConfig=Config{..},..} = forever $ do
   -- (,) fromWebW fromWebR <- Unagi.newChan
 
   WS.runServer cfWSBindHost cfWSPortOut $
@@ -129,30 +150,38 @@ wsServer RuntimeConfig{rtConfig=Config{..},..} = forever $ do
           tracer = stdoutTracer
 
       flip catch handleDisconnect $ forever $ do
-        runServer tracer (haskellServer tracer) $ channelFromWebsocket conn
+        runServer tracer (haskellServer env) $ channelFromWebsocket conn
 
 haskellServer
   :: forall rej m a
   . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
-  => Tracer m String
+  => Env
   -> HaskellServer rej m a
-haskellServer tracer =
+haskellServer env@Env{..} =
     server
   where
     server = HaskellServer {
       recvMsgRequest = \req -> do
-        traceWith (showTracing tracer) req
-        r <- handleRequest req
+        traceWith (showTracing envTracer) req
+        r <- handleRequest env req
         pure (r, server)
     , recvMsgDone = ()
     }
 
-handleRequest :: SomeHaskellRequest -> IO (Either Text SomeHaskellReply)
-handleRequest (SomeHaskellRequest x) = case x of
-  Indexes{}        -> pure . Right $ PlyIndexes $ RList [Index "hackage" "https://hackage.haskell.org/" mempty]
+handleRequest :: Env -> SomeHaskellRequest -> IO (Either Text SomeHaskellReply)
+handleRequest Env{..} (SomeHaskellRequest x) = case x of
+  Indexes{}        -> pure . Right . PlyIndexes . RSet $
+    Set.fromList [Index "hackage" "https://hackage.haskell.org/" mempty]
+  Packages "hackage" -> do
+    ret <- envGetHackage
+    case ret of
+      Left e -> pure $ Left e
+      Right hackagePackages -> pure . Right . PlyPackages $ RSet hackagePackages
+  Packages (IndexName ix) -> pure . Left $ "Unhandled index: " <> ix
   PackageRepo{}    -> pure . Left $ ""
   RepoPackages{}   -> pure . Left $ ""
   PackageModules{} -> pure . Left $ ""
   ModuleDeps{}     -> pure . Left $ ""
   ModuleDefs{}     -> pure . Left $ ""
   DefLoc{}         -> pure . Left $ ""
+

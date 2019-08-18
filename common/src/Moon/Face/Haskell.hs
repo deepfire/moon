@@ -49,7 +49,7 @@ data Loc
        srcSpanELine  :: {-# UNPACK #-} !Int,
        srcSpanECol   :: {-# UNPACK #-} !Int
      }
-     deriving (Generic, Show)
+     deriving (Eq, Generic, Ord, Show)
 instance Serialise  Loc
 
 {-------------------------------------------------------------------------------
@@ -69,14 +69,14 @@ data Index = Index
   { ixName           :: !IndexName
   , ixURL            :: !URL
   , ixPackages       :: Map PackageName URL
-  } deriving (Generic, Show)
+  } deriving (Eq, Generic, Ord, Show)
 instance Serialise Index
 
 data Repo = Repo
   { repoName         :: !RepoName
   , repoURLs         :: Set URL
   , repoPackages     :: Map PackageName Package
-  } deriving (Generic, Show)
+  } deriving (Eq, Generic, Ord, Show)
 instance Serialise Repo
 
 -- Not strict, since there's a hope of making it actually lazy.
@@ -85,7 +85,7 @@ data Package = Package
   , pkgModules       :: Map ModuleName Module
   , pkgModuleDeps    :: Graph Module
   , pkgDeps          :: Set PackageName
-  } deriving (Generic, Show)
+  } deriving (Eq, Generic, Ord, Show)
 instance Serialise Package
 deriving instance (Generic (Graph Module))
 instance Serialise (Graph Module)
@@ -93,14 +93,14 @@ instance Serialise (Graph Module)
 data Module = Module
   { modName          :: !ModuleName
   , modDefs          :: !(Map DefName Def)
-  } deriving (Generic, Show)
+  } deriving (Eq, Generic, Ord, Show)
 instance Serialise Module
 
 data Def = Def
   { defType          :: !DefType
   , defName          :: !DefName
   , defLoc           :: !Loc
-  } deriving (Generic, Show)
+  } deriving (Eq, Generic, Ord, Show)
 instance Serialise Def
 
 data DefType
@@ -113,6 +113,6 @@ data DefType
   | Fun
   | Var
   | Foreign
-  deriving (Eq, Generic, Show)
+  deriving (Eq, Generic, Ord, Show)
 instance Serialise DefType
 
