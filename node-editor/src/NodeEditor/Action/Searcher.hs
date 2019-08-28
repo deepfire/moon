@@ -241,7 +241,6 @@ openWith input mode = do
     renderIfNeeded
     Searcher.focus
 
-
 updateInput :: Text -> Int -> Int -> Searcher -> Command State ()
 updateInput input selectionStart selectionEnd action = do
     let inputStream = evalDefLexer $ convert input
@@ -306,6 +305,7 @@ backspace :: Searcher -> Command State ()
 backspace sKey = do
     (selStart, selEnd) <- Searcher.getSelection
     setUndoSelection selStart selEnd
+    liftIO $ warn "------- backspace" (""::String)
     withJustM getSearcher $ \s -> do
         let input = convert $ s ^. Searcher.input
             (removeStart, removeEnd) = if selStart == selEnd

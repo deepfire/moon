@@ -333,24 +333,37 @@
 *** Event handling
     - Main.[[file:node-editor/src/Main.hs::runApp%20chan%20socket%20=%20do][runApp]]
       - NodeEditor.Event.Processor.[[file:node-editor/src/NodeEditor/Event/Processor.hs::scheduleEvent%20::%20LoopRef%20->%20Event%20->%20IO%20()][scheduleEvent]] <- [[file:node-editor/src/NodeEditor/Event/Processor.hs::scheduleInit%20::%20LoopRef%20->%20IO%20()][scheduleInit]]
-        - [[file:node-editor/src/NodeEditor/Event/Processor.hs::preprocessEvent%20::%20Event%20->%20IO%20Event][preprocessEvent]]
         - NodeEditor.Event.Processor.[[file:node-editor/src/NodeEditor/Event/Processor.hs::processEvent%20::%20LoopRef%20->%20Event%20->%20IO%20()][processEvent]]
-          - [[file:lib/src/Common/Action/Command.hs::execCommand%20::%20Command%20a%20b%20->%20a%20->%20IO%20a][execCommand]] ([[file:node-editor/src/NodeEditor/Event/Processor.hs::runCommands%20::%20%5BEvent%20->%20Maybe%20(Command%20State%20())%5D%20->%20Event%20->%20Command%20State%20()][runCommands]] ([[file:node-editor/src/NodeEditor/Event/Processor.hs::actions%20::%20LoopRef%20->%20%5BEvent%20->%20Maybe%20(Command%20State%20())%5D][actions]] loop) realEvent)
+          - [[file:node-editor/src/NodeEditor/Event/Processor.hs::preprocessEvent%20::%20Event%20->%20IO%20Event][preprocessEvent]]
+            - net :: NE.Event.Preprocessor.Batch.[[file:node-editor/src/NodeEditor/Event/Preprocessor/Batch.hs::handlers%20::%20Map.Map%20String%20(ByteString%20->%20Batch.Event)][handlers]]
+            - NE.Ev.Preprocessor.Shortcut.[[file:node-editor/src/NodeEditor/Event/Preprocessor/Shortcut.hs::process%20::%20Event%20->%20Maybe%20Event][process]]
+              - NE.Ev.KeyMap.[[file:node-editor-view/src/NodeEditor/Event/KeyMap.hs::handleKeyApp%20::%20KeyboardEvent%20->%20Maybe%20Command][handleKeyApp]]
+          - [[file:node-editor/src/NodeEditor/Event/Filter.hs::filterEvents%20state%20event%20action%20=%20do][filterEvents]] $ [[file:lib/src/Common/Action/Command.hs::execCommand%20::%20Command%20a%20b%20->%20a%20->%20IO%20a][execCommand]] ([[file:node-editor/src/NodeEditor/Event/Processor.hs::runCommands%20::%20%5BEvent%20->%20Maybe%20(Command%20State%20())%5D%20->%20Event%20->%20Command%20State%20()][runCommands]] ([[file:node-editor/src/NodeEditor/Event/Processor.hs::actions%20::%20LoopRef%20->%20%5BEvent%20->%20Maybe%20(Command%20State%20())%5D][actions]] loop) realEvent)
             - NodeEditor.Handler.Searcher.[[file:node-editor/src/NodeEditor/Handler/Searcher.hs::handle%20_%20(Shortcut%20(Shortcut.Event%20Shortcut.SearcherOpen%20arg))][handle]] Shortcut.SearcherOpen
               - NodeEditor.Action.Searcher.[[file:node-editor/src/NodeEditor/Action/Searcher.hs::open%20mayPosition%20=%20do][open]]
                 - Searcher.[[file:node-editor/src/NodeEditor/Action/Searcher.hs::openWith%20input%20mode%20=%20do][openWith]]
                   - [[file:node-editor/src/NodeEditor/Action/Searcher.hs::begin%20=%20beginActionWithKey%20searcherAction][begin]]
                     - [[file:node-editor/src/NodeEditor/Action/State/Action.hs::beginActionWithKey%20::%20Action%20(Command%20State)%20a%20=>%20ActionRep%20->%20a%20->%20Command%20State%20()][beginActionWithKey]] [[file:node-editor/src/NodeEditor/State/Action.hs::searcherAction%20=%20ActionRep%20(typeOf%20Searcher)][searcherAction]]
                       - [[file:node-editor/src/NodeEditor/Action/Basic/UpdateSearcherHints.hs::updateHints'%20=%20unlessM%20inTopLevelBreadcrumb%20$%20do][updateHints']]
+                  - JS.Searcher.[[file:node-editor-view/src/JS/Searcher.hs::focus%20=%20UI.focus%20searcherId][focus]]
           - [[file:node-editor/src/NodeEditor/Action/State/App.hs::renderIfNeeded%20::%20Command%20State%20()][renderIfNeeded]]
       - NodeEditor.React.Store.[[file:node-editor/src/NodeEditor/React/Store.hs::createApp%20::%20MonadIO%20m%20=>%20App%20->%20SendEvent%20->%20m%20(Ref%20App)][createApp]]
+    - NodeEditor.React.View.App.[[file:node-editor-view/src/NodeEditor/React/View/App.hs::app%20::%20HasApp%20a%20=>%20ReactStore%20a%20->%20ReactView%20()][app]]
+      - NodeEditor.Event.KeyMap.[[file:node-editor-view/src/NodeEditor/Event/KeyMap.hs::isEventHandled%20::%20KeyboardEvent%20->%20Bool][isEventHandled]]
+    - NodeEditor.Handler.Searcher.[[file:node-editor/src/NodeEditor/Handler/Searcher.hs::handle%20_%20(Shortcut%20(Shortcut.Event%20Shortcut.SearcherOpen%20arg))][handle]] Shortcut.SearcherOpen
+      - NodeEditor.Action.Searcher.[[file:node-editor/src/NodeEditor/Action/Searcher.hs::openWith%20::%20Text%20->%20Mode.Mode%20->%20Command%20State%20()][openWith]] <- [[file:node-editor/src/NodeEditor/Action/Searcher.hs::open%20mayPosition%20=%20do][open]]
+        - begin Searcher
+        - modifySearcher
+        - adjustCameraToSearcher
+        - setInput
+        - Searcher.focus
 *** Searcher
     - data [[file:~/luna-studio/frontend/node-editor-view/src/NodeEditor/React/Model/App.hs::data%20App%20=%20App%20{%20_breadcrumbs%20::%20Breadcrumbs][App]] breadcrumbs nodeEditor workspace
     - data [[file:~/luna-studio/frontend/node-editor-view/src/NodeEditor/React/Model/NodeEditor.hs::data%20NodeEditor%20=%20NodeEditor][NodeEditor]]
     - data [[file:~/luna-studio/frontend/node-editor-view/src/NodeEditor/React/Model/Searcher.hs::data%20Searcher%20=%20Searcher][Searcher]]
+    - View.Searcher.[[file:~/luna-studio/frontend/node-editor-view/src/NodeEditor/React/View/Searcher.hs::searcher%20::%20IsRef%20ref%20=>%20ReactView%20(ref,%20Searcher.Properties)][searcher]]
     - NodeEditor.Action.Searcher.[[file:~/luna-studio/frontend/node-editor/src/NodeEditor/Action/Searcher.hs::handleTabPressed%20::%20Searcher%20->%20Command%20State%20()][handleTabPressed]]
     - NodeEditor.Action.State.NodeEditor.[[file:~/luna-studio/frontend/node-editor/src/NodeEditor/Action/State/NodeEditor.hs::getSearcher%20::%20Command%20State%20(Maybe%20Searcher)][getSearcher]]
-    - NodeEditor.Handler.Searcher.[[file:node-editor/src/NodeEditor/Handler/Searcher.hs::handle%20_%20(Shortcut%20(Shortcut.Event%20Shortcut.SearcherOpen%20arg))][handle]] Shortcut.SearcherOpen
 * Node editor
   - [[file:default.nix::overrides%20=%20self:%20super:%20with%20pkgs.haskell.lib;][default.nix]] | [[file:node-editor/node-editor.cabal::build-depends:][node-editor.cabal]] | [[file:node-editor/Makefile::main:%20$(JSEXE)/lib.js][Makefile]]
   - Main.[[file:node-editor/src/Main.hs::main%20::%20IO%20()][main]] -> NodeEditor.Event.Loader.[[file:node-editor/src/NodeEditor/Event/Loader.hs::withActiveConnection%20::%20(WebSocket%20->%20IO%20())%20->%20IO%20()][withActiveConnection]] | Main.[[file:node-editor/src/Main.hs::runApp%20::%20Chan%20(IO%20())%20->%20WebSocket%20->%20IO%20()][runApp]]

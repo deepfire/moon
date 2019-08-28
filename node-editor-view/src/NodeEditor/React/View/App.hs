@@ -28,7 +28,7 @@ name = "app"
 
 handleKeyDown :: IsRef ref => ref -> React.Event -> KeyboardEvent -> [SomeStoreAction]
 handleKeyDown ref e k = mayStopPropagation $ dispatch ref (UI.AppEvent $ App.KeyDown k) where
-    mayStopPropagation = if isEventHandled k then (preventDefault e :) else id
+    mayStopPropagation = id --if isEventHandled k then (preventDefault e :) else id
 
 app :: HasApp a => ReactStore a -> ReactView ()
 app ref = React.defineControllerView name ref $ \store () -> do

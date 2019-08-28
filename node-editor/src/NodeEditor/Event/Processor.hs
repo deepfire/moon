@@ -5,11 +5,12 @@ import           Control.Exception                      (SomeException, handle)
 import           Data.Monoid                            (Last (..))
 import           GHCJS.Prim                             (JSException)
 
-import           Common.Action.Command                  (Command, execCommand)
+import           Common.Action.Command                  (Command, execCommand, runCommand)
 import qualified Common.Analytics                       as Analytics
 import           Common.Prelude
 import           Common.Report                          (error)
 import           NodeEditor.Action.State.App            (renderIfNeeded)
+import           NodeEditor.Action.State.NodeEditor     (getSearcher)
 import           NodeEditor.Event.Event                 (Event)
 import qualified NodeEditor.Event.Event                 as Event
 import           NodeEditor.Event.Filter                (filterEvents)
@@ -57,8 +58,8 @@ actions loop =
     , Node.handle
     , Port.handle
     , Sidebar.handle
-    , Undo.handle
     , Searcher.handle (scheduleEvent loop)
+    , Undo.handle
     , Visualization.handle
     , MockMonads.handle
     ]
@@ -74,7 +75,10 @@ preprocessEvent ev = do
 
 processEvent :: LoopRef -> Event -> IO ()
 processEvent loop ev = handle handleAnyException $ modifyMVar_ (loop ^. Loop.state) $ \state -> do
-    realEvent <- preprocessEvent ev
+    (searcher, _) <- runCommand getSearcher state
+    realEvent <- case searcher of
+      Nothing -> preprocessEvent ev
+      Just _  -> pure ev
     case realEvent of
       Event.UI (Event.AppEvent  Event.MouseMove{}) -> pure ()
       Event.UI (Event.PortEvent Port.MouseEnter{}) -> pure ()

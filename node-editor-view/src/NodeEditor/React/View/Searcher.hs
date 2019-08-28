@@ -73,10 +73,11 @@ searcher =  React.defineView name $ \(ref, properties) -> do
             , "className"   $= inputClasses
             , "id"          $= searcherId
             , onKeyUp       $ \_ k -> dispatch ref $ UI.SearcherEvent $ KeyUp k
+            , onKeyDown     $ \_ k -> dispatch ref $ UI.SearcherEvent $ KeyDown k
             , onChange      $ \e -> let val = target e "value"
                                         ss  = target e "selectionStart"
                                         se  = target e "selectionEnd"
-                                    in dispatch ref $ UI.SearcherEvent $ InputChanged val ss se
+                                    in  dispatch ref $ UI.SearcherEvent $ InputChanged val ss se
             , onClick       $ \_ _ -> dispatch ref $ UI.SearcherEvent SelectionChanged
             ] <> mayCustomInput )
 

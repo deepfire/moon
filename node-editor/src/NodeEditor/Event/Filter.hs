@@ -10,7 +10,8 @@ import           LunaStudio.Data.Port                       (AnyPortId (InPortId
 import qualified LunaStudio.Data.PortRef                    as PortRef
 import           NodeEditor.Event.Event                     (Event (Shortcut, UI))
 import qualified NodeEditor.Event.Shortcut                  as Shortcut
-import           NodeEditor.Event.UI                        (UIEvent (NodeEvent, PortEvent, SearcherEvent, VisualizationEvent))
+import           NodeEditor.Event.UI                        (UIEvent (AppEvent, NodeEvent, PortEvent, SearcherEvent, VisualizationEvent))
+import qualified NodeEditor.React.Event.App                 as App
 import qualified NodeEditor.React.Event.Node                as NodeEvent
 import qualified NodeEditor.React.Event.Port                as PortEvent
 import qualified NodeEditor.React.Event.Searcher            as Searcher
@@ -55,4 +56,7 @@ graphErrorFilter state event = check . view returnsGraphError <$> getNodeEditor 
 filterEvents :: State -> Event -> IO State -> IO State
 filterEvents state event action = do
     accept <- (&&) <$> (acceptEvent <$> toJSEvent event state) <*> graphErrorFilter state event
+    case event of
+      UI (AppEvent (App.MouseMove{})) -> pure ()
+      x -> warn ("filterEvents" <> show x) accept
     if accept then action else return state

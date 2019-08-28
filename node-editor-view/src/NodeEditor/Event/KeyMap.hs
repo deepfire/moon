@@ -52,7 +52,7 @@ handleKeyApp evt
     | Keys.withoutMods      evt Keys.f          = Just CollapseToFunction
     | Keys.withoutMods      evt Keys.l          = Just AutolayoutSelectedNodes
     -- searcher
-    | Keys.withoutMods evt Keys.tab             = Just SearcherOpen
+    | Keys.withAlt     evt Keys.space           = Just SearcherOpen
     | Keys.withShift   evt Keys.tab             = Just SearcherEditExpression
 
     -- undo / redo

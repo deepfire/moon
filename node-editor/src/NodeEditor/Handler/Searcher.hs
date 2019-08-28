@@ -3,6 +3,7 @@ module NodeEditor.Handler.Searcher where
 import Common.Prelude
 
 import qualified NodeEditor.Action.Searcher      as Searcher
+import qualified NodeEditor.Event.Keys           as Keys
 import qualified NodeEditor.Event.Shortcut       as Shortcut
 import qualified NodeEditor.React.Event.App      as App
 import qualified NodeEditor.React.Event.Searcher as Searcher
@@ -36,13 +37,19 @@ handle _ _ = Nothing
 
 handleEvent :: (Event -> IO ()) -> Searcher.Event -> Command State ()
 handleEvent scheduleEvent = \case
-    Searcher.InputChanged input ss se -> continue $ Searcher.modifyInput input ss se
+    Searcher.InputChanged input ss se -> do
+      liftIO $ warn "handleEvent Searcher.InputChanged" input
+      continue $ Searcher.modifyInput input ss se
+    -- Searcher.InputChanged input ss se -> continue $ Searcher.modifyInput input ss se
     Searcher.Accept                   -> continue $ Searcher.accept scheduleEvent
     Searcher.AcceptInput              -> continue $ Searcher.withHint 0 (Searcher.accept scheduleEvent)
     Searcher.AcceptWithHint i         -> continue $ Searcher.withHint i (Searcher.accept scheduleEvent)
     Searcher.HintShortcut   i         -> continue $ Searcher.withHint i Searcher.updateInputWithSelectedHint
     Searcher.TabPressed               -> continue Searcher.handleTabPressed
     Searcher.MoveDown                 -> continue Searcher.selectPreviousHint
+    Searcher.KeyDown k                -> do
+      when (Keys.withoutMods k Keys.esc) $
+        continue Searcher.close
     -- Searcher.KeyUp k                  -> when (Keys.withoutMods k Keys.backspace) $ continue Searcher.enableRollback
     -- Searcher.MoveLeft                 -> continue Searcher.tryRollback
     Searcher.MoveUp                   -> continue Searcher.selectNextHint
