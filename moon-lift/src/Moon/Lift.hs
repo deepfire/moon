@@ -60,6 +60,7 @@ import           Moon.Face
 import           Moon.Face.Haskell
 import           Moon.Protocol
 import           Moon.Peer
+import           Moon.Pipe
 import           Moon.Lift.Hackage
 import           Moon.Lift.Haskell
 
@@ -132,7 +133,7 @@ channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
 channelFromWebsocket conn =
   Net.Channel
   { recv = catch (Just <$> WS.receiveData conn) $
-           (\(SomeException x) -> pure Nothing)
+           (\(SomeException _x) -> pure Nothing)
   , send = WS.sendBinaryData conn
   }
 
@@ -185,3 +186,13 @@ handleRequest Env{..} (SomeHaskellRequest x) = case x of
   ModuleDefs{}     -> pure . Left $ ""
   DefLoc{}         -> pure . Left $ ""
 
+-- * Pipes
+--
+pipes :: Map PipeTy Pipe
+pipes = Map.fromList
+  [ p $ defOutput TSet lsPipes
+  ]
+  where p x = (pipeTy x, x)
+
+lsPipes :: IO (Set PipeTy)
+lsPipes = pure $ Map.keysSet pipes

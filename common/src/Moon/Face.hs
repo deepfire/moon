@@ -15,6 +15,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
@@ -23,11 +24,19 @@
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Moon.Face
-  ( -- Generic
+  ( -- * Metatheory
     Kind(..)
+  , Repr
+  , Tag(..)
+  , Meta(..)
+  , meta
+  , tagMeta
+    -- * Derivatives
+  , PipeTy(..)
+  , PipeModel
   , Reply(..)
   , SomeReply(..)
-    -- Specific
+    -- * Too Specific
   , HaskellRequest(..), parseHaskellRequest
   , SomeHaskellRequest(..)
   , SomeHaskellReply(..)
@@ -36,17 +45,21 @@ where
 
 import qualified Algebra.Graph                    as G
 import           Control.Monad.Class.MonadST
+import           Data.Dynamic
 import           Data.Foldable                      (asum)
 import           Data.Typeable                      (Typeable)
 import qualified Data.Set                         as S
+import qualified Data.Kind                        as Kind
+import           Data.Proxy                         (Proxy(..))
 import           GHC.Generics                       (Generic)
 import           Options.Applicative
+import           Type.Reflection
 
 -- Locals
 import Moon.Face.Haskell
 
 {-------------------------------------------------------------------------------
-  Generic reply
+  Metatheory
 -------------------------------------------------------------------------------}
 data Kind
   = Point
@@ -57,25 +70,72 @@ data Kind
   | Graph
   deriving (Eq, Generic, Ord, Show, Typeable)
 
-data Reply (k :: Kind) a where
-  RPoint ::         a  -> Reply Point a
-  RList  ::        [a] -> Reply List  a
-  RSet   ::   S.Set a  -> Reply Set   a
-  RTree  :: G.Graph a  -> Reply Tree  a
-  RDag   :: G.Graph a  -> Reply Dag   a
-  RGraph :: G.Graph a  -> Reply Graph a
+type family Repr k a :: Kind.Type where
+  Repr Point a =         a
+  Repr List  a =      [] a
+  Repr Set   a =   S.Set a
+  Repr Tree  a = G.Graph a
+  Repr Dag   a = G.Graph a
+  Repr Graph a = G.Graph a
+
+data Tag (k :: Kind)  a where
+  TPoint :: Tag Point a
+  TList  :: Tag List  a
+  TSet   :: Tag Set   a
+  TTree  :: Tag Tree  a
+  TDag   :: Tag Dag   a
+  TGraph :: Tag Graph a
   deriving (Typeable)
 
-instance Show a => Show (Reply k a) where
-  show (RPoint x) = "Point " <> show x
-  show (RList  x) = "List "  <> show x
-  show (RSet   x) = "Set "   <> show x
-  show (RTree  x) = "Tree "  <> show x
-  show (RDag   x) = "Dag "   <> show x
-  show (RGraph x) = "Graph " <> show x
+data Meta =
+  Meta
+  { metaKind :: TyCon
+  , metaType :: SomeTypeRep
+  } deriving (Eq, Ord)
+
+{-------------------------------------------------------------------------------
+  Derivatives
+-------------------------------------------------------------------------------}
+
+data PipeTy
+  = Output  -- | IO a
+    { ptOut :: Meta
+    }
+  | Link    -- | b → IO c
+    { ptOut :: Meta
+    , ptIn  :: Meta
+    }
+  deriving (Eq, Ord)
+
+data PipeModel
+
+data Reply (k :: Kind) a where
+  RPoint :: Repr Point a -> Reply Point a
+  RList  :: Repr List  a -> Reply List  a
+  RSet   :: Repr Set   a -> Reply Set   a
+  RTree  :: Repr Tree  a -> Reply Tree  a
+  RDag   :: Repr Dag   a -> Reply Dag   a
+  RGraph :: Repr Graph a -> Reply Graph a
+  deriving (Typeable)
 
 data SomeReply a where
   SomeReply :: Reply k a -> SomeReply a
+
+{-------------------------------------------------------------------------------
+  Ancillary
+-------------------------------------------------------------------------------}
+meta
+  :: forall k a. (Typeable k, Typeable a)
+  => Proxy k -> Proxy a -> Meta
+meta _ pa =
+  Meta (typeRepTyCon $ typeRep @k)
+       (someTypeRep pa)
+
+tagMeta
+  :: forall k a. (Typeable k, Typeable a)
+  => Tag k a -> Meta
+tagMeta _ =
+  meta (Proxy @k) (Proxy @a)
 
 {-------------------------------------------------------------------------------
   Requests (to be compartmentalised..)
@@ -107,16 +167,6 @@ data SomeHaskellReply
   | PlyDefLoc          (Reply Point Loc)
   deriving (Generic, Show)
 
-instance Show (HaskellRequest k a) where
-  show (Indexes)          = "Indexes"
-  show (Packages       x) = "Packages "       <> show x
-  show (PackageRepo  x y) = "PackageRepo "    <> show x <> " " <> show y
-  show (RepoPackages   x) = "RepoPackages "   <> show x
-  show (PackageModules x) = "PackageModules " <> show x
-  show (ModuleDeps     x) = "ModuleDeps "     <> show x
-  show (ModuleDefs     x) = "ModuleDefs "     <> show x
-  show (DefLoc         x) = "DefLoc "         <> show x
-
 parseHaskellRequest :: Parser SomeHaskellRequest
 parseHaskellRequest = subparser $ mconcat
   [ cmd "Indexes"         $ SomeHaskellRequest <$> pure Indexes
@@ -132,3 +182,35 @@ parseHaskellRequest = subparser $ mconcat
   where
     cmd name p = command name $ info (p <**> helper) mempty
     opt name   = option auto (long name)
+
+{-------------------------------------------------------------------------------
+  Boring.
+-------------------------------------------------------------------------------}
+instance Show a => Show (Tag k a) where
+  show TPoint = "TPoint"
+  show TList  = "TList"
+  show TSet   = "TSet"
+  show TTree  = "TTree"
+  show TDag   = "TDag"
+  show TGraph = "TGraph"
+
+instance Show Meta where
+  show (Meta tycon sometyperep) = "Meta "<>show tycon<>" "<>show sometyperep
+
+instance Show a => Show (Reply k a) where
+  show (RPoint x) = "RPoint " <> show x
+  show (RList  x) = "RList "  <> show x
+  show (RSet   x) = "RSet "   <> show x
+  show (RTree  x) = "RTree "  <> show x
+  show (RDag   x) = "RDag "   <> show x
+  show (RGraph x) = "RGraph " <> show x
+
+instance Show (HaskellRequest k a) where
+  show (Indexes)          = "Indexes"
+  show (Packages       x) = "Packages "       <> show x
+  show (PackageRepo  x y) = "PackageRepo "    <> show x <> " " <> show y
+  show (RepoPackages   x) = "RepoPackages "   <> show x
+  show (PackageModules x) = "PackageModules " <> show x
+  show (ModuleDeps     x) = "ModuleDeps "     <> show x
+  show (ModuleDefs     x) = "ModuleDefs "     <> show x
+  show (DefLoc         x) = "DefLoc "         <> show x
