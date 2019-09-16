@@ -12,6 +12,7 @@ extra-source-files:  CHANGELOG.md
 
 library
   exposed-modules:
+                       Generics.SOP.Traversal
                        Moon.Face
                        Moon.Face.Haskell
                        Moon.Protocol
@@ -25,9 +26,12 @@ library
                      , containers
                      , contra-tracer
                      , extra
+                     , fclabels
                      , generic-monoid
+                     , generics-sop
                      , optparse-applicative
                      , serialise
+                     , sop-core
                      , text
 
                      , io-sim-classes
