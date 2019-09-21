@@ -15,6 +15,7 @@ library
                        Data.Dict
                        Data.RTTI
                        Data.Some
+                       Generics.SOP.MapADT
                        Generics.SOP.Traversal
                        Moon.Face
                        Moon.Face.Ground
