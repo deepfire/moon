@@ -1,6 +1,9 @@
 pkgs: new: old:
 with new; with pkgs.haskell.lib;
 let
+  l = repo: path: cabalExtras:
+      doJailbreak
+      (old.callCabal2nixWithOptions repo path cabalExtras {});
   c = owner: repo: rev: sha256: cabalExtras:
       doJailbreak (old.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub {
         inherit owner repo rev sha256;
@@ -26,6 +29,8 @@ in {
   io-sim-classes        = io-onp "io-sim-classes";
   typed-protocols       = io-onp "typed-protocols";
   typed-protocols-cbor  = io-onp "typed-protocols-cbor";
+  cborg                 = l "cborg" ../../cborg/cborg "";
+  serialise             = l "serialise" ../../cborg/serialise "";
 
   common          = new.callCabal2nix "common" ../common {};
 }

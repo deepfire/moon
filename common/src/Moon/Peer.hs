@@ -20,11 +20,9 @@
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
 module Moon.Peer
-  ( serverPeer
-  , clientPeer
-  , HaskellServer(..)
+  ( Server(..)
   , runServer
-  , HaskellClient(..)
+  , Client(..)
   , runClient
   )
 where
@@ -57,40 +55,38 @@ import qualified Network.TypedProtocol.Core       as Net
 import qualified Network.TypedProtocol.Driver     as Net
 
 import Moon.Face
-import Moon.Face.Haskell
 import Moon.Protocol
 
 
-data HaskellServer rej m a =
-     HaskellServer
-     { recvMsgRequest :: SomeHaskellRequest
+data Server rej m a =
+     Server
+     { recvMsgRequest :: SomeRequest
                       -> m ( Either rej a
-                           , HaskellServer rej m a )
+                           , Server rej m a )
      , recvMsgDone    :: ()
      }
 
 runServer :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
+           . (rej ~ Text, m ~ IO, a ~ SomeReply)
           => Tracer m String
-          -> HaskellServer rej m a
+          -> Server rej m a
           -> Net.Channel IO LBS.ByteString
           -> IO ()
 runServer tracer server channel = Net.runPeer (showTracing tracer) codec peerId channel peer
   where
-    codec  = codecHaskell
     peerId = "client"
     peer   = serverPeer $ pure server
 
 serverPeer :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
-           => m (HaskellServer rej m a)
-           -> Peer (Haskell rej) AsServer StIdle m ()
+           . (rej ~ Text, m ~ IO, a ~ SomeReply)
+           => m (Server rej m a)
+           -> Peer (Piping rej) AsServer StIdle m ()
 serverPeer server =
     Effect $ go <$> server
   where
-    go :: HaskellServer rej m a
-       -> Peer (Haskell rej) AsServer StIdle m ()
-    go HaskellServer{recvMsgRequest, recvMsgDone} =
+    go :: Server rej m a
+       -> Peer (Piping rej) AsServer StIdle m ()
+    go Server{recvMsgRequest, recvMsgDone} =
       Await (ClientAgency TokIdle) $ \msg -> case msg of
         MsgRequest req -> Effect $ do
           (mrej, k) <- recvMsgRequest req
@@ -110,36 +106,35 @@ serverPeer server =
         MsgDone -> Net.Done TokDone recvMsgDone
 
 
-data HaskellClient rej m a where
+data Client rej m a where
      SendMsgRequest
-       :: SomeHaskellRequest
-       -> (Either rej a -> m (HaskellClient rej m a))
-       -> HaskellClient rej m a
+       :: SomeRequest
+       -> (Either rej a -> m (Client rej m a))
+       -> Client rej m a
 
      SendMsgDone
-       :: HaskellClient rej m a
+       :: Client rej m a
 
 runClient :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
+           . (rej ~ Text, m ~ IO, a ~ SomeReply)
           => Tracer m String
-          -> HaskellClient rej m a
+          -> Client rej m a
           -> Net.Channel IO LBS.ByteString
           -> IO ()
 runClient tracer client channel = Net.runPeer (showTracing tracer) codec peerId channel peer
   where
-    codec  = codecHaskell
     peerId = "server"
     peer   = clientPeer $ pure client
 
 clientPeer :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
-           => m (HaskellClient rej m a)
-           -> Peer (Haskell rej) AsClient StIdle m ()
+           . (rej ~ Text, m ~ IO, a ~ SomeReply)
+           => m (Client rej m a)
+           -> Peer (Piping rej) AsClient StIdle m ()
 clientPeer client =
     Effect $ go <$> client
   where
-    go :: HaskellClient rej m a
-       -> Peer (Haskell rej) AsClient StIdle m ()
+    go :: Client rej m a
+       -> Peer (Piping rej) AsClient StIdle m ()
     go (SendMsgRequest req k) =
       Yield (ClientAgency TokIdle)
             (MsgRequest req) $

@@ -3,7 +3,7 @@ with builtins;
 with pkgs.haskell;
 let
   blacklistDirs = [ ".git" "dist" "dist-newstyle" ];
-  whitelistExts = [ ".cabal" ".chs" ".hs" ];
+  whitelistExts = [ ".cabal" ".lhs" ".hs" ];
   whitelistNames = [ "COPYING" "LICENSE" ];
   overrideSrc = drv: f:
     let inherit (pkgs.haskell.lib) overrideCabal; in

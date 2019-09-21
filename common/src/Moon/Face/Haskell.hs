@@ -30,10 +30,12 @@ where
 import Algebra.Graph
 import Data.Map
 import Codec.Serialise
-import Data.Set
+import Data.Set.Monad
 import Data.String
 import Data.Text
 import GHC.Generics
+
+import Data.Orphanage ()
 
 {-------------------------------------------------------------------------------
   Generic types for externalisation
@@ -55,11 +57,11 @@ instance Serialise  Loc
 {-------------------------------------------------------------------------------
   Atomics
 -------------------------------------------------------------------------------}
-newtype IndexName   = IndexName   Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
-newtype RepoName    = RepoName    Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
-newtype PackageName = PackageName Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
-newtype ModuleName  = ModuleName  Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
-newtype DefName     = DefName     Text deriving (Serialise, Eq, Generic, IsString, Ord, Show)
+newtype IndexName   = IndexName   Text deriving (Serialise, Eq, Generic, IsString, Ord, Read, Show)
+newtype RepoName    = RepoName    Text deriving (Serialise, Eq, Generic, IsString, Ord, Read, Show)
+newtype PackageName = PackageName Text deriving (Serialise, Eq, Generic, IsString, Ord, Read, Show)
+newtype ModuleName  = ModuleName  Text deriving (Serialise, Eq, Generic, IsString, Ord, Read, Show)
+newtype DefName     = DefName     Text deriving (Serialise, Eq, Generic, IsString, Ord, Read, Show)
 
 {-------------------------------------------------------------------------------
   Composites
@@ -87,8 +89,6 @@ data Package = Package
   , pkgDeps          :: Set PackageName
   } deriving (Eq, Generic, Ord, Show)
 instance Serialise Package
-deriving instance (Generic (Graph Module))
-instance Serialise (Graph Module)
 
 data Module = Module
   { modName          :: !ModuleName

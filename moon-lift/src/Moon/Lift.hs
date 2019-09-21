@@ -7,6 +7,7 @@
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE PartialTypeSignatures      #-}
 {-# LANGUAGE PackageImports             #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
@@ -14,6 +15,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ViewPatterns               #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
@@ -27,13 +29,12 @@ module Moon.Lift
 where
 
 import           Codec.Serialise
-import           Control.Exception
 import qualified Data.ByteString                as BS
 import qualified Data.ByteString.Lazy           as LBS
 import qualified Data.Map                       as Map
 import           Data.Map                         (Map)
-import qualified Data.Set                       as Set
-import           Data.Set                         (Set)
+import qualified Data.Set.Monad                 as Set
+import           Data.Set.Monad                   (Set)
 import           Data.Text
 import           Data.Time
 import           GHC.Generics                     (Generic)
@@ -41,12 +42,16 @@ import           Options.Applicative
 
 import qualified Control.Concurrent.Chan.Unagi  as Unagi
 import qualified Control.Concurrent             as Conc
+import qualified Control.Concurrent.STM         as STM
+import           Control.Concurrent.STM           (STM, TVar, atomically)
 import           Control.Exception
 import           Control.Monad                    (forever)
 import           Control.Tracer
+import           Data.Time
 import qualified Network.WebSockets             as WS
 import           Shelly
 import           System.Environment
+import qualified System.IO.Unsafe               as Unsafe          
 
 import qualified Cardano.BM.Configuration       as BM
 import qualified Cardano.BM.Configuration.Model as BM
@@ -155,13 +160,13 @@ wsServer env@Env{envConfig=Config{..},..} = forever $ do
 
 haskellServer
   :: forall rej m a
-  . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
+  . (rej ~ Text, m ~ IO, a ~ SomeReply)
   => Env
-  -> HaskellServer rej m a
+  -> Server rej m a
 haskellServer env@Env{..} =
     server
   where
-    server = HaskellServer {
+    server = Server {
       recvMsgRequest = \req -> do
         traceWith (showTracing envTracer) req
         r <- handleRequest env req
@@ -169,30 +174,64 @@ haskellServer env@Env{..} =
     , recvMsgDone = ()
     }
 
-handleRequest :: Env -> SomeHaskellRequest -> IO (Either Text SomeHaskellReply)
-handleRequest Env{..} (SomeHaskellRequest x) = case x of
-  Indexes{}        -> pure . Right . PlyIndexes . RSet $
-    Set.fromList [Index "hackage" "https://hackage.haskell.org/" mempty]
-  Packages "hackage" -> do
-    ret <- envGetHackage
-    case ret of
-      Left e -> pure $ Left e
-      Right hackagePackages -> pure . Right . PlyPackages $ RSet hackagePackages
-  Packages (IndexName ix) -> pure . Left $ "Unhandled index: " <> ix
-  PackageRepo{}    -> pure . Left $ ""
-  RepoPackages{}   -> pure . Left $ ""
-  PackageModules{} -> pure . Left $ ""
-  ModuleDeps{}     -> pure . Left $ ""
-  ModuleDefs{}     -> pure . Left $ ""
-  DefLoc{}         -> pure . Left $ ""
+handleRequest :: Env -> SomeRequest -> IO (Either Text SomeReply)
+handleRequest Env{..} (SomeRequest x) = case x of
+  RunPipe name vs -> do
+    pipe <- atomically $ tryGetPipe name
+    putStrLn "got pipe"
+    case pipe of
+      Nothing -> pure . Left . pack $ "Unknown pipe: " <> show name
+      Just pipe -> do
+        case apply vs pipe of
+          Left e -> pure . Left $ "Pipe application error: " <> e
+          Right runnable -> do
+            res :: Either Text SomeValue <- runPipe runnable
+            case res of
+              Left e -> pure . Left $ "Pipe run error: " <> e
+              Right x -> pure . Right . SomeReply . ReplyValue $ x
+  -- x -> pure . Left . pack $ "Unhandled request: " <> show x
 
--- * Pipes
---
-pipes :: Map PipeTy Pipe
-pipes = Map.fromList
-  [ p $ defOutput TSet lsPipes
+tryGetPipe :: PipeName -> STM (Maybe Pipe)
+tryGetPipe name = Map.lookup name <$> STM.readTVar pipes
+
+listPipeNames :: Result (Set PipeName)
+listPipeNames = Right . Set.fromList . Map.keys <$> STM.readTVarIO pipes
+
+pipeSig :: PipeName -> Result Sig
+pipeSig name = do
+  pipe <- atomically $ tryGetPipe name
+  pure $ case pipe of
+    Nothing -> Left $ "Missing: " <> pack (show name)
+    Just (dSig . pDef -> d) -> Right d
+
+defCompose :: PipeName -> PipeName -> PipeName -> Result Sig
+defCompose newname lname rname = atomically $ do
+  old <- tryGetPipe newname
+  ml  <- tryGetPipe lname
+  mr  <- tryGetPipe rname
+  case (old, ml, mr) of
+    (Just _, _, _)  -> pure . Left $ "Already exists: " <> pack (show newname)
+    (_, Nothing, _) -> pure . Left $ "Missing: " <> pack (show lname)
+    (_, _, Nothing) -> pure . Left $ "Missing: " <> pack (show rname)
+    (Nothing, Just l, Just r) -> do
+      case compose l r of
+        Left err -> pure $ Left err
+        Right new -> do
+          STM.modifyTVar' pipes $
+            \m -> Map.insert newname new m
+          pure . Right . dSig . pDef $ new
+
+pipes :: TVar Pipes
+pipes = Unsafe.unsafePerformIO $ STM.newTVarIO $ Map.fromList
+  [ p $ gen "haskell-indices" TSet $ pure $ Right $ Set.fromList
+    [ IndexName "hackage" ]
+  , p $ gen "pipes" TSet $ listPipeNames
+  , p $ link "sig" TPoint TPoint $ pipeSig
   ]
-  where p x = (pipeTy x, x)
-
-lsPipes :: IO (Set PipeTy)
-lsPipes = pure $ Map.keysSet pipes
+  where p x = (pipeName x, x)
+  -- Packages "hackage"  > do
+  --   ret <- envGetHackage
+  --   case ret of
+  --     Left e -> pure $ Left e
+  --     Right hackagePackages -> pure . Right . PlyPackages $ RSet hackagePackages
+  -- Packages (IndexName ix) -> pure . Left $ "Unhandled index: " <> ix

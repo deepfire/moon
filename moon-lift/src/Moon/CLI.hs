@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 module Moon.CLI (main) where
 
@@ -17,23 +18,24 @@ import Moon.Face
 import Moon.Face.Haskell
 import Moon.Lift hiding (main)
 import Moon.Peer
+import Moon.Protocol
 
 main :: IO ()
 main = do
-  mreq <- execParser $ (info $ (optional parseHaskellRequest) <**> helper) fullDesc
+  mreq <- execParser $ (info $ (optional parseSomeRequest) <**> helper) fullDesc
   WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
     \conn -> do
       let tracer = stdoutTracer
-          req = fromMaybe (SomeHaskellRequest Indexes) mreq
-      runClient tracer (haskellClient tracer req) $ channelFromWebsocket conn
+          req = fromMaybe (SomeRequest $ RunPipe "pipes" []) mreq
+      runClient tracer (client tracer req) $ channelFromWebsocket conn
 
-haskellClient
+client
   :: forall rej m a
-  . (rej ~ Text, m ~ IO, a ~ SomeHaskellReply)
+  . (rej ~ Text, m ~ IO, a ~ SomeReply)
   => Tracer m String
-  -> SomeHaskellRequest
-  -> HaskellClient rej m a
-haskellClient tracer req = SendMsgRequest req handleReply
+  -> SomeRequest
+  -> Client rej m a
+client tracer req = SendMsgRequest req handleReply
   where
     handleReply (Left rej) = do
       putStrLn $ "error: " <> unpack rej

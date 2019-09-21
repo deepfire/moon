@@ -15,19 +15,28 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
 module Moon.Protocol
-  ( Haskell(..)
+  ( Request(..)
+  , SomeRequest(..)
+  , Reply(..)
+  , SomeReply(..)
+  , parseSomeRequest
+  , Piping(..)
   , Protocol(..)
   , Message(..)
   , ClientHasAgency(..)
   , ServerHasAgency(..)
   , NobodyHasAgency(..)
-  , codecHaskell
+  , codec
   )
 where
+
+import Debug.Trace
+import Text.Printf
 
 import qualified Algebra.Graph                    as G
 import qualified Data.ByteString                  as  BS
@@ -35,8 +44,16 @@ import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
+import           Data.Kind                          (Type)
+import           Data.List                          (intersperse)
+import           Data.Proxy                         (Proxy(..))
 import           Data.Text                          (Text)
+import           Data.Typeable                      (Typeable)
 import           GHC.Generics                       (Generic)
+import           Options.Applicative
+import           Text.Read
+import           Type.Reflection
+import qualified Type.Reflection.Unsafe           as Unsafe
 
 import qualified Codec.CBOR.Decoding              as CBOR (Decoder,  decodeListLen, decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (Encoding, encodeListLen, encodeWord)
@@ -52,111 +69,156 @@ import qualified Network.TypedProtocol.Codec      as Codec
 import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
-import Moon.Face
-import Moon.Face.Haskell
+import           Moon.Face hiding (Type)
+import qualified Moon.Face as Face
+import qualified Moon.Face.Ground as Ground
 
-instance Serialise SomeHaskellRequest where
-  encode (SomeHaskellRequest x) = case x of
-    Indexes          -> encodeListLen 1 <> encodeWord 0
-    Packages       x -> encodeListLen 2 <> encodeWord 1 <> encode x
-    PackageRepo  x y -> encodeListLen 3 <> encodeWord 2 <> encode x <> encode y
-    RepoPackages   x -> encodeListLen 2 <> encodeWord 3 <> encode x
-    PackageModules x -> encodeListLen 2 <> encodeWord 4 <> encode x
-    ModuleDeps     x -> encodeListLen 2 <> encodeWord 5 <> encode x
-    ModuleDefs     x -> encodeListLen 2 <> encodeWord 6 <> encode x
-    DefLoc         x -> encodeListLen 2 <> encodeWord 7 <> encode x
+-- import Moon.Face.Haskell
+
+--------------------------------------------------------------------------------
+-- | Request/Reply:  asks with expectance of certain type of reply.
+data Request (k :: Con) a
+  = RunPipe PipeName [SomeValue]
+
+data Reply   (k :: Con) a
+  = ReplyValue SomeValue
+
+instance Show (Request k a) where show (RunPipe n vs) = "RunPipe "    <> show n <> " " <> concat (intersperse " " (show <$> vs))
+instance Show (Reply   k a) where show (ReplyValue n) = "ReplyValue " <> show n
+
+--------------------------------------------------------------------------------
+-- | SomeRequest/SomeReploy:  serialisable form of the above.
+data SomeRequest = forall k a. SomeRequest (Request k a)
+
+data SomeReply   = forall k a. SomeReply   (Reply   k a)
+
+instance Show SomeRequest   where show (SomeRequest x) = show x
+instance Show SomeReply     where show (SomeReply   x) = show x
+
+parseSomeRequest :: Parser SomeRequest
+parseSomeRequest = subparser $ mconcat
+  [ cmd "RunPipe" $ SomeRequest
+                      <$> (RunPipe
+                             <$> (PipeName <$> opt "pipe")
+                             <*> (many (opt "arg")))
+  ]
+  where
+    cmd name p = command name $ info (p <**> helper) mempty
+    opt name   = option auto (long name)
+
+instance Read SomeValue where
+  readPrec = do
+    rtti@(Exists2 rtti') :: Some2 (RTTI2 Tag) <- readPrec
+    case trace (printf "Got RTTI with tag/rep: %s, %s" (show $ Ground.rtti2Tag rtti') (show $ Ground.rtti2Rep rtti'))
+         rtti of
+      Exists2 x ->
+        case x of
+          (y :: RTTI2 Tag k b) -> do
+            let tag' :: Tag' k = Ground.rtti2Tag y
+                str            = Ground.rtti2Rep y
+            case Ground.withGroundType str (readValue tag') of
+              Nothing -> fail $ "Not a ground type: "<> show str
+              Just x -> x
+            where readValue :: forall (k :: Con). Tag' k -> Dict GroundContext -> ReadPrec SomeValue
+                  readValue tag (Dict (p :: Proxy a)) = do
+                    case tag of
+                      TPoint' -> do
+                        v :: a <- readPrec
+                        pure $ SomeValue $ SomeKindValue $ mkValue' tag v
+                      _ -> trace (printf "Can't Read values of any types, but Point.")
+                                 (fail "")
+
+--------------------------------------------------------------------------------
+-- | Serialise instances
+
+tagSomeRequest, tagSomeReply, tagSomeValue :: Word
+tagSomeRequest = 31--415926535
+tagSomeReply   = 27--182818284
+tagSomeValue   = 16--180339887
+
+instance Serialise SomeRequest where
+  encode (SomeRequest x) = case x of
+    RunPipe x vs -> encodeListLen 3 <> encodeWord tagSomeRequest <> encode x <> encode vs
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (1, 0) -> pure $ SomeHaskellRequest Indexes
-      (2, 1) -> SomeHaskellRequest <$> (Packages       <$> decode)
-      (3, 2) -> SomeHaskellRequest <$> (PackageRepo    <$> decode <*> decode)
-      (2, 3) -> SomeHaskellRequest <$> (RepoPackages   <$> decode)
-      (2, 4) -> SomeHaskellRequest <$> (PackageModules <$> decode)
-      (2, 5) -> SomeHaskellRequest <$> (ModuleDeps     <$> decode)
-      (2, 6) -> SomeHaskellRequest <$> (ModuleDefs     <$> decode)
-      (2, 7) -> SomeHaskellRequest <$> (DefLoc         <$> decode)
-      _      -> fail $ "invalid SomeHaskellRequest encoding: len="<>show len<>" tag="<>show tag
+      (3, tagSomeRequest) -> SomeRequest <$> (RunPipe <$> decode <*> decode)
+      _ -> failLenTag len tag
 
-instance Serialise SomeHaskellReply where
-  encode = \case
-    PlyIndexes        x -> encodeListLen 2 <> encodeWord 0 <> encode (SomeReply x)
-    PlyPackages       x -> encodeListLen 2 <> encodeWord 1 <> encode (SomeReply x)
-    PlyRepoURL        x -> encodeListLen 2 <> encodeWord 2 <> encode (SomeReply x)
-    PlyRepoPackages   x -> encodeListLen 2 <> encodeWord 3 <> encode (SomeReply x)
-    PlyPackageModules x -> encodeListLen 2 <> encodeWord 4 <> encode (SomeReply x)
-    PlyModuleDeps     x -> encodeListLen 2 <> encodeWord 5 <> encode (SomeReply x)
-    PlyModuleDefs     x -> encodeListLen 2 <> encodeWord 6 <> encode (SomeReply x)
-    PlyDefLoc         x -> encodeListLen 2 <> encodeWord 7 <> encode (SomeReply x)
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (2, 0) -> (decode :: Decoder s (SomeReply Index))      >>= \case SomeReply x@(RSet  _)  -> pure (PlyIndexes        x)
-                                                                       _                      -> fail "invalid PlyIndexes"
-      (2, 1) -> (decode :: Decoder s (SomeReply PackageName))>>= \case SomeReply x@(RSet  _)  -> pure (PlyPackages       x)
-                                                                       _                      -> fail "invalid PlyPackages"
-      (2, 2) -> (decode :: Decoder s (SomeReply URL))        >>= \case SomeReply x@(RPoint _) -> pure (PlyRepoURL        x)
-                                                                       _                      -> fail "invalid PlyRepoURL"
-      (2, 3) -> (decode :: Decoder s (SomeReply PackageName))>>= \case SomeReply x@(RSet  _)  -> pure (PlyRepoPackages   x)
-                                                                       _                      -> fail "invalid PlyRepoPackages"
-      (2, 4) -> (decode :: Decoder s (SomeReply ModuleName)) >>= \case SomeReply x@(RTree _)  -> pure (PlyPackageModules x)
-                                                                       _                      -> fail "invalid PlyPackageModules"
-      (2, 5) -> (decode :: Decoder s (SomeReply Package))    >>= \case SomeReply x@(RTree _)  -> pure (PlyModuleDeps     x)
-                                                                       _                      -> fail "invalid PlyModuleDeps"
-      (2, 6) -> (decode :: Decoder s (SomeReply Package))    >>= \case SomeReply x@(RSet  _)  -> pure (PlyModuleDefs     x)
-                                                                       _                      -> fail "invalid PlyModuleDefs"
-      (2, 7) -> (decode :: Decoder s (SomeReply Loc))        >>= \case SomeReply x@(RPoint _) -> pure (PlyDefLoc         x)
-                                                                       _                      -> fail "invalid PlyDefLoc"
-      _      -> fail $ "invalid SomeHaskellReply encoding: len="<>show len<>" tag="<>show tag
-
-instance (Ord a, Serialise a) => Serialise (SomeReply a) where
+instance Serialise SomeReply where
   encode (SomeReply x) = case x of
-    RPoint x -> encodeListLen 2 <> encodeWord 0 <> encode x
-    RList  x -> encodeListLen 2 <> encodeWord 1 <> encode x
-    RSet   x -> encodeListLen 2 <> encodeWord 2 <> encode x
-    RTree  x -> encodeListLen 2 <> encodeWord 3 <> encode x
-    RDag   x -> encodeListLen 2 <> encodeWord 4 <> encode x
-    RGraph x -> encodeListLen 2 <> encodeWord 5 <> encode x
+    ReplyValue x -> encodeListLen 2 <> encodeWord tagSomeReply <> encode (x :: SomeValue)
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (2, 0) -> SomeReply . RPoint <$> decode
-      (2, 1) -> SomeReply . RList  <$> decode
-      (2, 2) -> SomeReply . RSet   <$> decode
-      (2, 3) -> SomeReply . RTree  <$> decode
-      (2, 4) -> SomeReply . RDag   <$> decode
-      (2, 5) -> SomeReply . RGraph <$> decode
-      _      -> fail $ "invalid SomeReply encoding: len="<>show len<>" tag="<>show tag
+      (2, tagSomeReply) -> SomeReply <$> (ReplyValue <$> (decode :: Decoder s SomeValue))
+      _ -> failLenTag len tag
 
-data Haskell rej
+failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
+failLenTag len tag = fail $ "invalid "<>show (typeRep @a)<>" encoding: len="<>show len<>" tag="<>show tag
+
+instance Serialise SomeValue where
+  encode sv@(SomeValue x) =
+    encodeListLen 3
+    <> encodeWord tagSomeValue
+    <> encode (someValueSomeTypeRep sv :: SomeTypeRep)
+    <> encode x
+  decode = do
+    len <- decodeListLen
+    tag <- decodeWord
+    case (len, tag) of
+      (3, tagSomeValue) -> do
+        str :: SomeTypeRep <- decode
+        case Ground.withGroundType str decodeSomeValue of
+          Nothing -> fail $ "Not a ground type: "<> show str
+          Just x -> x
+        where decodeSomeValue :: Dict GroundContext -> Decoder s SomeValue
+              decodeSomeValue (Dict (p :: Proxy a)) =
+                SomeValue <$> (decode :: Decoder s (SomeKindValue a))
+
+      _ -> failLenTag len tag
+
+instance (Ord a, Typeable a, Serialise a) => Serialise (SomeKindValue a) where
+  encode (SomeKindValue x) = case x of
+    VPoint x -> encodeListLen 2 <> encodeWord 2 <> encode x
+    VList  x -> encodeListLen 2 <> encodeWord 3 <> encode x
+    VSet   x -> encodeListLen 2 <> encodeWord 4 <> encode x
+    VTree  x -> encodeListLen 2 <> encodeWord 5 <> encode x
+    VDag   x -> encodeListLen 2 <> encodeWord 6 <> encode x
+    VGraph x -> encodeListLen 2 <> encodeWord 7 <> encode x
+  decode = do
+    len <- decodeListLen
+    tag <- decodeWord
+    case (len, tag) of
+      (2, 2) -> SomeKindValue . VPoint <$> decode
+      (2, 3) -> SomeKindValue . VList  <$> decode
+      (2, 4) -> SomeKindValue . VSet   <$> decode
+      (2, 5) -> SomeKindValue . VTree  <$> decode
+      (2, 6) -> SomeKindValue . VDag   <$> decode
+      (2, 7) -> SomeKindValue . VGraph <$> decode
+      _ -> failLenTag len tag
+
+--------------------------------------------------------------------------------
+-- | Piping: protocol tag
+data Piping rej
   = StIdle
   | StBusy
   | StDone
+  deriving (Show)
 
-deriving instance Show rej => Show (Message (Haskell rej) from to)
+instance Show (ClientHasAgency (st :: Piping rej)) where show TokIdle = "TokIdle"
+instance Show (ServerHasAgency (st :: Piping rej)) where show TokBusy = "TokBusy"
 
-instance Show (ClientHasAgency (st :: Haskell rej)) where
-  show TokIdle = "TokIdle"
-
-instance Show (ServerHasAgency (st :: Haskell rej)) where
-  show TokBusy = "TokBusy"
-
-instance Protocol (Haskell rej) where
-  data Message (Haskell rej) from to where
-    MsgRequest
-      :: SomeHaskellRequest
-      -> Message (Haskell rej) StIdle StBusy
-    MsgReply
-      :: SomeHaskellReply
-      -> Message (Haskell rej) StBusy StIdle
-    MsgBadRequest
-      :: rej
-      -> Message (Haskell rej) StBusy StIdle
-    MsgDone
-      :: Message (Haskell rej) StIdle StDone
+--------------------------------------------------------------------------------
+-- | Protocol & codec
+instance Protocol (Piping rej) where
+  data Message (Piping rej) from to where
+    MsgRequest    :: SomeRequest  -> Message (Piping rej) StIdle StBusy
+    MsgReply      :: SomeReply    -> Message (Piping rej) StBusy StIdle
+    MsgBadRequest ::          rej -> Message (Piping rej) StBusy StIdle
+    MsgDone       ::                 Message (Piping rej) StIdle StDone
 
   data ClientHasAgency st where TokIdle :: ClientHasAgency StIdle
   data ServerHasAgency st where TokBusy :: ServerHasAgency StBusy
@@ -166,62 +228,39 @@ instance Protocol (Haskell rej) where
   exclusionLemma_NobodyAndClientHaveAgency TokDone tok = case tok of {}
   exclusionLemma_NobodyAndServerHaveAgency TokDone tok = case tok of {}
 
-codecHaskell :: forall rej. (Serialise rej) =>
-  Codec (Haskell rej) CBOR.DeserialiseFailure IO LBS.ByteString
-codecHaskell =
+deriving instance Show rej => Show (Message (Piping rej) from to)
+
+codec :: forall rej. (Serialise rej) =>
+  Codec (Piping rej) CBOR.DeserialiseFailure IO LBS.ByteString
+codec =
     mkCodecCborLazyBS' enc dec
   where
     enc :: forall (pr :: PeerRole) st st'.
               PeerHasAgency pr st
-           -> Message (Haskell rej) st st'
+           -> Message (Piping rej) st st'
            -> CBOR.Encoding
-    enc (ClientAgency TokIdle) (MsgRequest r) =
-        CBOR.encodeListLen 2
-     <> CBOR.encodeWord 0
-     <> encode r
+    enc (ClientAgency TokIdle) (MsgRequest r)    = CBOR.encodeListLen 2 <> CBOR.encodeWord 0 <> encode r
+    enc (ServerAgency TokBusy) (MsgReply r)      = CBOR.encodeListLen 2 <> CBOR.encodeWord 1 <> encode r
+    enc (ServerAgency TokBusy) (MsgBadRequest t) = CBOR.encodeListLen 2 <> CBOR.encodeWord 2 <> encode t
+    enc (ClientAgency TokIdle)  MsgDone          = CBOR.encodeListLen 1 <> CBOR.encodeWord 3
 
-    enc (ServerAgency TokBusy) (MsgReply r) =
-        CBOR.encodeListLen 2
-     <> CBOR.encodeWord 1
-     <> encode r
-
-    enc (ServerAgency TokBusy) (MsgBadRequest t) =
-        CBOR.encodeListLen 2
-     <> CBOR.encodeWord 2
-     <> encode t
-
-    enc (ClientAgency TokIdle) MsgDone =
-        CBOR.encodeListLen 1
-     <> CBOR.encodeWord 3
-
-
-    dec :: forall (pr :: PeerRole) s (st :: (Haskell rej)).
+    dec :: forall (pr :: PeerRole) s (st :: (Piping rej)).
               PeerHasAgency pr st
            -> CBOR.Decoder s (SomeMessage st)
     dec stok = do
       len <- CBOR.decodeListLen
       key <- CBOR.decodeWord
       case (stok, len, key) of
-        (ClientAgency TokIdle, 2, 0) -> do
-          r <- decode
-          return (SomeMessage (MsgRequest r))
+        (ClientAgency TokIdle, 2, 0) -> SomeMessage . MsgRequest    <$> decode
+        (ServerAgency TokBusy, 2, 1) -> SomeMessage . MsgReply      <$> decode
+        (ServerAgency TokBusy, 2, 2) -> SomeMessage . MsgBadRequest <$> decode
+        (ClientAgency TokIdle, 1, 3) -> pure $ SomeMessage MsgDone
 
-        (ServerAgency TokBusy, 2, 1) -> do
-          r <- decode
-          return (SomeMessage (MsgReply r))
+        (ClientAgency TokIdle, _, _) -> fail "codec.Idle: unexpected key"
+        (ServerAgency TokBusy, _, _) -> fail "codec.Busy: unexpected key"
 
-        (ServerAgency TokBusy, 2, 2) -> do
-          reject <- decode
-          return (SomeMessage (MsgBadRequest reject))
-
-        (ClientAgency TokIdle, 1, 3) ->
-          return (SomeMessage MsgDone)
-
-        (ClientAgency TokIdle, _, _) ->
-          fail "codecHaskellMessages.Idle: unexpected key"
-        (ServerAgency TokBusy, _, _) ->
-          fail "codecHaskellMessages.Busy: unexpected key"
-
+-- * Ancillary
+--
 mkCodecCborLazyBS'
   :: forall ps m
   . m ~ IO =>
@@ -284,10 +323,3 @@ toLazyByteString :: BS.Builder -> LBS.ByteString
 toLazyByteString = BS.toLazyByteStringWith strategy LBS.empty
   where
     strategy = BS.untrimmedStrategy 800 LBS.smallChunkSize
-
-{-------------------------------------------------------------------------------
-  Orphans
--------------------------------------------------------------------------------}
-
-deriving instance Generic (G.Graph a)
-instance Serialise a => Serialise (G.Graph a) where

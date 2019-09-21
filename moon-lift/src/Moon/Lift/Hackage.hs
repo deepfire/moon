@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 
 module Moon.Lift.Hackage
   ( setupHackageCache
@@ -17,10 +19,11 @@ where
 import           Data.Default
 import qualified Data.Map                       as Map
 import           Data.Map                         (Map)
-import qualified Data.Set                       as Set
-import           Data.Set                         (Set)
+import qualified Data.Set.Monad                 as Set
+import           Data.Set.Monad                   (Set)
 import           Data.Time
 import           Data.Text
+import           GHC.Generics
 
 import           Control.Concurrent.CachedIO
 import           Network.HTTP.Req
@@ -59,3 +62,45 @@ getHackagePackageCabalDesc pkg@(PackageName pn) = do
         Left (_, es) -> pure . Left . pack $ "Errors while parsing "<>unpack pn<>".cabal: "<>(Prelude.concat $ show <$> es)
         Right x -> pure $ Right x
     resp -> pure . Left . pack $ "Hackage response code: "<>show resp
+
+ -- GenericPackageDescription
+ -- * packageDescription :: PackageDescription
+ -- * genPackageFlags    :: [Flag]
+ -- * condLibrary        :: Maybe (CondTree ConfVar [Dependency] Library)
+ -- * condSubLibraries   :: [(UnqualComponentName, CondTree ConfVar [Dependency] Library)]
+ -- * condForeignLibs    :: [(UnqualComponentName, CondTree ConfVar [Dependency] ForeignLib)]
+ -- * condExecutables    :: [(UnqualComponentName, CondTree ConfVar [Dependency] Executable)]
+ -- * condTestSuites     :: [(UnqualComponentName, CondTree ConfVar [Dependency] TestSuite)]
+ -- * condBenchmarks     :: [(UnqualComponentName, CondTree ConfVar [Dependency] Benchmark)]
+
+ -- PackageDescription
+ -- * specVersionRaw :: Either Version VersionRange
+ -- * package        :: PackageIdentifier
+ -- * licenseRaw     :: Either License License
+ -- * licenseFiles   :: [FilePath]
+ -- * copyright      :: String
+ -- * maintainer     :: String
+ -- * author         :: String
+ -- * stability      :: String
+ -- * testedWith     :: [(CompilerFlavor, VersionRange)]
+ -- * homepage       :: String
+ -- * pkgUrl         :: String
+ -- * bugReports     :: String
+ -- * sourceRepos    :: [SourceRepo]
+ -- * synopsis       :: String --  A one-line summary of this package
+ -- * description    :: String --  A more verbose description of this package
+ -- * category       :: String
+ -- * customFieldsPD :: [(String, String)] --  Custom fields starting with x-, stored in a simple assoc-list.
+ -- * buildTypeRaw   :: Maybe BuildType
+ -- * setupBuildInfo :: Maybe SetupBuildInfo
+ -- * library        :: Maybe Library
+ -- * subLibraries   :: [Library]
+ -- * executables    :: [Executable]
+ -- * foreignLibs    :: [ForeignLib]
+ -- * testSuites     :: [TestSuite]
+ -- * benchmarks     :: [Benchmark]
+ -- * dataFiles      :: [FilePath]
+ -- * dataDir        :: FilePath
+ -- * extraSrcFiles  :: [FilePath]
+ -- * extraTmpFiles  :: [FilePath]
+ -- * extraDocFiles  :: [FilePath]

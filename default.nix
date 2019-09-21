@@ -23,6 +23,9 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
 
   overrides = self: super: with pkgs.haskell.lib;
   let inherit (pkgs.haskell.lib) overrideCabal;
+      l = repo: path: cabalExtras:
+      dontCheck (doJailbreak
+      (self.callCabal2nixWithOptions repo path cabalExtras {}));
       c = owner: repo: rev: sha256: cabalExtras:
       doJailbreak
       (self.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub {
