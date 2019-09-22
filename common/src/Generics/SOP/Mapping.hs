@@ -39,7 +39,7 @@ module Generics.SOP.Mapping
   , ForgetADT
   , ForgetCtor
   , ForgetField
-  -- , collect
+  , collect
   , mapSOP
     -- * Re-exports
   , Generic
@@ -79,6 +79,7 @@ type CollectCtor  (r :: (* -> Constraint) -> [*] -> *)
                    c
                   (xs :: [*])
   =  Proxy c
+  -> Proxy u
   -> ConstructorInfo xs
   -> NP (f c) xs
   -> r c xs
@@ -96,11 +97,12 @@ type CollectField (f :: (* -> Constraint) -> * -> *)
 data ADTDesc u (c :: * -> Constraint) xss = All2 c xss => ADTDesc
   { aProxy     :: Proxy c
   , aInfo      :: DatatypeInfo xss
-  , aCtors     :: NP (CtorDesc u c) xss
+  , aCtors     :: NP (CtorDesc c) xss
   }
 
-data CtorDesc u (c :: * -> Constraint) xs = All c xs => CtorDesc
+data CtorDesc  (c :: * -> Constraint) xs = forall u. All c xs => CtorDesc
   { cProxy     :: Proxy c
+  , cProxyU    :: Proxy u
   , cInfo      :: ConstructorInfo xs
   , cFields    :: NP (FieldDesc u c) xs
   }
@@ -112,44 +114,34 @@ data FieldDesc u (c :: * -> Constraint) x = c x => FieldDesc
   }
 
 -- | Collapse typed evidence.
-type ForgetADT     g (a  :: (* -> Constraint) -> [[*]] -> *)
-                     (rf :: *)
-                      u c (xss :: [[*]])
-  =  ADTDesc     u c xss -> NP (K rf) xss -> g
+type ForgetADT   u c (xss :: [[*]]) fa
+  =  ADTDesc     u c  xss ->        fa
 
-type ForgetCtor    g (r  :: (* -> Constraint) -> [*] -> *)
-                     (ff :: *)
-                      u c (xs :: [*])
-  =  CtorDesc    u c xs -> r c xs -> NP (K ff) xs -> g
+type ForgetCtor  u c (xs :: [*])    fr
+  =  CtorDesc      c  xs  ->        fr
 
-type ForgetField   g (f :: (* -> Constraint) -> * -> *)
-                      u c (x :: *)
-  =  FieldDesc   u c x -> f c x -> g
-
--- type ForgetADT   fa u c (xss :: [[*]])
---   =  Proxy u -> Proxy cc  xss -> fa
-
--- type ForgetCtor  fr u c (xs  ::  [*])
---   =  CtorDesc       u c  xs  -> fr
-
--- type ForgetField ff u c (x   ::   *)
---   =  FieldDesc      u c  x   -> ff
+type ForgetField u c (x :: *)       ff
+  =  FieldDesc   u c  x   ->        ff
 
 -- | Collect collapsed information about a data type,
 --   as a list of per-constructor lists of per-field extractions,
 --   by mapping over typed evidence of structure, as represented
 --   by FieldDesc.
 collect
-  :: forall g u xss c
+  :: forall u c xss fa fr ff
   . ( HasDatatypeInfo u
     , Code u ~ xss
     , All2 c xss)
-  => (          All2 c xss => ForgetADT   fa a fr   u c xss)
-  -> (forall xs. All c xs  => ForgetCtor  fr   r ff u c xs)
-  -> (forall x.      c x   => ForgetField ff     f  u c x)
-  -> [[g]]
-collect forget =
-  mapSOP FieldDesc forget (Proxy @u) (Proxy @(FieldDesc u xss c))
+  => Proxy c -> Proxy u -> Proxy fr -> Proxy ff
+  -> (          All2 c xss => ForgetADT   u c xss fa)
+  -> (forall xs. All c xs  => ForgetCtor  u c xs  fr)
+  -> (forall x.      c x   => ForgetField u c x   ff)
+  -> fa
+collect c u fr ff fADT fCtor fField =
+  mapSOP c u (Proxy @(FieldDesc u)) fr ff
+         ADTDesc fADT
+         CtorDesc fCtor
+         FieldDesc fField
 
 -- | A generalised version of 'collect', which presents a choice
 --   of intermediate type, instead of settling on 'FieldDesc'.
@@ -163,26 +155,28 @@ mapSOP
   . ( Code u ~ xss
     , HasDatatypeInfo u
     , All2 c xss)
-  => (          All2 c xss => CollectADT     a r f  u c xss)
-  -> (          All2 c xss => ForgetADT   fa a fr   u c xss)
-  -> (forall xs. All c xs  => CollectCtor      r f  u c xs)
-  -> (forall xs. All c xs  => ForgetCtor  fr   r ff u c xs)
-  -> (forall x.      c x   => CollectField       f  u c x)
-  -> (forall x.      c x   => ForgetField ff     f  u c x)
-  -> Proxy c
-  -> Proxy u
-  -> Proxy fr
-  -> Proxy ff
-  -> Proxy (f c)
+  => Proxy c -> Proxy u -> Proxy f -> Proxy fr -> Proxy ff
+  -> (          All2 c xss => CollectADT a r f u c xss)
+  -> (          All2 c xss => ForgetADT        u c xss fa)
+  -> (forall xs. All c xs  => Proxy c
+                           -> Proxy u
+                           -> ConstructorInfo xs
+                           -> NP (f c) xs
+                           -> r c xs
+      -- CollectCtor  r f u c xs
+     )
+  -> (forall xs. All c xs  => ForgetCtor       u c xs  fr)
+  -> (forall x.      c x   => CollectField   f u c x)
+  -> (forall x.      c x   => ForgetField      u c x   ff)
   -> fa
-mapSOP adt   fadt
+mapSOP c u@(datatypeInfo -> dti) f _fr _ff
+       adt   fadt
        ctor  fctor
-       field ffield
-       c u@(datatypeInfo -> dti) _frff _fc =
+       field ffield =
   case dti of
     SOP.ADT _moduleName _typeName _cInfos ->
       let typed :: a c xss
-          typed = mapSum' (Proxy @c) u (Proxy @f)
+          typed = mapSum' c u f
                   adt ctor field dti
           fi :: c x => f c x -> ff
           fi = undefined
@@ -259,7 +253,7 @@ mapFields
   -> NP (GTraversal (->) (->) u) xs
   -> r c xs
 mapFields c ctor field cinfo finfos traversals =
-  ctor c cinfo $
+  ctor c (Proxy @u) cinfo $
   hcliftA2 c
   (mapField c field)
   finfos
