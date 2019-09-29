@@ -1,6 +1,6 @@
-all: cli moon
+all: cli lift
 
-cli moon:
+cli lift:
 	cabal new-build exe:$@
 	cabal new-run       $@
 

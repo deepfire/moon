@@ -1,4 +1,4 @@
-# Revision history for moon
+# Revision history for lift
 
 ## 0.1.0.0 -- YYYY-mm-dd
 

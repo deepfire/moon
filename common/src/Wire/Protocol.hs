@@ -19,7 +19,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
-module Moon.Protocol
+module Wire.Protocol
   ( Request(..)
   , SomeRequest(..)
   , Reply(..)
@@ -35,25 +35,17 @@ module Moon.Protocol
   )
 where
 
-import Debug.Trace
-import Text.Printf
-
-import qualified Algebra.Graph                    as G
 import qualified Data.ByteString                  as  BS
 import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
-import           Data.Kind                          (Type)
 import           Data.List                          (intersperse)
 import           Data.Proxy                         (Proxy(..))
-import           Data.Text                          (Text)
 import           Data.Typeable                      (Typeable)
-import           GHC.Generics                       (Generic)
 import           Options.Applicative
 import           Text.Read
 import           Type.Reflection
-import qualified Type.Reflection.Unsafe           as Unsafe
 
 import qualified Codec.CBOR.Decoding              as CBOR (Decoder,  decodeListLen, decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (Encoding, encodeListLen, encodeWord)
@@ -64,21 +56,21 @@ import           Codec.Serialise.Decoding
 import           Codec.Serialise.Encoding
 import           Control.Monad.ST                   (ST, stToIO)
 
-import qualified Network.TypedProtocol.Channel    as Net
 import qualified Network.TypedProtocol.Codec      as Codec
 import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
-import           Moon.Face hiding (Type)
-import qualified Moon.Face as Face
-import qualified Moon.Face.Ground as Ground
+import Data.Some
+import Data.RTTI
 
--- import Moon.Face.Haskell
+import Basis
+import Ground
+import Pipe
 
 --------------------------------------------------------------------------------
 -- | Request/Reply:  asks with expectance of certain type of reply.
 data Request (k :: Con) a
-  = RunPipe PipeName [SomeValue]
+  = RunPipe (Name Pipe) [SomeValue]
 
 data Reply   (k :: Con) a
   = ReplyValue SomeValue
@@ -99,7 +91,7 @@ parseSomeRequest :: Parser SomeRequest
 parseSomeRequest = subparser $ mconcat
   [ cmd "RunPipe" $ SomeRequest
                       <$> (RunPipe
-                             <$> (PipeName <$> opt "pipe")
+                             <$> (Name <$> opt "pipe")
                              <*> (many (opt "arg")))
   ]
   where
@@ -119,8 +111,8 @@ instance Read SomeValue where
             case Ground.withGroundType str (readValue tag') of
               Nothing -> fail $ "Not a ground type: "<> show str
               Just x -> x
-            where readValue :: forall (k :: Con). Tag' k -> Dict GroundContext -> ReadPrec SomeValue
-                  readValue tag (Dict (p :: Proxy a)) = do
+            where readValue :: forall (k :: Con). Tag' k -> Dict Ground -> ReadPrec SomeValue
+                  readValue tag (Dict (_a :: Proxy a)) = do
                     case tag of
                       TPoint' -> do
                         v :: a <- readPrec
@@ -143,7 +135,7 @@ instance Serialise SomeRequest where
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (3, tagSomeRequest) -> SomeRequest <$> (RunPipe <$> decode <*> decode)
+      (3, _tagSomeRequest) -> SomeRequest <$> (RunPipe <$> decode <*> decode)
       _ -> failLenTag len tag
 
 instance Serialise SomeReply where
@@ -153,7 +145,7 @@ instance Serialise SomeReply where
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (2, tagSomeReply) -> SomeReply <$> (ReplyValue <$> (decode :: Decoder s SomeValue))
+      (2, _tagSomeReply) -> SomeReply <$> (ReplyValue <$> (decode :: Decoder s SomeValue))
       _ -> failLenTag len tag
 
 failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
@@ -169,13 +161,15 @@ instance Serialise SomeValue where
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (3, tagSomeValue) -> do
+      (3, _tagSomeValue) -> do
         str :: SomeTypeRep <- decode
         case Ground.withGroundType str decodeSomeValue of
-          Nothing -> fail $ "Not a ground type: "<> show str
+          Nothing -> fail $ mconcat
+            ["Not a ground type: ", show str, "\n"
+            ,"Ground types: ", show groundTypeList]
           Just x -> x
-        where decodeSomeValue :: Dict GroundContext -> Decoder s SomeValue
-              decodeSomeValue (Dict (p :: Proxy a)) =
+        where decodeSomeValue :: Dict Ground -> Decoder s SomeValue
+              decodeSomeValue (Dict (_a :: Proxy a)) =
                 SomeValue <$> (decode :: Decoder s (SomeKindValue a))
 
       _ -> failLenTag len tag
@@ -230,8 +224,8 @@ instance Protocol (Piping rej) where
 
 deriving instance Show rej => Show (Message (Piping rej) from to)
 
-codec :: forall rej. (Serialise rej) =>
-  Codec (Piping rej) CBOR.DeserialiseFailure IO LBS.ByteString
+codec :: forall m rej. (Monad m, Serialise rej, m ~ IO) =>
+  Codec (Piping rej) CBOR.DeserialiseFailure m LBS.ByteString
 codec =
     mkCodecCborLazyBS' enc dec
   where

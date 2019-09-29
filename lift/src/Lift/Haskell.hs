@@ -8,7 +8,7 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
 
-module Moon.Lift.Haskell
+module Lift.Haskell
   ( GhcLibDir(..)
   , fileToModule)
 where
@@ -64,7 +64,9 @@ import           SrcLoc
 import           StringBuffer
 import           SysTools
 ---------------- Local
-import Moon.Face.Haskell
+import Basis
+import Ground.Hask
+import "common" Type
 
 newtype GhcLibDir = GhcLibDir FilePath deriving Show
 
@@ -97,7 +99,7 @@ fileToModule libDir hsFile = do
 
 liftHsModule dflags (L _ HsModule{..}) = Module{..}
   where
-    modName = ModuleName . pack . fromMaybe "Main" $ moduleNameString . unLoc <$> hsmodName
+    modName = Name . pack . fromMaybe "Main" $ moduleNameString . unLoc <$> hsmodName
     modDefs = Map.fromList
               [ (n, hd)
               | hd@(Def _ n _) <- catMaybes $ processHsModDeclLoc <$> hsmodDecls]
@@ -110,9 +112,9 @@ liftHsModule dflags (L _ HsModule{..}) = Module{..}
                                 (srcSpanStartCol r)
                                 (srcSpanEndCol r)
     toLoc x = error $ "Unexpected unhelpful src span: " Prelude.<> show x
-    name :: RdrName -> DefName
-    name = DefName . pack . showSDocUnsafe . ppr
-    lnam :: LRdrName -> DefName
+    name :: RdrName -> Name Def
+    name = Name . pack . showSDocUnsafe . ppr
+    lnam :: LRdrName -> Name Def
     lnam = name . unLoc
     processHsModDecl :: Loc -> HsDecl GhcPs -> Maybe Def
     processHsModDecl l = \case
@@ -133,11 +135,11 @@ liftHsModule dflags (L _ HsModule{..}) = Module{..}
       _ -> const Nothing
       -- XXX: handle more instance varieties
     processInstDecl _ = const Nothing
-    getInstanceTypeSummary :: HsType GhcPs -> Maybe DefName
+    getInstanceTypeSummary :: HsType GhcPs -> Maybe (Name Def)
     getInstanceTypeSummary HsForAllTy{hst_body}   = getInstanceTypeSummary $ unLoc hst_body
     getInstanceTypeSummary HsQualTy{hst_body}     = getInstanceTypeSummary $ unLoc hst_body
     getInstanceTypeSummary (HsTyVar _ _ idP)      = Just $ lnam idP
-    getInstanceTypeSummary (HsAppTy _ f _)        = Just . DefName $ pp $ ppr f
+    getInstanceTypeSummary (HsAppTy _ f _)        = Just . Name $ pp $ ppr f
     getInstanceTypeSummary (HsParTy _ x)          = getInstanceTypeSummary $ unLoc x
     getInstanceTypeSummary _                      = Nothing -- XXX: _lots_ dropped
     processHsBind          FunBind{fun_id}        = Just . Def Fun (lnam fun_id)

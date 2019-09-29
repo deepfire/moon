@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
@@ -11,17 +12,20 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ViewPatterns               #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
-module Moon.Lift
-  ( main
+module Lift
+  ( lift
   , defaultConfig
   , Config(..)
   , channelFromWebsocket
@@ -29,45 +33,58 @@ module Moon.Lift
 where
 
 import           Codec.Serialise
-import qualified Data.ByteString                as BS
-import qualified Data.ByteString.Lazy           as LBS
-import qualified Data.Map                       as Map
-import           Data.Map                         (Map)
-import qualified Data.Set.Monad                 as Set
-import           Data.Set.Monad                   (Set)
+import qualified Data.ByteString                  as BS
+import qualified Data.ByteString.Lazy             as LBS
+import qualified Data.Map                         as Map
+import           Data.Map                           (Map)
+import qualified Data.Set.Monad                   as Set
+import           Data.Set.Monad                     (Set)
 import           Data.Text
 import           Data.Time
-import           GHC.Generics                     (Generic)
+import           GHC.Generics                       (Generic)
+import           GHC.Types                          (Symbol)
+import           GHC.TypeLits
+import qualified GHC.TypeLits                     as Ty
 import           Options.Applicative
+import qualified Type.Reflection                  as R
 
-import qualified Control.Concurrent.Chan.Unagi  as Unagi
-import qualified Control.Concurrent             as Conc
-import qualified Control.Concurrent.STM         as STM
-import           Control.Concurrent.STM           (STM, TVar, atomically)
-import           Control.Exception
-import           Control.Monad                    (forever)
+import qualified Control.Concurrent.Chan.Unagi    as Unagi
+import qualified Control.Concurrent               as Conc
+import qualified Control.Concurrent.STM           as STM
+import           Control.Concurrent.STM             (STM, TVar, atomically)
+import           Control.Exception           hiding (TypeError)
+import           Control.Monad                      (forever)
 import           Control.Tracer
 import           Data.Time
-import qualified Network.WebSockets             as WS
+import qualified Network.WebSockets               as WS
 import           Shelly
 import           System.Environment
-import qualified System.IO.Unsafe               as Unsafe          
+import qualified System.IO.Unsafe                 as Unsafe
+import qualified Unsafe.Coerce                    as Unsafe
 
-import qualified Cardano.BM.Configuration       as BM
-import qualified Cardano.BM.Configuration.Model as BM
-import qualified Cardano.BM.Setup               as BM
-import qualified Cardano.BM.Backend.Switchboard as BM
-import qualified Cardano.BM.Trace               as BM
+import qualified Cardano.BM.Configuration         as BM
+import qualified Cardano.BM.Configuration.Model   as BM
+import qualified Cardano.BM.Setup                 as BM
+import qualified Cardano.BM.Backend.Switchboard   as BM
+import qualified Cardano.BM.Trace                 as BM
 
-import qualified Network.TypedProtocol.Channel  as Net
+import qualified Network.TypedProtocol.Channel    as Net
 
-import           Moon.Face
-import           Moon.Face.Haskell
-import           Moon.Protocol
-import           Moon.Peer
-import           Moon.Pipe
-import           Moon.Lift.Hackage
-import           Moon.Lift.Haskell
+import           Generics.SOP.Some
+import qualified Generics.SOP.Some                as SOP
+
+
+import Basis
+import Ground
+import Ground.Hask
+import qualified Ground.Hask as Hask
+import Namespace
+import Pipe
+import Wire.Peer
+import Wire.Protocol
+
+import Lift.Hackage
+import Lift.Haskell
 
 
 data ConfigPhase
@@ -104,8 +121,8 @@ defaultConfig = Config
   , cfHackageTmo = fromInteger 3600
   }
 
-main :: IO ()
-main = do
+lift :: IO ()
+lift = do
   -- establish config
   let preConfig@Config{..} = defaultConfig
   monitoring <- cfMonitoring
@@ -124,12 +141,12 @@ data Env =
   , envTrace       :: !(BM.Trace IO Text)
   , envSwitchboard :: !(BM.Switchboard Text)
   , envTracer      :: !(Tracer IO String)
-  , envGetHackage  :: !(IO (Either Text (Set PackageName)))
+  , envGetHackage  :: !(IO (Either Text (Set (Name Package))))
   }
 
 finalise :: Config Final -> IO Env
 finalise envConfig@Config{..} = do
-  (envTrace, envSwitchboard) <- BM.setupTrace_ cfMonitoring "moon"
+  (envTrace, envSwitchboard) <- BM.setupTrace_ cfMonitoring "lift"
   envGetHackage <- setupHackageCache cfHackageTmo
   let envTracer = stdoutTracer
   pure Env{..}
@@ -191,20 +208,20 @@ handleRequest Env{..} (SomeRequest x) = case x of
               Right x -> pure . Right . SomeReply . ReplyValue $ x
   -- x -> pure . Left . pack $ "Unhandled request: " <> show x
 
-tryGetPipe :: PipeName -> STM (Maybe Pipe)
+tryGetPipe :: Name Pipe -> STM (Maybe Pipe)
 tryGetPipe name = Map.lookup name <$> STM.readTVar pipes
 
-listPipeNames :: Result (Set PipeName)
+listPipeNames :: Result (Set (Name Pipe))
 listPipeNames = Right . Set.fromList . Map.keys <$> STM.readTVarIO pipes
 
-pipeSig :: PipeName -> Result Sig
-pipeSig name = do
+pipeSigPipe :: Name Pipe -> Result Sig
+pipeSigPipe name = do
   pipe <- atomically $ tryGetPipe name
   pure $ case pipe of
     Nothing -> Left $ "Missing: " <> pack (show name)
-    Just (dSig . pDef -> d) -> Right d
+    Just (pipeSig -> d) -> Right d
 
-defCompose :: PipeName -> PipeName -> PipeName -> Result Sig
+defCompose :: Name Pipe -> Name Pipe -> Name Pipe -> Result Sig
 defCompose newname lname rname = atomically $ do
   old <- tryGetPipe newname
   ml  <- tryGetPipe lname
@@ -219,15 +236,46 @@ defCompose newname lname rname = atomically $ do
         Right new -> do
           STM.modifyTVar' pipes $
             \m -> Map.insert newname new m
-          pure . Right . dSig . pDef $ new
+          pure . Right . pipeSig $ new
+
+-- * We need to consider:
+--   1. context that establishes tf tt
+--   2. context that is captured by the accessors
+
+-- link
+--   :: forall kf tf kt tt
+--   . ( Typeable (Repr kf tf), Typeable (Repr kt tt)
+--     , Typeable kf, GroundContext tf, Typeable kt, GroundContext tt)
+--   => PipeName
+--   ->   Tag kf tf ->          Tag kt tt
+--   -> (Repr kf tf -> Result (Repr kt tt))
+--   -> Pipe
+
+haskSpace :: Space Point Pipe
+haskSpace =
+  mempty
+  & insertScopeAt mempty
+    (Scope "foo" mempty)
+  & attachScopes mempty []
+
+pipeSpaceMeta :: Space Point Pipe
+pipeSpaceMeta =
+  mempty
+  & insertScopeAt mempty
+    (pipeScope ""
+     [ gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
+       Index  "hackage" "https://hackage.haskell.org/" mempty
+     , gen "pipes" TSet $ listPipeNames
+     , link "sig" TPoint TPoint $ pipeSigPipe
+     ])
 
 pipes :: TVar Pipes
-pipes = Unsafe.unsafePerformIO $ STM.newTVarIO $ Map.fromList
-  [ p $ gen "haskell-indices" TSet $ pure $ Right $ Set.fromList
-    [ IndexName "hackage" ]
-  , p $ gen "pipes" TSet $ listPipeNames
-  , p $ link "sig" TPoint TPoint $ pipeSig
-  ]
+pipes = Unsafe.unsafePerformIO $ STM.newTVarIO $ Map.fromList $
+  [ p . gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
+        Index  "hackage" "https://hackage.haskell.org/" mempty
+  , p $ 
+  , p $ 
+  ] <> (p <$> dataProjPipes (Proxy @Hask.Index))
   where p x = (pipeName x, x)
   -- Packages "hackage"  > do
   --   ret <- envGetHackage

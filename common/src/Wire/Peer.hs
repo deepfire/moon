@@ -19,7 +19,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
-module Moon.Peer
+module Wire.Peer
   ( Server(..)
   , runServer
   , Client(..)
@@ -27,35 +27,18 @@ module Moon.Peer
   )
 where
 
-import qualified Algebra.Graph                    as G
-import qualified Data.ByteString                  as  BS
-import qualified Data.ByteString.Builder          as  BS
-import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
-import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
-import           Data.Text                          (Text)
-import           GHC.Generics                       (Generic)
 
-import qualified Codec.CBOR.Decoding              as CBOR (Decoder,  decodeListLen, decodeWord)
-import qualified Codec.CBOR.Encoding              as CBOR (Encoding, encodeListLen, encodeWord)
-import qualified Codec.CBOR.Read                  as CBOR
-import qualified Codec.CBOR.Write                 as CBOR
 import           Codec.Serialise
-import           Codec.Serialise.Decoding
-import           Codec.Serialise.Encoding
-import           Control.Exception
-import           Control.Monad.ST                   (ST, stToIO)
 import           Control.Tracer
 
 import qualified Network.TypedProtocol.Channel    as Net
-import qualified Network.TypedProtocol.Codec      as Codec
 import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
-import           Network.TypedProtocol.Core         (Peer(..), Protocol(..))
+import           Network.TypedProtocol.Core         (Peer(..))
 import qualified Network.TypedProtocol.Core       as Net
 import qualified Network.TypedProtocol.Driver     as Net
 
-import Moon.Face
-import Moon.Protocol
+import Wire.Protocol
 
 
 data Server rej m a =
@@ -67,7 +50,7 @@ data Server rej m a =
      }
 
 runServer :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeReply)
+           . (Monad m, Serialise rej, Show rej, m ~ IO, a ~ SomeReply)
           => Tracer m String
           -> Server rej m a
           -> Net.Channel IO LBS.ByteString
@@ -78,7 +61,7 @@ runServer tracer server channel = Net.runPeer (showTracing tracer) codec peerId 
     peer   = serverPeer $ pure server
 
 serverPeer :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeReply)
+           . (m ~ IO, a ~ SomeReply)
            => m (Server rej m a)
            -> Peer (Piping rej) AsServer StIdle m ()
 serverPeer server =
@@ -116,18 +99,18 @@ data Client rej m a where
        :: Client rej m a
 
 runClient :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeReply)
+           . (Monad m, Serialise rej, Show rej, a ~ SomeReply, m ~ IO)
           => Tracer m String
-          -> Client rej m a
-          -> Net.Channel IO LBS.ByteString
-          -> IO ()
+          -> m (Client rej m a)
+          -> Net.Channel m LBS.ByteString
+          -> m ()
 runClient tracer client channel = Net.runPeer (showTracing tracer) codec peerId channel peer
   where
     peerId = "server"
-    peer   = clientPeer $ pure client
+    peer   = clientPeer client
 
 clientPeer :: forall rej m a
-           . (rej ~ Text, m ~ IO, a ~ SomeReply)
+           . (Monad m, a ~ SomeReply)
            => m (Client rej m a)
            -> Peer (Piping rej) AsClient StIdle m ()
 clientPeer client =
@@ -136,11 +119,10 @@ clientPeer client =
     go :: Client rej m a
        -> Peer (Piping rej) AsClient StIdle m ()
     go (SendMsgRequest req k) =
-      Yield (ClientAgency TokIdle)
-            (MsgRequest req) $
-      Await (ServerAgency TokBusy) $ \msg -> case msg of
-        MsgReply      rep -> Effect (go <$> k (Right rep))
-        MsgBadRequest rej -> Effect (go <$> k (Left  rej))
+      Yield (ClientAgency TokIdle) (MsgRequest req) $
+        Await (ServerAgency TokBusy) $ \msg -> case msg of
+          MsgReply      rep -> Effect (go <$> k (Right rep))
+          MsgBadRequest rej -> Effect (go <$> k (Left  rej))
 
     go SendMsgDone =
       Yield (ClientAgency TokIdle)

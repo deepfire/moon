@@ -1,4 +1,5 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
@@ -6,10 +7,11 @@
 {-# LANGUAGE PackageImports             #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 
-module Moon.Lift.Hackage
+module Lift.Hackage
   ( setupHackageCache
   , PackageCabalDesc
   , getHackagePackageCabalDesc
@@ -33,26 +35,43 @@ import           System.Process
 import qualified Distribution.Hackage.DB        as Hackage
 import qualified Distribution.Types.PackageName as Cabal
 import qualified Distribution.PackageDescription.Parsec as Cabal
-import qualified Distribution.Types.GenericPackageDescription
+import qualified Distribution.Types.GenericPackageDescription as Cabal
 
-import Moon.Face
-import Moon.Face.Haskell
+import Basis
+import Ground
+import Ground.Hask
+import Namespace
+import Pipe
+import "common" Type
 
-setupHackageCache :: NominalDiffTime -> IO (IO (Either Text (Set PackageName)))
+spacePipe :: QName (Scope Point Pipe) -> Space Point Pipe
+spacePipe graft = mempty
+  & attachScopes (graft)
+      [ scope "Hackage"
+        [ p . gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
+          Index  "hackage" "https://hackage.haskell.org/" mempty
+        ]
+      ]
+  & attachScopes (graft |> "Hask")
+      [
+      ]
+ where p x = (pipeName x, x)
+
+setupHackageCache :: NominalDiffTime -> IO (IO (Either Text (Set (Name Package))))
 setupHackageCache cacheTmo = cachedIO cacheTmo $ do
   code <- system "cabal new-update"
   case code of
     ExitSuccess -> do
       tarball <- Hackage.hackageTarball
-      Right . Set.fromList . (PackageName . pack . Cabal.unPackageName <$>) . Map.keys
+      Right . Set.fromList . (Name . pack . Cabal.unPackageName <$>) . Map.keys
         <$> Hackage.readTarball Nothing tarball
     ExitFailure x -> do
       pure . Left . pack $ "'cabal update' exit status: " <> show x
 
-type PackageCabalDesc = Distribution.Types.GenericPackageDescription.GenericPackageDescription
+type PackageCabalDesc = Cabal.GenericPackageDescription
 
-getHackagePackageCabalDesc :: PackageName -> IO (Either Text PackageCabalDesc)
-getHackagePackageCabalDesc pkg@(PackageName pn) = do
+getHackagePackageCabalDesc :: (Name Package) -> IO (Either Text PackageCabalDesc)
+getHackagePackageCabalDesc pkg@(Name pn) = do
   r <- runReq def $
        req GET (https "hackage.haskell.org" /~ ("package" :: String) /~ pn /~ (pn <> ".cabal")) NoReqBody bsResponse mempty
   case responseStatusCode r of

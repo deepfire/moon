@@ -1,5 +1,5 @@
 cabal-version:       2.4
-name:                moon-lift
+name:                lift
 version:             0.1.0.0
 synopsis:            Experiments
 homepage:            https://github.com/deepfire/moon
@@ -12,10 +12,11 @@ extra-source-files:  CHANGELOG.md
 
 library
   exposed-modules:
-                       Moon.CLI
-                       Moon.Lift
-                       Moon.Lift.Haskell
-                       Moon.Lift.Hackage
+                       CLI
+                       Lift
+                       Lift.Haskell
+                       Lift.Hackage
+                       TUI
   build-depends:       common
 
                      , base
@@ -33,6 +34,7 @@ library
                      , generic-monoid
                      , ghc
                      , ghc-boot
+                     , ghc-prim
                      , hackage-db
                      , iohk-monitoring
                      , optparse-applicative
@@ -49,24 +51,38 @@ library
                      , unagi-chan
                      , websockets
 
+                     , async
+                     , brick
+                     , brick-filetree
+                     , comonad
+                     , free
+                     , vector
+                     , vty
                      , zeromq4-haskell
-                     
+
   hs-source-dirs:      src
   default-language:    Haskell2010
 
   ghc-options:       -O0
 
-executable moon
+executable lift
   default-language:    Haskell2010
   hs-source-dirs:      .
-  main-is:             Main.hs
+  main-is:             MainLift.hs
   build-depends:       common
-                     , moon-lift
+                     , lift
                      , base
 
 executable cli
   default-language:    Haskell2010
   hs-source-dirs:      .
-  main-is:             CLI.hs
-  build-depends:       moon-lift
+  main-is:             MainCLI.hs
+  build-depends:       lift
+                     , base
+
+executable tui
+  default-language:    Haskell2010
+  hs-source-dirs:      .
+  main-is:             MainTUI.hs
+  build-depends:     , lift
                      , base

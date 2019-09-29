@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE OverloadedStrings          #-}
 
-module Moon.CLI (main) where
+module CLI (cli) where
 
 import           Codec.Serialise
 import           Control.Tracer
@@ -14,14 +14,14 @@ import qualified Network.WebSockets             as WS
 import           Options.Applicative
 import           Options.Applicative.Common
 
-import Moon.Face
-import Moon.Face.Haskell
-import Moon.Lift hiding (main)
-import Moon.Peer
-import Moon.Protocol
+import Basis
+import Ground.Hask
+import Lift
+import Wire.Peer
+import Wire.Protocol
 
-main :: IO ()
-main = do
+cli :: IO ()
+cli = do
   mreq <- execParser $ (info $ (optional parseSomeRequest) <**> helper) fullDesc
   WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
     \conn -> do
@@ -34,8 +34,8 @@ client
   . (rej ~ Text, m ~ IO, a ~ SomeReply)
   => Tracer m String
   -> SomeRequest
-  -> Client rej m a
-client tracer req = SendMsgRequest req handleReply
+  -> m (Client rej m a)
+client tracer req = pure $ SendMsgRequest req handleReply
   where
     handleReply (Left rej) = do
       putStrLn $ "error: " <> unpack rej

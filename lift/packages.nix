@@ -21,12 +21,12 @@ let
              ];
   localPackages  = with ghc; with pkgs.lib; with builtins; {};
   final-default  = ghc.callPackage default localPackages;
-  final-inferred = ghc.callCabal2nix "moon-lift" ./. {};
+  final-inferred = ghc.callCabal2nix "lift" ./. {};
   final          = filterSrc pkgs final-inferred;
 in {
   inherit ghc;
 
-  moon-lift = final-inferred;
+  lift = final-inferred;
 
   shell     = ghc.shellFor {
     packages    = p: [final-inferred];

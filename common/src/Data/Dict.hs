@@ -11,13 +11,10 @@ module Data.Dict
   )
 where
 
-import           Codec.Serialise
 import           Data.Kind                          (Constraint, Type)
 import qualified Data.Map                         as Map
 import           Data.Proxy                         (Proxy(..))
-import           Data.Typeable                      (Typeable)
-import           Type.Reflection                    (SomeTypeRep, someTypeRep)
-import qualified Type.Reflection.Unsafe           as Unsafe
+import           Type.Reflection                    (SomeTypeRep, Typeable, someTypeRep)
 
 
 data Dict  (c :: Type -> Constraint) =
