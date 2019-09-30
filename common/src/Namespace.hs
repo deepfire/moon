@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
@@ -19,9 +20,12 @@ module Namespace
   , attachScopes
   , scopeAt
   , childScopeNamesAt
-  , Scope(..)
+  , lookupSpace
+  , Scope
   , emptyScope
   , scope
+  , lookupScope
+  , withQScopeName
   -- * Re-exports
   , module Type
   )
@@ -30,6 +34,9 @@ where
 import qualified Algebra.Graph.AdjacencyMap       as GA
 import qualified Data.Map                         as Map
 import qualified Data.Set                         as Set'
+import qualified Data.Sequence                    as Seq
+
+import qualified Unsafe.Coerce                    as Unsafe
 
 import Basis
 import Type
@@ -116,8 +123,8 @@ attachScopes sub scopes ns =
  where
   names = append sub . sName <$> scopes
 
-scopeAt :: Space k a -> QName (Scope k a) -> Maybe (Scope k a)
-scopeAt ns q = Map.lookup q (nsMap ns)
+scopeAt :: QName (Scope k a) -> Space k a -> Maybe (Scope k a)
+scopeAt q ns = Map.lookup q (nsMap ns)
 
 childScopeNamesAt :: QName (Scope k a) -> Space k a -> [QName (Scope k a)]
 childScopeNamesAt q ns =
@@ -125,6 +132,12 @@ childScopeNamesAt q ns =
 
 _checkBusy :: QName (Scope k a) -> Space k a -> Bool
 _checkBusy name ns = Map.member name (nsMap ns)
+
+lookupSpace :: QName a -> Space k a -> Maybe (Repr k a)
+lookupSpace n s = withQScopeName n $
+  \scopeName -> \case
+    Nothing   -> Nothing
+    Just name -> join $ lookupScope name <$> scopeAt scopeName s
 
 
 data Scope k a = Scope
@@ -144,3 +157,15 @@ emptyScope = flip Scope mempty
 
 scope :: Name (Scope k a) -> [(Name a, Repr k a)] -> Scope k a
 scope name = Scope name . Map.fromList
+
+lookupScope :: Name a -> Scope k a -> Maybe (Repr k a)
+lookupScope n s = Map.lookup n (sMap s)
+
+-- | Interpret a QName into its scope and name components.
+withQScopeName :: QName a -> (QName (Scope k a) -> Maybe (Name a) -> b) -> b
+withQScopeName (QName ns) f
+  | Seq.Empty           <- ns = f mempty     Nothing
+  | Seq.Empty Seq.:|> x <- ns = f mempty     (Just x)
+  | xs Seq.:|> x        <- ns = f (QName $ coerceName <$> xs) (Just x)
+  where coerceName :: Name a -> Name b
+        coerceName = Unsafe.unsafeCoerce

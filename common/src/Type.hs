@@ -16,6 +16,7 @@
 module Type
   ( Name(..)
   , QName(..)
+  , qname
   , append
   , prepend
   , (<|), (|>)
@@ -69,6 +70,9 @@ instance Semigroup (QName a) where
 
 instance Monoid (QName a) where
   mempty = QName mempty
+
+qname :: Name a -> QName a
+qname = QName . Seq.singleton
 
 append, (|>) :: QName a -> Name a -> QName a
 append (QName xs) x = QName $ xs Seq.|> x

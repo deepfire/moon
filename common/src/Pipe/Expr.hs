@@ -43,7 +43,7 @@ data Expr where
     { vX  :: SomeValue
     } -> Expr
   PPipe ::
-    { pP  :: Pipe
+    { pP  :: SomePipe
     } -> Expr
   PApp ::
     { apF :: Expr
@@ -56,7 +56,7 @@ data Expr where
   deriving (Show)
 
 parse
-  :: (QName Pipe -> Either Text Pipe)
+  :: (QName Pipe -> Either Text SomePipe)
   -> Text
   -> Either Text Expr
 parse lookupPipe s =
@@ -69,7 +69,7 @@ parser
   . ( e ~ Text
     , Monad m
     , TokenParsing m)
-  => (QName Pipe -> Either e Pipe)
+  => (QName Pipe -> Either e SomePipe)
   -> m (Either e Expr)
 parser lookupPipe =
   buildExpressionParser table term

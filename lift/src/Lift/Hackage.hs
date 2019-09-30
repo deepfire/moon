@@ -15,6 +15,8 @@ module Lift.Hackage
   ( setupHackageCache
   , PackageCabalDesc
   , getHackagePackageCabalDesc
+    -- * Namespace
+  , Lift.Hackage.spacePipe
   )
 where
 
@@ -44,18 +46,14 @@ import Namespace
 import Pipe
 import "common" Type
 
-spacePipe :: QName (Scope Point Pipe) -> Space Point Pipe
+spacePipe :: QName (Scope Point SomePipe) -> Space Point SomePipe
 spacePipe graft = mempty
   & attachScopes (graft)
-      [ scope "Hackage"
-        [ p . gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
+      [ pipeScope "Hackage"
+        [ gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
           Index  "hackage" "https://hackage.haskell.org/" mempty
         ]
       ]
-  & attachScopes (graft |> "Hask")
-      [
-      ]
- where p x = (pipeName x, x)
 
 setupHackageCache :: NominalDiffTime -> IO (IO (Either Text (Set (Name Package))))
 setupHackageCache cacheTmo = cachedIO cacheTmo $ do

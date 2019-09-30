@@ -59,7 +59,6 @@ import           Data.Time
 import qualified Network.WebSockets               as WS
 import           Shelly
 import           System.Environment
-import qualified System.IO.Unsafe                 as Unsafe
 import qualified Unsafe.Coerce                    as Unsafe
 
 import qualified Cardano.BM.Configuration         as BM
@@ -78,13 +77,11 @@ import Basis
 import Ground
 import Ground.Hask
 import qualified Ground.Hask as Hask
+import Lift.Pipe
 import Namespace
 import Pipe
 import Wire.Peer
 import Wire.Protocol
-
-import Lift.Hackage
-import Lift.Haskell
 
 
 data ConfigPhase
@@ -208,18 +205,6 @@ handleRequest Env{..} (SomeRequest x) = case x of
               Right x -> pure . Right . SomeReply . ReplyValue $ x
   -- x -> pure . Left . pack $ "Unhandled request: " <> show x
 
-tryGetPipe :: Name Pipe -> STM (Maybe Pipe)
-tryGetPipe name = Map.lookup name <$> STM.readTVar pipes
-
-listPipeNames :: Result (Set (Name Pipe))
-listPipeNames = Right . Set.fromList . Map.keys <$> STM.readTVarIO pipes
-
-pipeSigPipe :: Name Pipe -> Result Sig
-pipeSigPipe name = do
-  pipe <- atomically $ tryGetPipe name
-  pure $ case pipe of
-    Nothing -> Left $ "Missing: " <> pack (show name)
-    Just (pipeSig -> d) -> Right d
 
 defCompose :: Name Pipe -> Name Pipe -> Name Pipe -> Result Sig
 defCompose newname lname rname = atomically $ do
@@ -251,30 +236,10 @@ defCompose newname lname rname = atomically $ do
 --   -> (Repr kf tf -> Result (Repr kt tt))
 --   -> Pipe
 
-haskSpace :: Space Point Pipe
-haskSpace =
-  mempty
-  & insertScopeAt mempty
-    (Scope "foo" mempty)
-  & attachScopes mempty []
-
-pipeSpaceMeta :: Space Point Pipe
-pipeSpaceMeta =
-  mempty
-  & insertScopeAt mempty
-    (pipeScope ""
-     [ gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
-       Index  "hackage" "https://hackage.haskell.org/" mempty
-     , gen "pipes" TSet $ listPipeNames
-     , link "sig" TPoint TPoint $ pipeSigPipe
-     ])
-
 pipes :: TVar Pipes
 pipes = Unsafe.unsafePerformIO $ STM.newTVarIO $ Map.fromList $
   [ p . gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
         Index  "hackage" "https://hackage.haskell.org/" mempty
-  , p $ 
-  , p $ 
   ] <> (p <$> dataProjPipes (Proxy @Hask.Index))
   where p x = (pipeName x, x)
   -- Packages "hackage"  > do

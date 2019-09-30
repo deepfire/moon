@@ -16,6 +16,7 @@ library
                        Lift
                        Lift.Haskell
                        Lift.Hackage
+                       Lift.Pipe
                        TUI
   build-depends:       common
 

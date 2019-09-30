@@ -2,15 +2,20 @@
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
-{-# LANGUAGE PackageImports             #-}
 {-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE PackageImports             #-}
 {-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeInType                 #-}
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
 
 module Lift.Haskell
   ( GhcLibDir(..)
-  , fileToModule)
+  , fileToModule
+    -- * Namespace
+  , spacePipeData
+  )
 where
 
 ---------------- Pure
@@ -66,9 +71,22 @@ import           SysTools
 ---------------- Local
 import Basis
 import Ground.Hask
+import Namespace
+import Pipe
 import "common" Type
 
 newtype GhcLibDir = GhcLibDir FilePath deriving Show
+
+spacePipeData :: QName (Scope Point SomePipe) -> Space Point SomePipe
+spacePipeData graft = mempty
+  & attachScopes (graft |> "Hask")
+      [ dataProjScopeG $ Proxy @Index
+      , dataProjScopeG $ Proxy @Repo
+      , dataProjScopeG $ Proxy @Package
+      , dataProjScopeG $ Proxy @Module
+      , dataProjScopeG $ Proxy @Def
+      , dataProjScopeG $ Proxy @DefType
+      ]
 
 fileToHsModule
   :: GhcLibDir

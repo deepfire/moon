@@ -43,6 +43,7 @@ module Generics.SOP.Some
   , SomeAccessors(..)
   , Accessors(..)
     -- * Re-exports
+  , And
   , Code
   , Generic
   , HasDatatypeInfo
@@ -143,7 +144,7 @@ mkField (FieldDesc _c (FieldInfo name) getter) =
         (someTypeRep $ Proxy @x)
         (SomeAccessors (Accessors getter undefined))
 
-data SomeAccessors (c :: Type -> Constraint) u = forall a. c a => SomeAccessors
+data SomeAccessors (c :: Type -> Constraint) u = forall a. (c a, Typeable a) => SomeAccessors
   { access      :: !(Accessors u c a)
   }
 

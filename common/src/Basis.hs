@@ -11,6 +11,7 @@ module Basis
   , module Data.String
   , module Data.Text
   , module Debug.Trace
+  , module Generics.SOP
   , module Text.Printf
   , module Text.Read
   , module Type.Reflection
@@ -35,6 +36,7 @@ import Data.Set.Monad        (Set)
 import Data.String           (IsString)
 import Data.Text             (Text, pack, unpack)
 import Debug.Trace           (trace)
+import Generics.SOP          (All, All2, Top)
 import Text.Printf           (printf)
 import Text.Read             (Read(..))
 import Type.Reflection       (TypeRep, SomeTypeRep, someTypeRep, typeRep)

@@ -20,6 +20,8 @@ module Ground
   , module Ground.Hask
   -- * ...
   , groundTypeList
+    -- * Namespace
+  , spacePipe
   )
 where
 
@@ -37,27 +39,18 @@ import Ground.Hask
 import qualified Ground.Hask as Hask
 import Namespace
 import Pipe hiding (link)
-import Pipe.Types
 import Type
 
 
--- * Ground API
---
-spacePipe :: QName (Scope Point Pipe) -> Space Point Pipe
+spacePipe :: QName (Scope Point SomePipe) -> Space Point SomePipe
 spacePipe graft = mempty
   & attachScopes (graft)
-      [ dataProjScope $ Proxy @Con
-      , dataProjScope $ Proxy @Expr
-      ]
-  & attachScopes (graft |> "Hask")
-      [ dataProjScope $ Proxy @Hask.Index
-      , dataProjScope $ Proxy @Hask.Repo
-      , dataProjScope $ Proxy @Hask.Package
-      , dataProjScope $ Proxy @Hask.Module
-      , dataProjScope $ Proxy @Hask.Def
-      , dataProjScope $ Proxy @Hask.DefType
+      [ dataProjScopeG $ Proxy @Con
+      -- , dataProjScope  $ Proxy @Expr
       ]
 
+-- * Ground API
+--
 lookup :: SomeTypeRep -> Maybe (Dict Ground)
 lookup = Dict.lookup groundTypes
 

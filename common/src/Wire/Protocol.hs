@@ -70,7 +70,7 @@ import Pipe
 --------------------------------------------------------------------------------
 -- | Request/Reply:  asks with expectance of certain type of reply.
 data Request (k :: Con) a
-  = RunPipe (Name Pipe) [SomeValue]
+  = RunPipe (Name SomePipe) [SomeValue]
 
 data Reply   (k :: Con) a
   = ReplyValue SomeValue

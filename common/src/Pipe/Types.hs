@@ -1,5 +1,7 @@
+{-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE RankNTypes                 #-}
@@ -9,9 +11,12 @@
 {-# LANGUAGE ViewPatterns               #-}
 
 module Pipe.Types
-  ( Pipe(..)
+  ( SomePipe(..)
+  , Pipe(..)
   , showPipe
   , showPipeP
+  , somePipeName
+  , somePipeSig
   , Sig(..)
   , Struct(..)
   , Result
@@ -30,18 +35,32 @@ import Basis
 import Type
 
 --------------------------------------------------------------------------------
--- | Pipe: a concrete, runnable 'Def'-inition.
-data Pipe = forall (k :: Con) (a :: *)
-  . (Ground a, Typeable k)
-  => Pipe
-  { pipeName :: Name Pipe
-  , pipeSig  :: Sig
-  , _pStruct :: Struct
-  , _pTo     :: Tag k a
-  , _pDyn    :: Dynamic -- ^ A wrapped 'PipeFun'.
-  }
+data SomePipe
+  = forall c. c ~ Ground => G (Pipe c)
+  | forall c. c ~ Top    => T (Pipe c)
 
-showPipe, showPipeP :: Pipe -> Text
+somePipeName :: SomePipe -> Name SomePipe
+somePipeName (G Pipe{pipeName=Name n}) = Name n
+somePipeName (T Pipe{pipeName=Name n}) = Name n
+
+somePipeSig :: SomePipe -> Sig
+somePipeSig (G Pipe{pipeSig}) = pipeSig
+somePipeSig (T Pipe{pipeSig}) = pipeSig
+
+-- | Pipe: a concrete, runnable 'Def'-inition.
+data Pipe (c :: * -> Constraint) where
+  Pipe
+    :: forall (k :: Con) (a :: *) (c :: * -> Constraint)
+    . (Typeable k, c a)
+    =>
+    { pipeName :: Name Pipe
+    , pipeSig  :: Sig
+    , pStruct :: Struct
+    , pTo     :: Tag k a
+    , pDyn    :: Dynamic -- ^ A wrapped 'PipeFun'.
+    } -> Pipe c
+
+showPipe, showPipeP :: Pipe c -> Text
 showPipe (PAny name sig _ _) = pack $ show name <>" :: "<>show sig
 showPipeP x = "("<>showPipe x<>")"
 
@@ -66,20 +85,24 @@ newtype Struct = Struct (G.Graph Type) deriving (Eq, Generic, Ord, Show)
 type Result a = IO (Either Text a)
 
 --------------------------------------------------------------------------------
-pattern PGen  :: Name Pipe -> Struct -> Dynamic ->         Type -> Pipe
+pattern PGen  :: Name Pipe -> Struct -> Dynamic ->         Type -> Pipe c
 pattern PGen  n st dy    so <- Pipe n (Gen     so) st _ dy
 
-pattern PLink :: Name Pipe -> Struct -> Dynamic -> Type -> Type -> Pipe
+pattern PLink :: Name Pipe -> Struct -> Dynamic -> Type -> Type -> Pipe c
 pattern PLink n st dy si so <- Pipe n (Link si so) st _ dy
 
-pattern PAny  :: Name Pipe -> Struct -> Dynamic ->         Type -> Pipe
+pattern PAny  :: Name Pipe -> Struct -> Dynamic ->         Type -> Pipe c
 pattern PAny  n st dy    so <- Pipe n (sOut -> so) st _ dy
 
 {-------------------------------------------------------------------------------
   Boring.
 -------------------------------------------------------------------------------}
-instance Show Pipe where
-  show p = "Pipe "<>show (pipeName p)<>" "<>show (pipeSig p)
+instance Show SomePipe where
+  show (G p) = "GPipe "<>unpack (showPipe p)
+  show (T p) = "TPipe "<>unpack (showPipe p)
+
+instance Show (Pipe c) where
+  show p = "Pipe "<>unpack (showPipe p)
 
 instance Show Sig where
   show (Gen    o)  =  "Gen "<>show o

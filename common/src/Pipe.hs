@@ -1,5 +1,6 @@
-{-# LANGUAGE AllowAmbiguousTypes        #-}
+ {-# LANGUAGE AllowAmbiguousTypes        #-}
 {-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE EmptyCase                  #-}
 {-# LANGUAGE ExplicitNamespaces         #-}
@@ -30,6 +31,7 @@ module Pipe
   (
   -- * Namespacery
     dataProjScope
+  , dataProjScopeG
   , dataProjPipes
   , pipeScope
   -- * Re-exports
@@ -39,7 +41,6 @@ module Pipe
   )
 where
 
-import qualified Data.Map                         as Map
 import qualified Type.Reflection                  as R
 
 import Basis
@@ -51,22 +52,22 @@ import Pipe.Types
 
 --------------------------------------------------------------------------------
 dataProjPipes
-  :: forall u
-  . (Ground u, SOP.HasTypeData Ground u)
-  => Proxy u -> [Pipe]
+  :: forall c u
+  . (Typeable c, Typeable u, SOP.HasTypeData c u, c u)
+  => Proxy u -> [Pipe c]
 dataProjPipes u =
-  let d :: SOP.Data SOP.Fun Ground u
-      d = SOP.typeData (Proxy @Ground) u
+  let d :: SOP.Data SOP.Fun c u
+      d = SOP.typeData (Proxy @c) u
       fieldPipe
-        :: SOP.Data      SOP.Fun Ground u
-        -> SOP.Ctor      SOP.Fun Ground u
-        -> SOP.Field SOP.Fun Ground u
-        -> Pipe
+        :: SOP.Data  SOP.Fun c u
+        -> SOP.Ctor  SOP.Fun c u
+        -> SOP.Field SOP.Fun c u
+        -> Pipe c
       fieldPipe _d _c f =
         case SOP.fAccess f of
           SOP.SomeAccessors
-            (SOP.Accessors getter _ :: SOP.Accessors u Ground a) ->
-            link (Name $ SOP.fName f)
+            (SOP.Accessors getter _ :: SOP.Accessors u c a) ->
+            link' (Name $ SOP.fName f)
             TPoint
             TPoint -- XXX: Kind can be non-Point!
             (pure . Right . getter)
@@ -75,13 +76,22 @@ dataProjPipes u =
      , f <- SOP.cFields c]
 
 -- TODO: make this a generic operation?
-dataProjScope :: forall u. GroundData u => Proxy u -> Scope Point Pipe
-dataProjScope u = pipeScope name pipes
-  where name  = Name $ pack $ show (R.typeRepTyCon (typeRep @u))
-        pipes = dataProjPipes u
+dataProjScope
+  :: forall u.
+  ( SOP.HasDatatypeInfo u, SOP.Generic u, All2 (SOP.And Typeable Top) (SOP.Code u)
+  , Typeable u)
+  => Proxy u -> Scope Point SomePipe
+dataProjScope  p = dataProjScope' p $ T <$> dataProjPipes p
 
-pipeScope :: Name (Scope Point Pipe) -> [Pipe] -> Scope Point Pipe
-pipeScope name pipes = Scope
-  { sName = name
-  , sMap  = Map.fromList $ zip (pipeName <$> pipes) pipes
-  }
+dataProjScopeG :: forall u. GroundData u => Proxy u -> Scope Point SomePipe
+dataProjScopeG p = dataProjScope' p $ G <$> dataProjPipes p
+
+dataProjScope'
+  :: forall u. Typeable u
+  => Proxy u -> [SomePipe] -> Scope Point SomePipe
+dataProjScope' _p ps = pipeScope name pipes
+  where name  = Name $ pack $ show (R.typeRepTyCon (typeRep @u))
+        pipes = ps
+
+pipeScope :: Name (Scope Point SomePipe) -> [SomePipe] -> Scope Point SomePipe
+pipeScope name pipes = scope name $ zip (somePipeName <$> pipes) pipes
