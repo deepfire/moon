@@ -8,15 +8,13 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 
 module Lift.Hackage
-  ( setupHackageCache
-  , PackageCabalDesc
-  , getHackagePackageCabalDesc
-    -- * Namespace
-  , Lift.Hackage.spacePipe
+  ( -- * Namespace
+    Lift.Hackage.spacePipe
   )
 where
 
@@ -27,15 +25,18 @@ import qualified Data.Set.Monad                 as Set
 import           Data.Set.Monad                   (Set)
 import           Data.Time
 import           Data.Text
+import qualified Generics.SOP as SOP
 import           GHC.Generics
 
 import           Control.Concurrent.CachedIO
 import           Network.HTTP.Req
 import           System.Exit
 import           System.Process
+import qualified System.IO.Unsafe                 as Unsafe
 
 import qualified Distribution.Hackage.DB        as Hackage
 import qualified Distribution.Types.PackageName as Cabal
+import qualified Distribution.PackageDescription as Cabal
 import qualified Distribution.PackageDescription.Parsec as Cabal
 import qualified Distribution.Types.GenericPackageDescription as Cabal
 
@@ -46,15 +47,33 @@ import Namespace
 import Pipe
 import "common" Type
 
+import Lift.Orphanage
+
+
 spacePipe :: QName (Scope Point SomePipe) -> Space Point SomePipe
 spacePipe graft = mempty
   & attachScopes (graft)
       [ pipeScope "Hackage"
-        [ gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
-          Index  "hackage" "https://hackage.haskell.org/" mempty
+        [ gen  "packages"        TSet' hackagePackageNames
+        , link "cabal" TPoint' TPoint' getHackagePackageCabalDesc
         ]
+      , emptyScope "Cabal"
+        <> (dataProjScope $ Proxy @Cabal.GenericPackageDescription)
+        <> (dataProjScope $ Proxy @Cabal.PackageDescription)
+        <> (dataProjScope $ Proxy @Cabal.SourceRepo)
+        <> (dataProjScope $ Proxy @Cabal.Library)
+        <> (dataProjScope $ Proxy @Cabal.Executable)
+        <> (dataProjScope $ Proxy @Cabal.BuildInfo)
       ]
 
+
+-- * XXX:  danger lurked in shadows of lazy IO..
+hackagePackageNames :: IO (Either Text (Set (Name Package)))
+hackagePackageNames = Unsafe.unsafePerformIO . Unsafe.unsafeInterleaveIO $
+  setupHackageCache 3600
+{-# NOINLINE hackagePackageNames #-}
+
+
 setupHackageCache :: NominalDiffTime -> IO (IO (Either Text (Set (Name Package))))
 setupHackageCache cacheTmo = cachedIO cacheTmo $ do
   code <- system "cabal new-update"
@@ -66,9 +85,7 @@ setupHackageCache cacheTmo = cachedIO cacheTmo $ do
     ExitFailure x -> do
       pure . Left . pack $ "'cabal update' exit status: " <> show x
 
-type PackageCabalDesc = Cabal.GenericPackageDescription
-
-getHackagePackageCabalDesc :: (Name Package) -> IO (Either Text PackageCabalDesc)
+getHackagePackageCabalDesc :: Name Package -> IO (Either Text Cabal.GenericPackageDescription)
 getHackagePackageCabalDesc pkg@(Name pn) = do
   r <- runReq def $
        req GET (https "hackage.haskell.org" /~ ("package" :: String) /~ pn /~ (pn <> ".cabal")) NoReqBody bsResponse mempty
@@ -80,15 +97,62 @@ getHackagePackageCabalDesc pkg@(Name pn) = do
         Right x -> pure $ Right x
     resp -> pure . Left . pack $ "Hackage response code: "<>show resp
 
- -- GenericPackageDescription
- -- * packageDescription :: PackageDescription
- -- * genPackageFlags    :: [Flag]
- -- * condLibrary        :: Maybe (CondTree ConfVar [Dependency] Library)
- -- * condSubLibraries   :: [(UnqualComponentName, CondTree ConfVar [Dependency] Library)]
- -- * condForeignLibs    :: [(UnqualComponentName, CondTree ConfVar [Dependency] ForeignLib)]
- -- * condExecutables    :: [(UnqualComponentName, CondTree ConfVar [Dependency] Executable)]
- -- * condTestSuites     :: [(UnqualComponentName, CondTree ConfVar [Dependency] TestSuite)]
- -- * condBenchmarks     :: [(UnqualComponentName, CondTree ConfVar [Dependency] Benchmark)]
+ -- data Library = Library
+ -- { libName           :: Maybe UnqualComponentName
+ -- , exposedModules    :: [ModuleName]
+ -- , reexportedModules :: [ModuleReexport]
+ -- , signatures        :: [ModuleName]   -- ^ What sigs need implementations?
+ -- , libExposed        :: Bool           -- ^ Is the lib to be exposed by default?
+ -- , libBuildInfo      :: BuildInfo
+
+ -- Executable
+ -- * exeName :: UnqualComponentName
+ -- * modulePath :: FilePath
+ -- * exeScope :: ExecutableScope
+ -- * buildInfo :: BuildInfo
+
+ -- BuildInfo
+ --  * buildable :: Bool
+ --  * buildTools :: [LegacyExeDependency]
+ --  * buildToolDepends :: [ExeDependency]
+ --  * cppOptions :: [String]
+ --  * asmOptions :: [String]
+ --  * cmmOptions :: [String]
+ --  * ccOptions :: [String]
+ --  * cxxOptions :: [String]
+ --  * ldOptions :: [String]
+ --  * pkgconfigDepends :: [PkgconfigDependency]
+ --  * frameworks :: [String]
+ --  * extraFrameworkDirs :: [String]
+ --  * asmSources :: [FilePath]
+ --  * cmmSources :: [FilePath]
+ --  * cSources :: [FilePath]
+ --  * cxxSources :: [FilePath]
+ --  * jsSources :: [FilePath]
+ -- * hsSourceDirs :: [FilePath]
+ -- * otherModules :: [ModuleName]
+ -- * virtualModules :: [ModuleName]
+ -- * autogenModules :: [ModuleName]
+ -- * defaultLanguage :: Maybe Language
+ -- * otherLanguages :: [Language]
+ -- * defaultExtensions :: [Extension]
+ -- * otherExtensions :: [Extension]
+ -- * oldExtensions :: [Extension]
+ -- * extraLibs :: [String]
+ -- * extraGHCiLibs :: [String]
+ -- * extraBundledLibs :: [String]
+ -- * extraLibFlavours :: [String]
+ -- * extraLibDirs :: [String]
+ -- * includeDirs :: [FilePath]
+ -- * includes :: [FilePath]
+ -- * installIncludes :: [FilePath]
+ -- * options :: [(CompilerFlavor, [String])]
+ -- * profOptions :: [(CompilerFlavor, [String])]
+ -- * sharedOptions :: [(CompilerFlavor, [String])]
+ -- * staticOptions :: [(CompilerFlavor, [String])]
+ -- * customFieldsBI :: [(String, String)]
+ -- * targetBuildDepends :: [Dependency]
+ -- * mixins :: [Mixin]
 
  -- PackageDescription
  -- * specVersionRaw :: Either Version VersionRange
@@ -121,3 +185,13 @@ getHackagePackageCabalDesc pkg@(Name pn) = do
  -- * extraSrcFiles  :: [FilePath]
  -- * extraTmpFiles  :: [FilePath]
  -- * extraDocFiles  :: [FilePath]
+
+ -- GenericPackageDescription
+ -- * packageDescription :: PackageDescription
+ -- * genPackageFlags    :: [Flag]
+ -- * condLibrary        :: Maybe (CondTree ConfVar [Dependency] Library)
+ -- * condSubLibraries   :: [(UnqualComponentName, CondTree ConfVar [Dependency] Library)]
+ -- * condForeignLibs    :: [(UnqualComponentName, CondTree ConfVar [Dependency] ForeignLib)]
+ -- * condExecutables    :: [(UnqualComponentName, CondTree ConfVar [Dependency] Executable)]
+ -- * condTestSuites     :: [(UnqualComponentName, CondTree ConfVar [Dependency] TestSuite)]
+ -- * condBenchmarks     :: [(UnqualComponentName, CondTree ConfVar [Dependency] Benchmark)]

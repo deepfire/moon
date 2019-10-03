@@ -16,6 +16,7 @@ library
                        Lift
                        Lift.Haskell
                        Lift.Hackage
+                       Lift.Orphanage
                        Lift.Pipe
                        TUI
   build-depends:       common
@@ -33,6 +34,7 @@ library
                      , extra
                      , filepath
                      , generic-monoid
+                     , generics-sop
                      , ghc
                      , ghc-boot
                      , ghc-prim
@@ -81,9 +83,9 @@ executable cli
   build-depends:       lift
                      , base
 
-executable tui
-  default-language:    Haskell2010
-  hs-source-dirs:      .
-  main-is:             MainTUI.hs
-  build-depends:     , lift
-                     , base
+-- executable tui
+--   default-language:    Haskell2010
+--   hs-source-dirs:      .
+--   main-is:             MainTUI.hs
+--   build-depends:     , lift
+--                      , base

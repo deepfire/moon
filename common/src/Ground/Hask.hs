@@ -56,7 +56,7 @@ instance SOP.HasDatatypeInfo Loc
 data Index = Index
   { ixName           :: !(Name Index)
   , ixURL            :: !URL
-  , ixPackages       :: Map (Name Package) URL
+  , ixPackages       :: Set (Name Package)
   } deriving (Eq, Generic, Ord, Show)
 instance Serialise Index
 instance SOP.Generic Index

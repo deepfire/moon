@@ -26,7 +26,7 @@ cli = do
   WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
     \conn -> do
       let tracer = stdoutTracer
-          req = fromMaybe (SomeRequest $ RunPipe "pipes" []) mreq
+          req = fromMaybe (SomeRequest $ Run "pipes") mreq
       runClient tracer (client tracer req) $ channelFromWebsocket conn
 
 client

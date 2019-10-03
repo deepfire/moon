@@ -1,5 +1,7 @@
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE KindSignatures             #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RankNTypes                 #-}
@@ -10,7 +12,7 @@
 module Namespace
   ( Universe(..)
   , insertSpace
-  , updateSpace
+  , updateUniverse
   , spaceTypes
   , someSpace
   , SomeSpace(..)
@@ -20,12 +22,19 @@ module Namespace
   , attachScopes
   , scopeAt
   , childScopeNamesAt
+  , updateSpaceScope
   , lookupSpace
+  , alterSpace
+  , spaceAdd
+  , spaceUpdate
   , Scope
   , emptyScope
   , scope
   , lookupScope
+  , scopeNames
   , withQScopeName
+  , updateScope
+  , alterScope
   -- * Re-exports
   , module Type
   )
@@ -55,12 +64,12 @@ insertSpace
 insertSpace s u = Universe $ Map.insert ty (SomeSpace ty s) (uSpaceMap u)
   where ty = proxyType (Proxy @k) (Proxy @a)
 
-updateSpace
-  :: Universe
+updateUniverse
+  :: (forall k a. Typeable a => Space k a -> Space k a)
   -> Type
-  -> (forall k a. Typeable a => Space k a -> Space k a)
   -> Universe
-updateSpace u k f = Universe $ Map.update update k (uSpaceMap u)
+  -> Universe
+updateUniverse f k u = Universe $ Map.update update k (uSpaceMap u)
   where update SomeSpace{ssType, ssSpace} =
           Just $ SomeSpace ssType (f ssSpace)
 
@@ -126,6 +135,42 @@ attachScopes sub scopes ns =
 scopeAt :: QName (Scope k a) -> Space k a -> Maybe (Scope k a)
 scopeAt q ns = Map.lookup q (nsMap ns)
 
+updateSpaceScope
+  :: (e ~ Text, Typeable a)
+  => (Scope k a -> Scope k a)
+  -> QName (Scope k a)
+  -> Space k a
+  -> Space k a
+updateSpaceScope f name ns =
+  ns { nsMap  = Map.update (Just . f) name (nsMap ns) }
+
+alterSpaceScope
+  :: (e ~ Text, Typeable a)
+  => (Maybe (Scope k a) -> Either e (Maybe (Scope k a)))
+  -> QName (Scope k a)
+  -> Space k a
+  -> Either e (Space k a)
+alterSpaceScope f name ns =
+  (\m -> ns { nsMap = m }) <$> Map.alterF f name (nsMap ns)
+
+failNoEntity
+  :: (e ~ Text)
+  => Text
+  -> QName  a
+  ->       (a -> Either e (Maybe a))
+  -> (Maybe a -> Either e (Maybe a))
+failNoEntity ty name _  Nothing = Left $ "No such "<>ty<>": " <> showQName name
+failNoEntity _  _    f (Just x) = f x
+
+_failHasEntity
+  :: forall k a (f :: Con -> * -> *) e. (e ~ Text)
+  => Text
+  -> QName         a
+  -> Either e (f k a)
+  -> (Maybe   (f k a) -> Either e (Maybe (f k a)))
+_failHasEntity ty name _ (Just x) = Left $ "Already has "<>ty<>": " <> showQName name
+_failHasEntity _  _    x  Nothing = Just <$> x
+
 childScopeNamesAt :: QName (Scope k a) -> Space k a -> [QName (Scope k a)]
 childScopeNamesAt q ns =
   Set'.toList (GA.postSet q (nsTree ns))
@@ -138,6 +183,45 @@ lookupSpace n s = withQScopeName n $
   \scopeName -> \case
     Nothing   -> Nothing
     Just name -> join $ lookupScope name <$> scopeAt scopeName s
+
+alterSpace
+  :: (e ~ Text, Typeable a)
+  => QName a
+  -> Space k a
+  -> (Maybe (Repr k a) -> Either e (Maybe (Repr k a)))
+  -> Either e (Space k a)
+alterSpace fqname ns f =
+  withQScopeName fqname $
+    \scopeName -> \case
+      Nothing -> Left $ "Malformed QName: " <> showQName fqname
+      Just name ->
+        alterSpaceScope
+        (failNoEntity "scope" scopeName
+         $ (sequence . Just <$>)
+         $ alterScope f name)
+        scopeName ns
+
+spaceAdd
+  :: forall k a e. (e ~ Text, Typeable a)
+  => QName a
+  -> Repr k a
+  -> Space k a -> Either e (Space k a)
+spaceAdd name x ns =
+  alterSpace name ns
+  (\case
+      Nothing -> Right $ Just x
+      Just _ -> Left $ "Already has element: " <> showQName name)
+
+spaceUpdate
+  :: forall k a e. (e ~ Text, Typeable a)
+  => QName a
+  -> (Repr k a -> Repr k a)
+  -> Space k a -> Either e (Space k a)
+spaceUpdate name f ns =
+  alterSpace name ns
+  (\case
+      Nothing -> Left $ "Already has element: " <> showQName name
+      Just  x -> Right . Just . f $ x)
 
 
 data Scope k a = Scope
@@ -161,6 +245,9 @@ scope name = Scope name . Map.fromList
 lookupScope :: Name a -> Scope k a -> Maybe (Repr k a)
 lookupScope n s = Map.lookup n (sMap s)
 
+scopeNames :: Scope k a -> Set (Name a)
+scopeNames = keysSet . sMap
+
 -- | Interpret a QName into its scope and name components.
 withQScopeName :: QName a -> (QName (Scope k a) -> Maybe (Name a) -> b) -> b
 withQScopeName (QName ns) f
@@ -169,3 +256,19 @@ withQScopeName (QName ns) f
   | xs Seq.:|> x        <- ns = f (QName $ coerceName <$> xs) (Just x)
   where coerceName :: Name a -> Name b
         coerceName = Unsafe.unsafeCoerce
+
+updateScope
+  :: Typeable a
+  => (Repr k a -> Maybe (Repr k a))
+  -> Name a
+  -> Scope k a -> Scope k a
+updateScope f name s =
+  s { sMap = Map.update f name (sMap s) }
+
+alterScope
+  :: (e ~ Text, Typeable a)
+  => (Maybe (Repr k a) -> Either e (Maybe (Repr k a)))
+  -> Name a
+  -> Scope k a -> Either e (Scope k a)
+alterScope f name s =
+  (\m -> s { sMap = m }) <$> Map.alterF f name (sMap s)

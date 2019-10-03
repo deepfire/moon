@@ -55,9 +55,10 @@ data Pipe (c :: * -> Constraint) where
     =>
     { pipeName :: Name Pipe
     , pipeSig  :: Sig
-    , pStruct :: Struct
-    , pTo     :: Tag k a
-    , pDyn    :: Dynamic -- ^ A wrapped 'PipeFun'.
+    , pStruct  :: Struct
+    , pTag     :: Tag k
+    , pTo      :: Proxy a
+    , pDyn     :: Dynamic -- ^ A wrapped 'PipeFun'.
     } -> Pipe c
 
 showPipe, showPipeP :: Pipe c -> Text
@@ -86,13 +87,13 @@ type Result a = IO (Either Text a)
 
 --------------------------------------------------------------------------------
 pattern PGen  :: Name Pipe -> Struct -> Dynamic ->         Type -> Pipe c
-pattern PGen  n st dy    so <- Pipe n (Gen     so) st _ dy
+pattern PGen  n st dy    so <- Pipe n (Gen     so) st _ _ dy
 
 pattern PLink :: Name Pipe -> Struct -> Dynamic -> Type -> Type -> Pipe c
-pattern PLink n st dy si so <- Pipe n (Link si so) st _ dy
+pattern PLink n st dy si so <- Pipe n (Link si so) st _ _ dy
 
 pattern PAny  :: Name Pipe -> Struct -> Dynamic ->         Type -> Pipe c
-pattern PAny  n st dy    so <- Pipe n (sOut -> so) st _ dy
+pattern PAny  n st dy    so <- Pipe n (sOut -> so) st _ _ dy
 
 {-------------------------------------------------------------------------------
   Boring.

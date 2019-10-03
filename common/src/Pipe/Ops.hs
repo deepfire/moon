@@ -7,15 +7,17 @@
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
+{-# LANGUAGE ViewPatterns               #-}
 
 module Pipe.Ops
   (
   -- * High-level
     compile
-  , assemble
+  , resolveNames
   -- * Ops
   , runPipe
   , apply
@@ -42,11 +44,19 @@ import Type
 -- * Compiling pipe expressions
 --
 compile
-  :: e ~ Text
-  => (QName Pipe -> Either Text SomePipe)
-  -> Text
-  -> Either e SomePipe
-compile lookupPipe = join . (assemble <$>) . parse lookupPipe
+  :: (Monad m, e ~ Text)
+  => (QName SomePipe -> m (Either Text SomePipe))
+  -> Expr (QName SomePipe)
+  -> m (Either e SomePipe)
+compile lookupPipe nameTree =
+  join <$> ((assemble <$>) <$> resolveNames lookupPipe nameTree)
+
+resolveNames
+  :: (Monad m, e ~ Text)
+  => (QName SomePipe -> m (Either Text SomePipe))
+  -> Expr (QName SomePipe)
+  -> m (Either e (Expr SomePipe))
+resolveNames lookupPipe = (sequence <$>) . traverse lookupPipe
 
 
 -- * The actual type, private.
@@ -55,31 +65,31 @@ data PipeFun c (ka :: Con) a (kb :: Con) b where
   FOutput
     :: forall c kb b
     . (Typeable kb, Typeable b, c b)
-    => Tag kb b
+    => Tag kb -> Proxy b
     ->               Result (Repr kb b)  -> PipeFun c 'Point () kb b
   FLink
     :: forall c ka a kb b
     . (Typeable ka, Typeable a, Typeable kb, Typeable b, c b)
-    => Tag kb b
+    => Tag kb -> Proxy b
     -> (Repr ka a -> Result (Repr kb b)) -> PipeFun c ka a kb b
 
 pattern App4 :: TyCon -> TypeRep a -> TypeRep ka -> TypeRep b -> TypeRep kb -> TypeRep c
-pattern App4 con a ka b kb <- App (App (App (App (Con con) ka) a) kb) b
+pattern App4 con ka a kb b <- App (App (App (App (App (Con con) _) ka) a) kb) b
 
 pattern DApp4 :: c -> TypeRep c -> TyCon -> TypeRep a -> TypeRep ka -> TypeRep b -> TypeRep kb -> Dynamic
-pattern DApp4 v tr con a ka b kb <- Dynamic tr@(App4 con ka a kb b) v
+pattern DApp4 v tr con ka a kb b <- Dynamic tr@(App4 con ka a kb b) v
 
 assemble
   :: e ~ Text
-  => Expr
+  => Expr SomePipe
   -> Either e SomePipe
 assemble = go
   where
-    go :: Expr -> Either Text SomePipe
+    go :: Expr SomePipe -> Either Text SomePipe
     go (PPipe p) = Right p
 
     go (PApp    PVal{}  _)          = Left $ "Applying a value."
-    go (PApp  f           PVal{vX}) = join $ apply <$> go f <*> pure [vX]
+    go (PApp  f           PVal{vX}) = join $ apply <$> go f <*> pure vX
     -- here we expect traverseP to reduce:
     --   PApp (b -> IO c) (a -> IO b) -> (a -> IO c)
     go (PApp  f@PPipe{} x@PPipe{})  =        traverseP          (pP f)    (pP x)
@@ -98,100 +108,100 @@ assemble = go
 --
 genG
   :: forall kt tt
-  .  (Typeable (Repr kt tt), Typeable kt, Ground tt)
+  .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Ground tt)
   => Name Pipe
-  -> Tag kt tt
+  -> Tag2 kt tt
   -> Result (Repr kt tt)
   -> SomePipe
-genG n tt pf = G $ gen' n tt pf
+genG n to pf = G $ gen' n to pf
 
 gen
   :: forall kt tt
-  .  (Typeable (Repr kt tt), Typeable kt, Typeable tt)
+  .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt)
   => Name Pipe
-  -> Tag kt tt
+  -> Tag2 kt tt
   -> Result (Repr kt tt)
   -> SomePipe
-gen n tt pf = T $ gen' n tt pf
+gen n to pf = T $ gen' n to pf
 
 linkG
   :: forall kf tf kt tt
-  . ( Typeable (Repr kf tf), Typeable (Repr kt tt)
+  . ( ReifyTag kf,ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
     , Typeable kf, Typeable tf, Typeable kt
     , Ground tt)
   => Name Pipe
-  -> Tag kf tf
-  -> Tag kt tt
+  -> Tag2 kf tf
+  -> Tag2 kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> SomePipe
-linkG n tf tt pf = G $ link' n tf tt pf
+linkG n from to pf = G $ link' n from to pf
 
 link
   :: forall kf tf kt tt
-  . ( Typeable (Repr kf tf), Typeable (Repr kt tt)
+  . ( ReifyTag kf, ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
     , Typeable kf, Typeable tf, Typeable kt
     , Typeable tt)
   => Name Pipe
-  -> Tag kf tf
-  -> Tag kt tt
+  -> Tag2 kf tf
+  -> Tag2 kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> SomePipe
-link n tf tt pf = T $ link' n tf tt pf
+link n from to pf = T $ link' n from to pf
 
 gen'
   :: forall kt tt c
-  .  ( Typeable (Repr kt tt), Typeable kt, Typeable tt, Typeable c
+  .  ( ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt, Typeable c
      , c tt)
   => Name Pipe
-  -> Tag kt tt
+  -> Tag2 kt tt
   -> Result (Repr kt tt)
   -> Pipe c
-gen' name tagTo mv
-                = Pipe name sig struct tagTo dyn
-  where ty      = tagType tagTo
+gen' name (splitTag2 -> (tagTo, pTo)) mv
+                = Pipe name sig struct tagTo pTo dyn
+  where ty      = tagType tagTo pTo
         sig     = Gen ty
         struct  = Struct graph
         graph   = G.vertex ty
         dyn     = Dynamic typeRep pipeFun
-        pipeFun = FOutput tagTo mv :: PipeFun c Point () kt tt
+        pipeFun = FOutput tagTo pTo mv :: PipeFun c Point () kt tt
 
 link'
   :: forall kf tf kt tt c
-  . ( Typeable (Repr kf tf), Typeable (Repr kt tt)
+  . ( ReifyTag kf, ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
     , Typeable kf, Typeable tf, Typeable kt, Typeable tt, Typeable c
     , c tt)
   => Name Pipe
-  -> Tag kf tf
-  -> Tag kt tt
+  -> Tag2 kf tf
+  -> Tag2 kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> Pipe c
-link' name tagFrom tagTo mf
-                = Pipe name sig struct tagTo dyn
-  where tyFrom  = tagType tagFrom
-        tyTo    = tagType tagTo
+link' name (splitTag2 -> (tagFrom, pFrom)) (splitTag2 -> (tagTo, pTo)) mf
+                = Pipe name sig struct tagTo pTo dyn
+  where tyFrom  = tagType tagFrom pFrom
+        tyTo    = tagType tagTo pTo
         sig     = Link tyFrom tyTo
         struct  = Struct graph
         graph   = G.connect (G.vertex tyFrom) (G.vertex tyTo)
         dyn     = Dynamic typeRep pipeFun
-        pipeFun = FLink tagTo mf :: PipeFun c kf tf kt tt
+        pipeFun = FLink tagTo pTo mf :: PipeFun c kf tf kt tt
 
 
 -- * Running
 --
 runPipe :: SomePipe -> Result SomeValue
 runPipe (T p) = pure . Left $ "runPipe:  non-Ground pipe: " <> showPipe p
-runPipe (G Pipe{pTo, pDyn}) = runPipe' pTo pDyn
+runPipe (G Pipe{pTag, pTo, pDyn}) = runPipe' pTag pTo pDyn
 
-runPipe' :: forall k a
+runPipe' :: forall (k :: Con) (a :: *)
          . ( Typeable k, Ground a)
-         => Tag (k :: Con) (a :: *)
+         => Tag k -> Proxy a
          -> Dynamic
          -> Result SomeValue
-runPipe' _tagTo dyn =
+runPipe' _tagTo _pTo dyn =
   case fromDynamic dyn :: Maybe (PipeFun Ground Point () k a) of
     Nothing -> pure . Left $ "Incomplete pipe: " <> pack ""
-    Just (FOutput tagTo pipeFun) -> do
-      (SomeValue . SomeKindValue . mkValue tagTo <$>) <$> pipeFun
+    Just (FOutput tagTo pTo pipeFun) -> do
+      (SomeValue . SomeKindValue . mkValue pTo tagTo <$>) <$> pipeFun
 
 
 -- * Basic ops:  unwrapping Dynamics
@@ -214,8 +224,8 @@ traverseP'
 traverseP' p@PGen{} _
   =   Left $ "'traverse': left fully saturated: " <> showPipe p
 traverseP'
-  l@(PLink lpn ls (DApp4 ml _lrep ltc         kpb b' _kc _c) lfrom _lto)
-  r@(PAny  rpn rs (DApp4 mr _rrep rtc _ka  _a kb  b)         rto)
+  l@(PLink lpn ls (DApp4 ml _lrep ltc          kpb b' _kc _c) _lfrom _lto)
+  r@(PAny  rpn rs (DApp4 mr _rrep rtc _ka  _a _kb  b)         _rto)
   | ltc /= typeRepTyCon (typeRep @PipeFun) = err $ "INTERNAL: left not a PipeFun"
   | rtc /= typeRepTyCon (typeRep @PipeFun) = err $ "INTERNAL: right not a PipeFun"
   | Nothing <-
@@ -268,22 +278,34 @@ compose'
 compose' l r
   = Left $ "compose: incompatible: "<>showLRP l r
 
-apply :: SomePipe -> [SomeValue] -> Either Text SomePipe
-apply (G p) xs = G <$> apply' p xs
-apply (T p) xs = T <$> apply' p xs
+apply :: SomePipe -> SomeValue -> Either Text SomePipe
+apply (G p) x = G <$> apply' p x
+apply (T p) x = T <$> apply' p x
 
 apply'
   :: Typeable c
-  => Pipe c -> [SomeValue] -> Either Text (Pipe c)
+  => Pipe c -> SomeValue -> Either Text (Pipe c)
 apply' p@PGen{} _
   =   Left $ "'apply': left fully saturated: " <> showPipe p
-apply' p []
-  =   Right p
 apply' (PLink rpn rs (DApp4 mf _ _tc' kb' b' _kc' _c') _rfrom _rto)
-      (SomeValue (SomeKindValue (v :: Value ka a) :: SomeKindValue a):xs)
+      (SomeValue (SomeKindValue (v :: Value ka a) :: SomeKindValue a))
+  | Nothing <- typeRep @ka `eqTypeRep` kb'
+  = Left $ "Apply: Con mismatch: "   <> show2 "ka" (typeRep @ka) "kb'" kb'
+
+  | Nothing <- typeRep  @a `eqTypeRep`  b'
+  = Left $ "Apply: Value mismatch: " <> show2  "a" (typeRep  @a)  "b'"  b'
+
   | Just HRefl <- typeRep @ka `eqTypeRep` kb'
   , Just HRefl <- typeRep  @a `eqTypeRep`  b'
-  = join $ flip apply' xs <$> doApply (Unsafe.unsafeCoerce mf) rpn rs v
+  = doApply (Unsafe.unsafeCoerce mf) rpn rs v
+  | otherwise
+  = Left "Fall through."
+  where
+    show2 :: Text -> TypeRep l -> Text -> TypeRep r -> Text
+    show2 ln l rn r = ln<>"="<>pack (show l)<>", "<>rn<>"="<>pack (show r)
+
+apply' (PLink _ _ (Dynamic tr _) _ _) _ =
+  Left $ "Typerep structure mismatch: " <> pack (show tr)
 
 
 -- * Ops: wrapping IR
@@ -304,17 +326,16 @@ doTraverse
   -> PipeFun c2 ka a kb b       -> Name Pipe -> Struct
   -> Either Text (Pipe (TraverseC c1 c2))
 doTraverse
-  (FLink   tagTo   (f :: b -> Result c))  (Name ln) (Struct lg)
-  (FOutput (tagFrom :: Tag kb b) (t ::      Result rb)) (Name rn) (Struct rg)
-  = Right $ Pipe (Name $ "("<>ln<>")-<trav>-("<>rn<>")") sig struct tagTo dyn
+  (FLink   cT c (f :: b -> Result c))  (Name ln) (Struct lg)
+  (FOutput bT b (t ::      Result rb)) (Name rn) (Struct rg)
+  = Right $ Pipe (Name $ "("<>ln<>")-<trav>-("<>rn<>")") sig struct cT c dyn
   where ty      = proxyType (Proxy @kb) (Proxy @c)
         sig     = Gen ty
         struct  = Struct graph
         graph   = lg `G.overlay` rg -- XXX: structure!
         dyn     = Dynamic rep pipeFun
         rep     = typeRep :: TypeRep (PipeFun (TraverseC c1 c2) Point () kb c)
-        tagRes  = tagOtherGround (Proxy @c) tagFrom
-        pipeFun = FOutput tagRes (traversePipes tagFrom f t)
+        pipeFun = FOutput bT c (traversePipes bT b f t)
                   :: PipeFun (TraverseC c1 c2) Point () kb c
 doTraverse l _ _ r _ _
   = Left $ "doBind: PipeFuns, but "<>showLR (pack $ show l) (pack $ show r)
@@ -332,15 +353,15 @@ doBind
   => PipeFun c1 ka a kb b      -> Name Pipe -> Struct
   -> PipeFun c2      kb b kc c -> Name Pipe -> Struct
   -> Either Text (Pipe resC)
-doBind (FOutput _tagFrom (v :: Result rb))  (Name rn) (Struct rg)
-       (FLink tagTo (f :: lb -> Result lc)) (Name ln) (Struct lg)
-  = Right $ Pipe (Name $ ln<>">>="<>rn) sig struct tagTo dyn
-  where ty      = proxyType (Proxy @kc) (Proxy @c)
+doBind (FOutput _bT _b (v :: Result rb))  (Name rn) (Struct rg)
+       (FLink cT c (f :: lb -> Result lc)) (Name ln) (Struct lg)
+  = Right $ Pipe (Name $ ln<>">>="<>rn) sig struct cT c dyn
+  where ty      = proxyType (Proxy @kc) c
         sig     = Gen ty
         struct  = Struct graph
         graph   = G.overlay lg rg
         dyn     = Dynamic (typeRep :: TypeRep (PipeFun resC Point () kc c)) pipeFun
-        pipeFun = FOutput tagTo (bindPipes v f) :: PipeFun resC Point () kc c
+        pipeFun = FOutput cT c (bindPipes v f) :: PipeFun resC Point () kc c
 doBind l _ _ r _ _
   = Left $ "doBind: PipeFuns, but "<>showLR (pack $ show l) (pack $ show r)
 
@@ -354,15 +375,15 @@ doApply
   => PipeFun   c ka a kb b -> Name Pipe -> Struct
   -> Value       ka a
   -> Either Text (Pipe c)
-doApply (FLink tagTo (f :: ra -> Result rb)) (Name rn) (Struct rg)
+doApply (FLink bT b (f :: ra -> Result rb)) (Name rn) (Struct rg)
         v
-  = Right $ Pipe (Name $ "app-"<>rn) sig struct tagTo dyn
+  = Right $ Pipe (Name $ "app-"<>rn) sig struct bT b dyn
   where ty      = proxyType (Proxy @kb) (Proxy @b)
         sig     = Gen ty
         struct  = Struct graph
         graph   = rg -- XXX ???
         dyn     = Dynamic (typeRep :: TypeRep (PipeFun c Point () kb b)) pipeFun
-        pipeFun = FOutput tagTo (applyPipe f v) :: PipeFun c Point () kb b
+        pipeFun = FOutput bT b (applyPipe f v) :: PipeFun c Point () kb b
 doApply v f _ _ = Left $ "doApply: PipeFun+Value, but "<>showLR (pack $ show f) (pack $ show v)
 
 
@@ -376,11 +397,11 @@ traversePipes
   :: forall a b klb kra
   . ( Typeable a, Typeable b
     , klb ~ Point)
-  => Tag kra a
+  => Tag kra -> Proxy a
   -> (a -> Result (Repr klb b))
   -> Result (Repr kra a)
   -> Result (Repr kra b)
-traversePipes kra f t = do
+traversePipes kra _a f t = do
   tv <- t
   case tv :: Either Text (Repr kra a) of
     Left e -> pure $ Left e
@@ -421,9 +442,9 @@ bindPipes v f = do
     Left e  -> pure $ Left e
     Right x -> f x
 
-
--- * Boring
---
+{-------------------------------------------------------------------------------
+  Boring.
+-------------------------------------------------------------------------------}
 instance Show (PipeFun c ka a kb b) where
   show FOutput{} = "FOutput Point () "<>show (typeRep @kb)<>" "<>show (typeRep @b)
   show FLink{}   = "FLink "<>show (typeRep @a)<>" "<>show (typeRep @b)

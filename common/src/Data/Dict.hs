@@ -5,15 +5,21 @@
 {-# LANGUAGE TypeInType                 #-}
 module Data.Dict
   ( Dict(..)
-  , Dicts(..)
-  , Data.Dict.lookup
+  , Dicts
+  , lookupRep
+  , lookupName
+  , empty
+  , insert
   , link
+  , reps
+  , names
   )
 where
 
 import           Data.Kind                          (Constraint, Type)
 import qualified Data.Map                         as Map
 import           Data.Proxy                         (Proxy(..))
+import           Data.Text                          (Text)
 import           Type.Reflection                    (SomeTypeRep, Typeable, someTypeRep)
 
 
@@ -22,10 +28,35 @@ data Dict  (c :: Type -> Constraint) =
   Dict (Proxy a)
 
 data Dicts (c :: Type -> Constraint) =
-  Dicts (Map.Map SomeTypeRep (Dict c))
+  Dicts
+  { _byRep  :: (Map.Map SomeTypeRep (Dict c))
+  , _byName :: (Map.Map Text        (Dict c))
+  }
 
-lookup :: forall (c :: Type -> Constraint). Dicts c -> SomeTypeRep -> Maybe (Dict c)
-lookup (Dicts ds) = flip Map.lookup ds
+lookupRep :: forall (c :: Type -> Constraint). Dicts c -> SomeTypeRep -> Maybe (Dict c)
+lookupRep  (Dicts rep _name) = flip Map.lookup rep
+
+lookupName :: forall (c :: Type -> Constraint). Dicts c -> Text -> Maybe (Dict c)
+lookupName (Dicts _rep name) = flip Map.lookup name
+
+empty :: Dicts c
+empty = Dicts mempty mempty
+
+insert
+  :: forall c a. (c a, Typeable a)
+  => Text
+  -> Proxy a
+  -> Dicts c
+  -> Dicts c
+insert name a (Dicts repM nameM) = Dicts
+  (Map.insert (someTypeRep a) (Dict a)  repM)
+  (Map.insert name            (Dict a) nameM)
 
 link :: forall c a. (c a, Typeable a) => Proxy a -> (SomeTypeRep, Dict c)
 link p = (someTypeRep p, Dict p)
+
+reps :: Dicts c -> [SomeTypeRep]
+reps (Dicts reps _) = Map.keys reps
+
+names :: Dicts c -> [Text]
+names (Dicts _ names) = Map.keys names

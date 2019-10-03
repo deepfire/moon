@@ -142,7 +142,7 @@ mkField (FieldDesc _c (FieldInfo name) getter) =
   Field (pack name)
         (someTypeRep $ Proxy @u)
         (someTypeRep $ Proxy @x)
-        (SomeAccessors (Accessors getter undefined))
+        (SomeAccessors (Accessors getter (error "Setters not defined yet.")))
 
 data SomeAccessors (c :: Type -> Constraint) u = forall a. (c a, Typeable a) => SomeAccessors
   { access      :: !(Accessors u c a)

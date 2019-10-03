@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE LambdaCase                 #-}
@@ -6,6 +8,7 @@
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeInType                 #-}
 
@@ -17,91 +20,83 @@ where
 
 import Control.Applicative (liftA2, (<|>))
 import Control.Monad (foldM)
-import qualified Data.Sequence                    as Seq
-import Data.Text (split)
 
 import qualified Text.Parsec.Prim as Parsec
-import Text.Parser.Char (alphaNum, char)
 import Text.Parser.Combinators ((<?>), some)
 import Text.Parser.Expression
-import Text.Parser.Token.Highlight
-import Text.Parser.Token
-       ( IdentifierStyle(..)
-       , TokenParsing
-       , ident
-       , parens
-       , reserve)
+import Text.Parser.Token (TokenParsing, parens, reserve)
 import Text.Parser.Token.Style (emptyOps)
 
 import Basis
+import Ground
 import Pipe.Types
-import Type
 
 
-data Expr where
+data Expr p where
   PVal  ::
     { vX  :: SomeValue
-    } -> Expr
+    } -> Expr p
   PPipe ::
-    { pP  :: SomePipe
-    } -> Expr
+    { pP  :: p
+    } -> Expr p
   PApp ::
-    { apF :: Expr
-    , apX :: Expr
-    } -> Expr
+    { apF :: Expr p
+    , apX :: Expr p
+    } -> Expr p
   PComp ::
-    { coF :: Expr
-    , coG :: Expr
-    } -> Expr
-  deriving (Show)
+    { coF :: Expr p
+    , coG :: Expr p
+    } -> Expr p
+  deriving (Foldable, Functor, Traversable)
 
 parse
-  :: (QName Pipe -> Either Text SomePipe)
-  -> Text
-  -> Either Text Expr
-parse lookupPipe s =
-  case Parsec.parse (parser lookupPipe) "" s of
-    Left err -> Left $ "Pipe expr parser: " <> pack (show err)
-    Right x -> x
+  :: forall e
+  . (e ~ Text)
+  => Text
+  -> (Either e (Expr (QName SomePipe)))
+parse s = do
+  case Parsec.parse parseExpr "" ("("<>s<>")") of
+    -- XXX: get rid of the parens
+    Left         e  -> Left $ "Pipe expr parser: " <> pack (show e)
+    Right (Left  e) -> Left $ pack (show e)
+    Right (Right x) -> Right $ x
 
-parser
+parseExpr
   :: forall e m
   . ( e ~ Text
     , Monad m
     , TokenParsing m)
-  => (QName Pipe -> Either e SomePipe)
-  -> m (Either e Expr)
-parser lookupPipe =
+  => m (Either e (Expr (QName SomePipe)))
+parseExpr =
   buildExpressionParser table term
-  <?> "expression"
+  <?> "Expr"
  where
-   term :: (Monad m, TokenParsing m) => m (Either e Expr)
+   term :: (Monad m, TokenParsing m) => m (Either e (Expr (QName SomePipe)))
    term = parens applys
-          <|> ((PPipe <$>) . lookupPipe <$> pipeName)
-          <?> "simple expression"
-   applys :: (Monad m, TokenParsing m) => m (Either e Expr)
+          <|> (pure . PPipe <$> parseQName)
+          <|> (pure . PVal  <$> parseSomeValue)
+          <?> "Expr.term"
+   applys :: (Monad m, TokenParsing m) => m (Either e (Expr (QName SomePipe)))
    applys = do
-     xss <- some (parser lookupPipe)
+     xss <- some parseExpr
      case xss of
        x : xs -> foldM (\l r -> pure $ PApp <$> l <*> r) x xs
        _ -> error "Invariant failed: 'some' failed us."
-   table :: (Monad m, TokenParsing m) => [[Operator m (Either e Expr)]]
+     <?> "Expr.applys"
+   table :: (Monad m, TokenParsing m) => [[Operator m (Either e (Expr (QName SomePipe)))]]
    table =
      [ -- (.) :: (b -> c) -> (a -> b) -> a -> c infixr 9
        [ binary "." (liftA2 PComp) AssocRight
        ]
      ]
-   pipeName :: (Monad m, TokenParsing m) => m (QName a)
-   pipeName = QName . (Name <$>) . Seq.fromList . split (== '.') <$> identifier
-
-   identifier :: (Monad m, TokenParsing m) => m Text
-   identifier = ident $ IdentifierStyle
-     { _styleName = "pipe name"
-     , _styleStart = alphaNum
-     , _styleLetter = alphaNum <|> char '.'
-     , _styleReserved = mempty
-     , _styleHighlight = Identifier
-     , _styleReservedHighlight = ReservedIdentifier
-     }
    binary name fun assoc = Infix (fun <$ reservedOp name) assoc
    reservedOp name = reserve emptyOps name
+
+{-------------------------------------------------------------------------------
+  Boring.
+-------------------------------------------------------------------------------}
+instance Show p => Show (Expr p) where
+  show (PVal    x) =   "Val "<>show x
+  show (PPipe   x) =  "Pipe "<>show x
+  show (PApp  f x) =  "App ("<>show f<>") ("<>show x<>")"
+  show (PComp f g) = "Comp ("<>show f<>") ("<>show g<>")"

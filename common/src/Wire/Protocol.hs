@@ -40,11 +40,10 @@ import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
-import           Data.List                          (intersperse)
 import           Data.Proxy                         (Proxy(..))
 import           Data.Typeable                      (Typeable)
-import           Options.Applicative
-import           Text.Read
+import           Options.Applicative hiding (Parser)
+import qualified Options.Applicative              as Opt
 import           Type.Reflection
 
 import qualified Codec.CBOR.Decoding              as CBOR (Decoder,  decodeListLen, decodeWord)
@@ -60,9 +59,6 @@ import qualified Network.TypedProtocol.Codec      as Codec
 import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
-import Data.Some
-import Data.RTTI
-
 import Basis
 import Ground
 import Pipe
@@ -70,12 +66,15 @@ import Pipe
 --------------------------------------------------------------------------------
 -- | Request/Reply:  asks with expectance of certain type of reply.
 data Request (k :: Con) a
-  = RunPipe (Name SomePipe) [SomeValue]
+  = Run                      Text
+  | Compile (QName SomePipe) Text
 
 data Reply   (k :: Con) a
   = ReplyValue SomeValue
 
-instance Show (Request k a) where show (RunPipe n vs) = "RunPipe "    <> show n <> " " <> concat (intersperse " " (show <$> vs))
+instance Show (Request k a) where
+  show (Run       text) = "Run "                      <> unpack text
+  show (Compile n text) = "Compile " <> show n <> " " <> unpack text
 instance Show (Reply   k a) where show (ReplyValue n) = "ReplyValue " <> show n
 
 --------------------------------------------------------------------------------
@@ -87,55 +86,39 @@ data SomeReply   = forall k a. SomeReply   (Reply   k a)
 instance Show SomeRequest   where show (SomeRequest x) = show x
 instance Show SomeReply     where show (SomeReply   x) = show x
 
-parseSomeRequest :: Parser SomeRequest
+parseSomeRequest :: Opt.Parser SomeRequest
 parseSomeRequest = subparser $ mconcat
-  [ cmd "RunPipe" $ SomeRequest
-                      <$> (RunPipe
-                             <$> (Name <$> opt "pipe")
-                             <*> (many (opt "arg")))
+  [ cmd "run" $
+    SomeRequest
+      <$> (Run
+             <$> strArgument (metavar "PIPEDESC"))
+  , cmd "compile" $
+    SomeRequest
+      <$> (Compile
+             <$> (QName <$> argument auto (metavar "NAME"))
+             <*> strArgument (metavar "PIPEDESC"))
   ]
   where
     cmd name p = command name $ info (p <**> helper) mempty
-    opt name   = option auto (long name)
-
-instance Read SomeValue where
-  readPrec = do
-    rtti@(Exists2 rtti') :: Some2 (RTTI2 Tag) <- readPrec
-    case trace (printf "Got RTTI with tag/rep: %s, %s" (show $ Ground.rtti2Tag rtti') (show $ Ground.rtti2Rep rtti'))
-         rtti of
-      Exists2 x ->
-        case x of
-          (y :: RTTI2 Tag k b) -> do
-            let tag' :: Tag' k = Ground.rtti2Tag y
-                str            = Ground.rtti2Rep y
-            case Ground.withGroundType str (readValue tag') of
-              Nothing -> fail $ "Not a ground type: "<> show str
-              Just x -> x
-            where readValue :: forall (k :: Con). Tag' k -> Dict Ground -> ReadPrec SomeValue
-                  readValue tag (Dict (_a :: Proxy a)) = do
-                    case tag of
-                      TPoint' -> do
-                        v :: a <- readPrec
-                        pure $ SomeValue $ SomeKindValue $ mkValue' tag v
-                      _ -> trace (printf "Can't Read values of any types, but Point.")
-                                 (fail "")
 
 --------------------------------------------------------------------------------
 -- | Serialise instances
 
 tagSomeRequest, tagSomeReply, tagSomeValue :: Word
-tagSomeRequest = 31--415926535
+tagSomeRequest  = 31--415926535
 tagSomeReply   = 27--182818284
 tagSomeValue   = 16--180339887
 
 instance Serialise SomeRequest where
   encode (SomeRequest x) = case x of
-    RunPipe x vs -> encodeListLen 3 <> encodeWord tagSomeRequest <> encode x <> encode vs
+    Run       text -> encodeListLen 3 <> encodeWord (tagSomeRequest + 0) <> encode text
+    Compile x text -> encodeListLen 3 <> encodeWord (tagSomeRequest + 1) <> encode x <> encode text
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (3, _tagSomeRequest) -> SomeRequest <$> (RunPipe <$> decode <*> decode)
+      (3, 31) -> SomeRequest <$> (Run     <$> decode)
+      (3, 32) -> SomeRequest <$> (Compile <$> decode <*> decode)
       _ -> failLenTag len tag
 
 instance Serialise SomeReply where
@@ -163,10 +146,10 @@ instance Serialise SomeValue where
     case (len, tag) of
       (3, _tagSomeValue) -> do
         str :: SomeTypeRep <- decode
-        case Ground.withGroundType str decodeSomeValue of
+        case Ground.withRepGroundType str decodeSomeValue of
           Nothing -> fail $ mconcat
             ["Not a ground type: ", show str, "\n"
-            ,"Ground types: ", show groundTypeList]
+            ,"Ground types: ", show groundTypeReps]
           Just x -> x
         where decodeSomeValue :: Dict Ground -> Decoder s SomeValue
               decodeSomeValue (Dict (_a :: Proxy a)) =

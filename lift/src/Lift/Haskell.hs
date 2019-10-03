@@ -80,12 +80,14 @@ newtype GhcLibDir = GhcLibDir FilePath deriving Show
 spacePipeData :: QName (Scope Point SomePipe) -> Space Point SomePipe
 spacePipeData graft = mempty
   & attachScopes (graft |> "Hask")
-      [ dataProjScopeG $ Proxy @Index
-      , dataProjScopeG $ Proxy @Repo
-      , dataProjScopeG $ Proxy @Package
-      , dataProjScopeG $ Proxy @Module
-      , dataProjScopeG $ Proxy @Def
-      , dataProjScopeG $ Proxy @DefType
+      [ dataProjScope $ Proxy @Loc
+      -- *
+      , dataProjScope $ Proxy @Index
+      , dataProjScope $ Proxy @Repo
+      , dataProjScope $ Proxy @Package
+      , dataProjScope $ Proxy @Module
+      , dataProjScope $ Proxy @Def
+      , dataProjScope $ Proxy @DefType
       ]
 
 fileToHsModule
@@ -106,7 +108,7 @@ fileToModule libDir hsFile = do
       parseErr _               = ""
   (,) dflags parseR <-
     catchIO (second (id &&& parseErr) <$> fileToHsModule libDir hsFile) $
-    pure . (undefined,) . (PFailed undefined undefined undefined,)
+    pure . (error "fileToModule",) . (PFailed (error "fileToModule") (error "fileToModule") (error "fileToModule"),)
          . pack . show
   case parseR of
     (PFailed _ _ _, err) -> do

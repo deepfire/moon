@@ -91,5 +91,5 @@ someTypeRepVariants str =
   withGroundType str strVariants
   where strVariants :: Dict Ground -> [Variant]
         strVariants (Dict (p :: Proxy a)) =
-          undefined
+          (error "someTypeRepVariants: strVariants undefined")
 

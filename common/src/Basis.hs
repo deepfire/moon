@@ -1,7 +1,13 @@
+{-# LANGUAGE LambdaCase #-}
 module Basis
-  ( module Control.Monad
+  ( module Control.Applicative
+  , module Control.Arrow
+  , module Control.Monad
+  , module Data.Bifunctor
   , module Data.Dynamic
+  , module Data.Foldable
   , module Data.Function
+  , module Data.Functor
   , module Data.Kind
   , module Data.Map.Strict
   , module Data.Orphanage
@@ -21,12 +27,18 @@ module Basis
   , keysSet
   , listSetUnsafe
   , setToList
+  , guard
   )
 where
 
+import Control.Applicative   ((<|>), liftA2)
+import Control.Arrow         ((***), (&&&), (+++), left, right)
 import Control.Monad         (join)
+import Data.Bifunctor        (bimap)
 import Data.Dynamic          (Dynamic(..), Typeable)
 import Data.Function         ((&))
+import Data.Functor          ((<&>))
+import Data.Foldable         (toList)
 import Data.Kind             (Constraint)
 import Data.Map.Strict       (Map)
 import Data.Orphanage
@@ -59,3 +71,8 @@ listSetUnsafe = Set.fromDistinctAscList
 
 setToList :: Ord a => Set.Set a -> [a]
 setToList = Set.toAscList
+
+guard :: e -> Maybe a -> Either e a
+guard e = \case
+  Nothing -> Left  e
+  Just x  -> Right x

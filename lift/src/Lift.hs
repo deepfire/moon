@@ -138,13 +138,11 @@ data Env =
   , envTrace       :: !(BM.Trace IO Text)
   , envSwitchboard :: !(BM.Switchboard Text)
   , envTracer      :: !(Tracer IO String)
-  , envGetHackage  :: !(IO (Either Text (Set (Name Package))))
   }
 
 finalise :: Config Final -> IO Env
 finalise envConfig@Config{..} = do
   (envTrace, envSwitchboard) <- BM.setupTrace_ cfMonitoring "lift"
-  envGetHackage <- setupHackageCache cfHackageTmo
   let envTracer = stdoutTracer
   pure Env{..}
 
@@ -190,61 +188,43 @@ haskellServer env@Env{..} =
 
 handleRequest :: Env -> SomeRequest -> IO (Either Text SomeReply)
 handleRequest Env{..} (SomeRequest x) = case x of
-  RunPipe name vs -> do
-    pipe <- atomically $ tryGetPipe name
-    putStrLn "got pipe"
-    case pipe of
-      Nothing -> pure . Left . pack $ "Unknown pipe: " <> show name
-      Just pipe -> do
-        case apply vs pipe of
-          Left e -> pure . Left $ "Pipe application error: " <> e
+  Compile name text ->
+    Lift.compile name text
+    <&> (SomeReply . ReplyValue . SomeValue . SomeKindValue . VPoint <$>)
+  Run text ->
+    case Pipe.parse text of
+      Left e -> pure . Left $ "Parse: " <> e
+      Right nameTree -> do
+        putStrLn $ unpack $ Data.Text.unlines
+          ["Pipe:", pack $ show nameTree ]
+        res <- atomically $ Pipe.compile lookupPipeFail nameTree
+        case res of
+          Left e -> pure . Left $ "Compilation: " <> e
           Right runnable -> do
             res :: Either Text SomeValue <- runPipe runnable
             case res of
-              Left e -> pure . Left $ "Pipe run error: " <> e
+              Left e -> pure . Left $ "Runtime: " <> e
               Right x -> pure . Right . SomeReply . ReplyValue $ x
   -- x -> pure . Left . pack $ "Unhandled request: " <> show x
 
+compile :: QName SomePipe -> Text -> Result Sig
+compile newname text =
+  case Pipe.parse text of
+    Left e -> pure . Left $ "Parse: " <> e
+    Right nameTree -> do
+      putStrLn $ unpack $ Data.Text.unlines
+        ["Pipe:", pack $ show nameTree ]
+      atomically $ do
+        old <- lookupPipe newname
+        res <- Pipe.compile lookupPipeFail nameTree
+        case (old, res) of
+          (Just _,  _)    -> pure . Left $ "Already exists: " <> pack (show newname)
+          (_,  Left e)    -> pure . Left $ e
+          (_, Right pipe) -> do
+            addPipe newname pipe
+            pure . Right . somePipeSig $ pipe
 
-defCompose :: Name Pipe -> Name Pipe -> Name Pipe -> Result Sig
-defCompose newname lname rname = atomically $ do
-  old <- tryGetPipe newname
-  ml  <- tryGetPipe lname
-  mr  <- tryGetPipe rname
-  case (old, ml, mr) of
-    (Just _, _, _)  -> pure . Left $ "Already exists: " <> pack (show newname)
-    (_, Nothing, _) -> pure . Left $ "Missing: " <> pack (show lname)
-    (_, _, Nothing) -> pure . Left $ "Missing: " <> pack (show rname)
-    (Nothing, Just l, Just r) -> do
-      case compose l r of
-        Left err -> pure $ Left err
-        Right new -> do
-          STM.modifyTVar' pipes $
-            \m -> Map.insert newname new m
-          pure . Right . pipeSig $ new
-
--- * We need to consider:
---   1. context that establishes tf tt
---   2. context that is captured by the accessors
-
--- link
---   :: forall kf tf kt tt
---   . ( Typeable (Repr kf tf), Typeable (Repr kt tt)
---     , Typeable kf, GroundContext tf, Typeable kt, GroundContext tt)
---   => PipeName
---   ->   Tag kf tf ->          Tag kt tt
---   -> (Repr kf tf -> Result (Repr kt tt))
---   -> Pipe
-
-pipes :: TVar Pipes
-pipes = Unsafe.unsafePerformIO $ STM.newTVarIO $ Map.fromList $
-  [ p . gen "indices" TSet . pure . pure . Set.fromList . (:[]) $
-        Index  "hackage" "https://hackage.haskell.org/" mempty
-  ] <> (p <$> dataProjPipes (Proxy @Hask.Index))
-  where p x = (pipeName x, x)
-  -- Packages "hackage"  > do
-  --   ret <- envGetHackage
-  --   case ret of
-  --     Left e -> pure $ Left e
-  --     Right hackagePackages -> pure . Right . PlyPackages $ RSet hackagePackages
-  -- Packages (IndexName ix) -> pure . Left $ "Unhandled index: " <> ix
+lookupPipeFail :: e ~ Text => QName SomePipe -> STM (Either e SomePipe)
+lookupPipeFail name =
+  lookupPipe name <&>
+  guard ("No such pipe: " <> showQName name)

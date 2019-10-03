@@ -23,10 +23,13 @@ library
                        Generics.SOP.Traversal
 
                        Ground.Hask
+                       Ground.Parser
                        -- Ground.Reflection
+                       Ground.Table
 
                        Pipe.Expr
                        Pipe.Ops
+                       Pipe.Scope
                        Pipe.Types
 
                        Wire.Peer
