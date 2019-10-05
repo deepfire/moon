@@ -29,9 +29,19 @@
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors #-}
 
 module Pipe.Scope
-  ( dataProjScope
-  , dataProjScopeG
+  ( PipeScope
   , pipeScope
+  , emptyPipeScope
+  , dataProjScope
+  , dataProjScopeG
+  -- * Re-exports
+  , scope
+  , emptyScope
+  , scopeNames
+  , scopeEntries
+  , lookupScope
+  , updateScope
+  , alterScope
   )
 where
 
@@ -43,8 +53,14 @@ import Namespace
 import Pipe.Ops
 import Pipe.Types
 
+
+type PipeScope = Scope Point SomePipe
+
 --------------------------------------------------------------------------------
-pipeScope :: Name (Scope Point SomePipe) -> [SomePipe] -> Scope Point SomePipe
+emptyPipeScope :: Name PipeScope -> PipeScope
+emptyPipeScope = Namespace.emptyScope
+
+pipeScope :: Name PipeScope -> [SomePipe] -> PipeScope
 pipeScope name pipes = scope name $ zip (somePipeName <$> pipes) pipes
 
 dataProjPipes
@@ -84,7 +100,6 @@ dataProjScopeG p = dataProjScope' p $ G <$> dataProjPipes p
 
 dataProjScope'
   :: forall u. Typeable u
-  => Proxy u -> [SomePipe] -> Scope Point SomePipe
-dataProjScope' _p ps = pipeScope name pipes
+  => Proxy u -> [SomePipe] -> PipeScope
+dataProjScope' _p ps = pipeScope name ps
   where name  = Name $ pack $ show (R.typeRepTyCon (typeRep @u))
-        pipes = ps

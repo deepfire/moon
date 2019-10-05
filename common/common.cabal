@@ -30,6 +30,7 @@ library
                        Pipe.Expr
                        Pipe.Ops
                        Pipe.Scope
+                       Pipe.Space
                        Pipe.Types
 
                        Wire.Peer
@@ -54,6 +55,7 @@ library
                      , generics-sop
                      , ghc-prim
                      -- , megaparsec
+                     , monoidal-containers
                      , optparse-applicative
                      , parsec
                      , parsers

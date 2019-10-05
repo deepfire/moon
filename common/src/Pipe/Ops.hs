@@ -159,7 +159,7 @@ gen'
 gen' name (splitTag2 -> (tagTo, pTo)) mv
                 = Pipe name sig struct tagTo pTo dyn
   where ty      = tagType tagTo pTo
-        sig     = Gen ty
+        sig     = Gen unitType ty
         struct  = Struct graph
         graph   = G.vertex ty
         dyn     = Dynamic typeRep pipeFun
@@ -213,10 +213,10 @@ type family TraverseC (c1 :: * -> Constraint) (c2 :: * -> Constraint) where
   TraverseC x      _ = x
 
 traverseP :: SomePipe -> SomePipe -> Either Text SomePipe
-traverseP (G l) (G r) = G <$> traverseP' l r
-traverseP (G l) (T r) = G <$> traverseP' l r
-traverseP (T l) (T r) = T <$> traverseP' l r
-traverseP (T l) (G r) = T <$> traverseP' l r
+traverseP (G f) (G t) = G <$> traverseP' f t
+traverseP (G f) (T t) = G <$> traverseP' f t
+traverseP (T f) (T t) = T <$> traverseP' f t
+traverseP (T f) (G t) = T <$> traverseP' f t
 
 traverseP'
   :: Typeable c1
@@ -245,19 +245,24 @@ showLR l r = "left "<>l<>", right "<>r
 showLRP :: Pipe c1 -> Pipe c2 -> Text
 showLRP l r = showLR (showPipe l) (showPipe r)
 
-type family BindC (c1 :: * -> Constraint) (c2 :: * -> Constraint) where
-  BindC _ Ground = Ground
-  BindC _ x      = x
+type family BindGround (c1 :: * -> Constraint) (c2 :: * -> Constraint) where
+  BindGround x _ = x
 
+-- | 'compose': approximate '(.)':
+-- (.) :: (b -> c) -> (a -> b) -> a -> c
 compose :: SomePipe -> SomePipe -> Either Text SomePipe
-compose (T l) (G r) = G <$> compose' l r
+compose (T l) (G r) = T <$> compose' l r
 compose (G l) (G r) = G <$> compose' l r
 compose (T l) (T r) = T <$> compose' l r
-compose (G l) (T r) = T <$> compose' l r
+compose (G l) (T r) = G <$> compose' l r
 
+-- | 'compose': approximate '(.)'
+-- (.) :: (b -> c) -> (a -> b) -> a -> c
+-- ..and convert to
+-- (=<<) :: (a -> m b) -> m a -> m b
 compose'
-  :: Typeable c2
-  => Pipe c1 -> Pipe c2 -> Either Text (Pipe (BindC c1 c2))
+  :: Typeable c1
+  => Pipe c1 -> Pipe c2 -> Either Text (Pipe (BindGround c1 c2))
 compose' p@PGen{} _
   = Left $ "'compose': left fully saturated: " <> showPipe p
 compose'
@@ -272,7 +277,7 @@ compose'
   , Just HRefl <-  b `eqTypeRep`  b'
   , Just HRefl <- typeRep @K.Type `eqTypeRep` typeRepKind kb
   , Just HRefl <- typeRep @K.Type `eqTypeRep` typeRepKind  b
-  = doBind (Unsafe.unsafeCoerce mv) rpn rs (Unsafe.unsafeCoerce mf) lpn ls
+  = doBind (Unsafe.unsafeCoerce mf) lpn ls (Unsafe.unsafeCoerce mv) rpn rs
   | otherwise
   = Left $ "compose: mismatch: "<>showLRP l r
 compose' l r
@@ -330,7 +335,7 @@ doTraverse
   (FOutput bT b (t ::      Result rb)) (Name rn) (Struct rg)
   = Right $ Pipe (Name $ "("<>ln<>")-<trav>-("<>rn<>")") sig struct cT c dyn
   where ty      = proxyType (Proxy @kb) (Proxy @c)
-        sig     = Gen ty
+        sig     = Gen unitType ty
         struct  = Struct graph
         graph   = lg `G.overlay` rg -- XXX: structure!
         dyn     = Dynamic rep pipeFun
@@ -341,23 +346,23 @@ doTraverse l _ _ r _ _
   = Left $ "doBind: PipeFuns, but "<>showLR (pack $ show l) (pack $ show r)
 
 -- | 'doBind': approximate 'bind':
--- (>>=) :: forall a b. m a -> (a -> m b) -> m b infixl 1 Source #
+-- (=<<) :: (a -> m b) -> m a -> m b
 -- ..with the difference that we should handle a FLink on the left as well,
 -- ..but not just yet.
 doBind
   :: forall c1 c2 resC ka a kb b kc c rb rc
    . ( rb ~ Repr kb b
      , rc ~ Repr kc c
-     , resC ~ (BindC c1 c2)
-     , Typeable c2)
-  => PipeFun c1 ka a kb b      -> Name Pipe -> Struct
-  -> PipeFun c2      kb b kc c -> Name Pipe -> Struct
+     , resC ~ (BindGround c1 c2)
+     , Typeable resC)
+  => PipeFun c1      kb b kc c -> Name Pipe -> Struct
+  -> PipeFun c2 ka a kb b      -> Name Pipe -> Struct
   -> Either Text (Pipe resC)
-doBind (FOutput _bT _b (v :: Result rb))  (Name rn) (Struct rg)
-       (FLink cT c (f :: lb -> Result lc)) (Name ln) (Struct lg)
+doBind (FLink cT c (f :: lb -> Result lc)) (Name ln) (Struct lg)
+       (FOutput _bT _b (v :: Result rb))  (Name rn) (Struct rg)
   = Right $ Pipe (Name $ ln<>">>="<>rn) sig struct cT c dyn
   where ty      = proxyType (Proxy @kc) c
-        sig     = Gen ty
+        sig     = Gen unitType ty
         struct  = Struct graph
         graph   = G.overlay lg rg
         dyn     = Dynamic (typeRep :: TypeRep (PipeFun resC Point () kc c)) pipeFun
@@ -379,7 +384,7 @@ doApply (FLink bT b (f :: ra -> Result rb)) (Name rn) (Struct rg)
         v
   = Right $ Pipe (Name $ "app-"<>rn) sig struct bT b dyn
   where ty      = proxyType (Proxy @kb) (Proxy @b)
-        sig     = Gen ty
+        sig     = Gen unitType ty
         struct  = Struct graph
         graph   = rg -- XXX ???
         dyn     = Dynamic (typeRep :: TypeRep (PipeFun c Point () kb b)) pipeFun

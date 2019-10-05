@@ -72,7 +72,9 @@ parseQName
     , TokenParsing m)
   => m (QName a)
 parseQName =
-  QName . (Name <$>) . Seq.fromList . split (== '.') <$> identifier
+  (string "()" >> pure (QName mempty))
+  <|>
+  (QName . (Name <$>) . Seq.fromList . split (== '.') <$> identifier)
   <?> "QName"
  where
   identifier :: (Monad m, TokenParsing m) => m Text

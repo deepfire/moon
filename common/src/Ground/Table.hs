@@ -33,8 +33,8 @@ import qualified Data.Dict as Dict
 import Data.Dict (Dict(..), Dicts)
 import Type
 
+import Ground.Parser ()
 import qualified Ground.Hask as Hask
-import Ground.Parser
 import Namespace
 import Pipe.Types
 
@@ -154,11 +154,13 @@ infixr 2 #
 groundTypes :: Dicts Ground
 groundTypes = Dict.empty
   -- Meta
+  -- & Dict.insert "Ground"          # Proxy @(Dict Ground)
   & Dict.insert "Con"             # Proxy @Con
   & Dict.insert "Type"            # Proxy @Type
   & Dict.insert "Sig"             # Proxy @Sig
   & Dict.insert "Struct"          # Proxy @Struct
   & Dict.insert "SomeTypeRep"     # Proxy @SomeTypeRep
+  & Dict.insert "SomeTypeRep2"    # Proxy @(SomeTypeRep, SomeTypeRep)
   & Dict.insert "NameType"        # Proxy @(Name Type)
   & Dict.insert "NamePipe"        # Proxy @(Name SomePipe)
   & Dict.insert "QNamePipe"       # Proxy @(QName SomePipe)

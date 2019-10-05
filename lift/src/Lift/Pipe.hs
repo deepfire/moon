@@ -20,7 +20,6 @@ import qualified System.IO.Unsafe                 as Unsafe
 
 import Basis
 import Ground
-import Namespace
 import Pipe
 import "common" Type
 
@@ -28,13 +27,13 @@ import Lift.Hackage as Hackage
 import Lift.Haskell as Haskell
 
 
-initialPipeSpace :: Space Point SomePipe
+initialPipeSpace :: PipeSpace
 initialPipeSpace
-  =  Haskell.spacePipeData      (qname "Data")
-  <> Hackage.spacePipe          mempty
+  =  Haskell.pipeSpace      (qname "Data")
+  <> Hackage.pipeSpace       mempty
   <> pipeSpaceMeta
 
-mutablePipeSpace :: TVar (Space Point SomePipe)
+mutablePipeSpace :: TVar PipeSpace
 mutablePipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO $ initialPipeSpace
 {-# NOINLINE mutablePipeSpace #-}
 
@@ -53,29 +52,45 @@ addPipe name pipe = do
           STM.writeTVar mutablePipeSpace s'
           pure . Right $ somePipeSig pipe
 
-pipeSpaceMeta :: Space Point SomePipe
+pipeSpaceMeta :: PipeSpace
 pipeSpaceMeta =
-  mempty
-  & insertScopeAt mempty
+  emptyPipeSpace "Meta"
+  & insertScope mempty
     (pipeScope "meta"
-     [ link "sig"    TPoint' TPoint' $ pipeSigPipe
-     , link "pipes"  TPoint' TSet'   $ listPipeNames
-     , link "scopes" TPoint' TSet'   $ listPipeScopes
-     , gen  "gnd"            TSet'   $ listGround
+     [ linkG "sig"     TPoint' TPoint' $ sig
+     , linkG "repsig"  TPoint' TPoint' $ repsig
+     , linkG "pipes"   TPoint' TSet'   $ pipes
+     , linkG "scopes"  TPoint' TSet'   $ scopes
+     , genG  "ground"          TSet'   $ ground
+     , linkG "from"    TPoint' TSet'   $ fromTo sOut
+     , linkG "to"      TPoint' TSet'   $ fromTo sIn
      ])
   where
-    pipeSigPipe :: QName SomePipe -> Result Sig
-    pipeSigPipe name = do
+    sig :: QName SomePipe -> Result Sig
+    sig name = do
       pipe <- atomically $ lookupPipe name
       pure $ case pipe of
         Nothing -> Left $ "Missing pipe: " <> pack (show name)
         Just (somePipeSig -> d) -> Right d
-    listPipeNames :: QName (Scope Point SomePipe) -> Result (Set (Name SomePipe))
-    listPipeNames name =
+    repsig :: QName SomePipe -> Result (SomeTypeRep, SomeTypeRep)
+    repsig name = do
+      pipe <- atomically $ lookupPipe name
+      pure $ case pipe of
+        Nothing -> Left $ "Missing pipe: " <> pack (show name)
+        Just (somePipeSig >>> sIn &&& sOut >>> join (***) tRep -> x) -> Right x
+    pipes :: QName PipeScope -> Result (Set (Name SomePipe))
+    pipes name =
       guard ("No scope for name: " <> pack (show name))
       . (scopeNames <$>) . scopeAt name <$> STM.readTVarIO mutablePipeSpace
-    listPipeScopes :: QName (Scope Point SomePipe) -> Result (Set (QName (Scope Point SomePipe)))
-    listPipeScopes name =
+    scopes :: QName PipeScope -> Result (Set (QName PipeScope))
+    scopes name =
       Right . Set.fromList . childScopeNamesAt name <$> STM.readTVarIO mutablePipeSpace
-    listGround :: Result (Set Text)
-    listGround = pure . Right $ Set.fromList groundTypeNames
+    ground :: Result (Set Text)
+    ground = pure . Right $ Set.fromList groundTypeNames
+    fromTo :: (Sig -> Type) -> QName SomePipe -> Result (Set (QName SomePipe))
+    fromTo sigSide name = atomically $ do
+      pipe <- lookupPipe name
+      case pipe of
+        Nothing -> pure . Left $ "Missing pipe: " <> pack (show name)
+        Just (tRep . sigSide . somePipeSig -> toRep) -> do
+          Right . pipesFrom toRep <$> STM.readTVar mutablePipeSpace

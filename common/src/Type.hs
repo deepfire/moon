@@ -35,6 +35,7 @@ module Type
   , Type(..)
   , proxyType
   , tagType
+  , unitType
   , Value(..)
   , mkValue
   , mkValue'
@@ -178,8 +179,11 @@ data Type =
   Type
   { tName :: Name Type      -- ^ Extracted from the typerep
   , tCon  :: R.TyCon        -- ^ Con
-  , tType :: R.SomeTypeRep  -- ^ Kind.Type
+  , tRep  :: R.SomeTypeRep  -- ^ Kind.Type
   } deriving (Eq, Generic, Ord)
+
+unitType :: Type
+unitType = tagType TPoint (Proxy @())
 
 --------------------------------------------------------------------------------
 data Value (k :: Con) a where
@@ -270,7 +274,9 @@ tagType TGraph a = proxyType (Proxy @k) a
 
 instance Read Type where readPrec = failRead
 instance Show Type where
-  show (Type _ tycon sometyperep) = "Type "<>show tycon<>" "<>show sometyperep
+  show (Type _ tycon sometyperep) =
+    show tycon<>":"<>(map (\case {' ' -> '-'; x -> x})
+                       $ show sometyperep)
 instance Serialise Type
 
 instance (Ord a, Show a) => Show (Value k a) where

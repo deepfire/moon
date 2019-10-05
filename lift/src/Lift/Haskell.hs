@@ -14,7 +14,7 @@ module Lift.Haskell
   ( GhcLibDir(..)
   , fileToModule
     -- * Namespace
-  , spacePipeData
+  , pipeSpace
   )
 where
 
@@ -23,7 +23,6 @@ import qualified Algebra.Graph as Graph
 import qualified Data.Map      as Map
 import qualified Data.Set      as Set
 import           Algebra.Graph (Graph)
-import           Control.Arrow
 import           Data.Map (Map)
 import           Data.Set (Set)
 import           Data.Maybe
@@ -71,14 +70,14 @@ import           SysTools
 ---------------- Local
 import Basis
 import Ground.Hask
-import Namespace
-import Pipe
+import Pipe.Scope
+import Pipe.Space
 import "common" Type
 
 newtype GhcLibDir = GhcLibDir FilePath deriving Show
 
-spacePipeData :: QName (Scope Point SomePipe) -> Space Point SomePipe
-spacePipeData graft = mempty
+pipeSpace :: QName PipeScope -> PipeSpace
+pipeSpace graft = emptyPipeSpace "Haskell"
   & attachScopes (graft |> "Hask")
       [ dataProjScope $ Proxy @Loc
       -- *
@@ -107,7 +106,7 @@ fileToModule libDir hsFile = do
   let parseErr (PFailed _ _ x) = pack $ showSDocUnsafe x
       parseErr _               = ""
   (,) dflags parseR <-
-    catchIO (second (id &&& parseErr) <$> fileToHsModule libDir hsFile) $
+    catchIO ( second (id &&& parseErr) <$> fileToHsModule libDir hsFile) $
     pure . (error "fileToModule",) . (PFailed (error "fileToModule") (error "fileToModule") (error "fileToModule"),)
          . pack . show
   case parseR of

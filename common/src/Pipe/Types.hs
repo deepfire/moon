@@ -62,14 +62,15 @@ data Pipe (c :: * -> Constraint) where
     } -> Pipe c
 
 showPipe, showPipeP :: Pipe c -> Text
-showPipe (PAny name sig _ _) = pack $ show name <>" :: "<>show sig
+showPipe  p = pack $ show (pipeName p) <>" :: "<>show (pipeSig p)
 showPipeP x = "("<>showPipe x<>")"
 
 --------------------------------------------------------------------------------
 -- | Sig: a structure-oblivious abstraction of a pipe as its endpoints.
 data Sig
   = Gen    -- ^  Pipe endpoint: IO a
-    { sOut :: Type
+    { sIn  :: Type
+    , sOut :: Type
     }
   | Link   -- ^ Pipe transform: b → IO c
     { sIn  :: Type
@@ -87,7 +88,7 @@ type Result a = IO (Either Text a)
 
 --------------------------------------------------------------------------------
 pattern PGen  :: Name Pipe -> Struct -> Dynamic ->         Type -> Pipe c
-pattern PGen  n st dy    so <- Pipe n (Gen     so) st _ _ dy
+pattern PGen  n st dy    so <- Pipe n (Gen  _  so) st _ _ dy
 
 pattern PLink :: Name Pipe -> Struct -> Dynamic -> Type -> Type -> Pipe c
 pattern PLink n st dy si so <- Pipe n (Link si so) st _ _ dy
@@ -106,8 +107,8 @@ instance Show (Pipe c) where
   show p = "Pipe "<>unpack (showPipe p)
 
 instance Show Sig where
-  show (Gen    o)  =  "Gen "<>show o
-  show (Link i o)  = "Link "<>show i<>" -> "<>show o
+  show (Gen  _ o)  =  "(Gen "<>show o<>")"
+  show (Link i o)  = "(Link "<>show i<>" -> "<>show o<>")"
 instance Serialise Sig
 instance Read Sig where readPrec = failRead
 

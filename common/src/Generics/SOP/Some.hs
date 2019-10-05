@@ -35,6 +35,7 @@ module Generics.SOP.Some
   ( -- *
     HasTypeData(..)
   , Data(..)
+  , ppData
   , Ctor(..)
   , Field(..)
   , mkData
@@ -63,6 +64,9 @@ import Data.Orphanage ()
 import Generics.SOP.Mapping hiding (cFields)
 import Data.SOP.NP
 
+import Debug.Trace                (trace)
+import Text.Printf                (printf)
+
 
 data Form = Fun | Still
 
@@ -71,6 +75,18 @@ data Data  (f :: Form) (c :: Type -> Constraint) u = Data
   , typeName   :: !Text
   , dCtors     :: ![Ctor f c u]
   }
+
+-- TODO:  go Doc (& compare complexity after switching..)
+ppData :: Data f c u -> Text
+ppData Data{moduleName, typeName, dCtors} =
+  pack (printf "%s.%s\n" moduleName typeName) <>
+  Data.Text.intercalate "\n" (ppCtor <$> dCtors)
+ where
+   ppCtor Ctor{cName, cFields} =
+     pack (printf "  %s\n" cName) <>
+     Data.Text.intercalate "\n" (ppField <$> cFields)
+   ppField Field{fName, fRep} =
+     pack (printf "    %25s :: %s" fName (show fRep))
 
 class    ( Generic u, HasDatatypeInfo u, Typeable u
          , All2 c (Code u)
@@ -117,8 +133,8 @@ mkCtor (CtorDesc _ _ (Constructor name) fields) =
        (hcollapse $ hcliftA (Proxy @(And Typeable c))
          (K . (mkField @u))
          fields)
-mkCtor (CtorDesc _ _ (Record name _cinfos) fields) =
-  Ctor (pack name)
+mkCtor (CtorDesc _ _ (Record cname _finfos) fields) =
+  Ctor (pack cname)
        (hcollapse $ hcliftA (Proxy @(And Typeable c))
          (K . (mkField @u))
          fields)
@@ -127,6 +143,15 @@ mkCtor (CtorDesc _ _ (Infix name _ass _fix) fields) =
        (hcollapse $ hcliftA (Proxy @(And Typeable c))
          (K . (mkField @u))
          fields)
+
+-- WTF:
+-- forall f xs. NP f xs -> Int -> Int
+-- !=
+--              NP f xs -> Int -> Int
+-- ????
+_lenNP :: forall f xs. NP f xs -> Int -> Int
+_lenNP Nil acc = acc
+_lenNP (_ :* xs) acc = _lenNP xs (acc + 1)
 
 data Field (f :: Form) (c :: Type -> Constraint) u = Field
   { fName      :: !Text

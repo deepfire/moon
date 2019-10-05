@@ -14,7 +14,7 @@
 
 module Lift.Hackage
   ( -- * Namespace
-    Lift.Hackage.spacePipe
+    Lift.Hackage.pipeSpace
   )
 where
 
@@ -43,21 +43,22 @@ import qualified Distribution.Types.GenericPackageDescription as Cabal
 import Basis
 import Ground
 import Ground.Hask
-import Namespace
+import Pipe.Scope
+import Pipe.Space
 import Pipe
 import "common" Type
 
 import Lift.Orphanage
 
 
-spacePipe :: QName (Scope Point SomePipe) -> Space Point SomePipe
-spacePipe graft = mempty
+pipeSpace :: QName PipeScope -> PipeSpace
+pipeSpace graft = emptyPipeSpace "Hackage"
   & attachScopes (graft)
       [ pipeScope "Hackage"
         [ gen  "packages"        TSet' hackagePackageNames
         , link "cabal" TPoint' TPoint' getHackagePackageCabalDesc
         ]
-      , emptyScope "Cabal"
+      , emptyPipeScope "Cabal"
         <> (dataProjScope $ Proxy @Cabal.GenericPackageDescription)
         <> (dataProjScope $ Proxy @Cabal.PackageDescription)
         <> (dataProjScope $ Proxy @Cabal.SourceRepo)

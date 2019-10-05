@@ -78,7 +78,6 @@ import Ground
 import Ground.Hask
 import qualified Ground.Hask as Hask
 import Lift.Pipe
-import Namespace
 import Pipe
 import Wire.Peer
 import Wire.Protocol
