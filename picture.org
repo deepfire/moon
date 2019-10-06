@@ -399,3 +399,13 @@
   - [[file:common/src/Wire/Protocol.hs::data%20Haskell][Protocol]]
   - [[file:common/src/Type.hs::data%20HaskellRequest%20(k%20::%20Kind)%20a%20where][Face]]
     - [[file:common/src/Ground/Haskell.hs::module%20Ground.Haskell][Ground.Haskell]]
+* Backend
+  - main
+    - runApp
+      - Engine.scheduleEvent loop Event.Init == Engine.scheduleInit loop
+        - Loop.schedule loop . processEvent loop
+      - appRef <- Store.createApp (App.mk openedFile) $ Engine.scheduleEvent loop
+      - React.reactRender Mount.mountPoint (App.app appRef) ()
+      - Engine.connectEventSources socket loop
+        - sequence_ $ mkSource <$> [ JSHandlers.webSocketHandler conn, JSHandlers.atomHandler, JSHandlers.sceneResizeHandler, JSHandlers.movementHandler]
+          - mkSource (AddHandler rh) = rh $ =scheduleEvent= loop
