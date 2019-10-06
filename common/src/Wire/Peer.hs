@@ -22,7 +22,7 @@
 module Wire.Peer
   ( Server(..)
   , runServer
-  , Client(..)
+  , ClientState(..)
   , runClient
   )
 where
@@ -89,42 +89,44 @@ serverPeer server =
         MsgDone -> Net.Done TokDone recvMsgDone
 
 
-data Client rej m a where
-     SendMsgRequest
+data ClientState rej m a where
+     ClientRequesting
        :: SomeRequest
-       -> (Either rej a -> m (Client rej m a))
-       -> Client rej m a
+       -> (Either rej a -> m (ClientState rej m a))
+       -> ClientState rej m a
 
-     SendMsgDone
-       :: Client rej m a
+     ClientDone
+       :: ClientState rej m a
 
 runClient :: forall rej m a
            . (Monad m, Serialise rej, Show rej, a ~ SomeReply, m ~ IO)
           => Tracer m String
-          -> m (Client rej m a)
+          -> m (ClientState rej m a)
           -> Net.Channel m LBS.ByteString
           -> m ()
-runClient tracer client channel = Net.runPeer (showTracing tracer) codec peerId channel peer
+runClient tracer firstStep channel = Net.runPeer (showTracing tracer) codec peerId channel peer
   where
     peerId = "server"
-    peer   = clientPeer client
+    peer   = mkClientSTS firstStep
 
-clientPeer :: forall rej m a
+mkClientSTS :: forall rej m a
            . (Monad m, a ~ SomeReply)
-           => m (Client rej m a)
+           => m (ClientState rej m a)
            -> Peer (Piping rej) AsClient StIdle m ()
-clientPeer client =
-    Effect $ go <$> client
+mkClientSTS firstStep =
+    Effect $ go <$> firstStep
   where
-    go :: Client rej m a
+    go :: ClientState rej m a
        -> Peer (Piping rej) AsClient StIdle m ()
-    go (SendMsgRequest req k) =
+    go (ClientRequesting req csStep) =
       Yield (ClientAgency TokIdle) (MsgRequest req) $
         Await (ServerAgency TokBusy) $ \msg -> case msg of
-          MsgReply      rep -> Effect (go <$> k (Right rep))
-          MsgBadRequest rej -> Effect (go <$> k (Left  rej))
+          MsgReply rep ->
+            Effect (go <$> csStep (Right rep))
+          MsgBadRequest rej ->
+            Effect (go <$> csStep (Left  rej))
 
-    go SendMsgDone =
+    go ClientDone =
       Yield (ClientAgency TokIdle)
             MsgDone
             (Net.Done TokDone ())

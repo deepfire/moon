@@ -34,12 +34,13 @@ client
   . (rej ~ Text, m ~ IO, a ~ SomeReply)
   => Tracer m String
   -> SomeRequest
-  -> m (Client rej m a)
-client tracer req = pure $ SendMsgRequest req handleReply
-  where
-    handleReply (Left rej) = do
-      putStrLn $ "error: " <> unpack rej
-      pure SendMsgDone
-    handleReply (Right rep) = do
-      putStrLn $ show rep
-      pure SendMsgDone
+  -> m (ClientState rej m a)
+client tracer req = pure $
+  ClientRequesting req handleReply
+ where
+   handleReply (Left rej) = do
+     putStrLn $ "error: " <> unpack rej
+     pure ClientDone
+   handleReply (Right rep) = do
+     putStrLn $ show rep
+     pure ClientDone

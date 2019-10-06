@@ -98,14 +98,14 @@ client
   . (m ~ IO, a ~ SomeReply)
   => Tracer m String
   -> Connection rej
-  -> m (Client rej m a)
+  -> m (ClientState rej m a)
 client tracer c = loop
   where
-    loop :: m (Client rej IO SomeReply)
+    loop :: m (ClientState rej IO SomeReply)
     loop = do
       req <- atomically $ Q.readTBQueue (cRequests c)
-      pure $ SendMsgRequest req handleReply
-    handleReply :: Either rej a -> IO (Client rej m a)
+      pure $ ClientRequesting req handleReply
+    handleReply :: Either rej a -> IO (ClientState rej m a)
     handleReply (Left rej) = do
       atomically $ Q.writeTBQueue (cReplies c) (Left rej)
       loop --pure SendMsgDone
