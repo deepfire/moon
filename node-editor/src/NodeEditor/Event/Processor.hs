@@ -41,7 +41,9 @@ import qualified NodeEditor.Handler.Visualization       as Visualization
 import           NodeEditor.State.Global                (State)
 import qualified NodeEditor.React.Event.App             as Event
 import qualified NodeEditor.React.Event.Port            as Port
-import           WebSocket                              (WebSocket)
+
+import qualified JavaScript.WebSockets                  as WS
+import qualified Lift.Client                            as Lift
 
 actions :: LoopRef -> [Event -> Maybe (Command State ())]
 actions loop =
@@ -89,13 +91,12 @@ processEvent loop ev = handle handleAnyException $ modifyMVar_ (loop ^. Loop.sta
         handle (handleExcept state realEvent) $
             execCommand (runCommands (actions loop) realEvent >> renderIfNeeded) state
 
-connectEventSources :: WebSocket -> LoopRef -> IO ()
-connectEventSources conn loop = do
-    let handlers = [ -- JSHandlers.webSocketHandler conn
-                   -- , 
-                     JSHandlers.atomHandler
-                   , JSHandlers.sceneResizeHandler
-                   , JSHandlers.movementHandler
+connectEventSources :: WS.Connection -> LoopRef -> IO ()
+connectEventSources ws loop = do
+    let handlers = [ JSHandlers.movementHandler
+                   , Lift.webSocketHandler ws
+                   -- , JSHandlers.sceneResizeHandler
+                   -- , JSHandlers.atomHandler
                    ]
         mkSource (AddHandler rh) = rh $ scheduleEvent loop
     sequence_ $ mkSource <$> handlers

@@ -19,6 +19,7 @@ module JavaScript.WebSockets.FFI (
   , ws_clearQueue
   , ws_handleOpen
   , ws_handleClose
+  , ws_getCode
   , ws_readyState
   ) where
 
@@ -109,6 +110,9 @@ foreign import javascript unsafe "while ($1.length > 0) { $1.shift(); };"
 
 foreign import javascript interruptible  "$1.onclose = function (e) { $c(e); };"
   ws_handleClose :: Socket -> IO WSCloseEvent
+
+foreign import javascript safe "$1.code"
+  ws_getCode :: WSCloseEvent -> IO Int
 
 foreign import javascript unsafe "$1.readyState"
   ws_readyState :: Socket -> IO Int

@@ -42,6 +42,9 @@ executable exp
 executable node-editor
   main-is: Main.hs
   other-modules:
+      Lift.Client
+      Lift.Searcher
+
       Data.Curve
       JS.Atom
       JS.Clipboard
@@ -209,6 +212,9 @@ executable node-editor
 
               -- , ghcjs-websockets -- inlined for now
               , base64-bytestring
+              , io-sim-classes
               , primitive
+              , serialise
+              , stm
 
   default-language: Haskell2010

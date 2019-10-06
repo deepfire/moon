@@ -41,10 +41,10 @@ import LunaStudio.Data.Position             (Position)
 import LunaStudio.Data.ScreenPosition       (move, x, y)
 import LunaStudio.Data.Size                 (height, width)
 import LunaStudio.Data.Vector2              (Vector2 (Vector2))
-import NodeEditor.Action.Basic              (clearHints, createNode,
+import NodeEditor.Action.Basic              (createNode,
                                              modifyCamera, renameNode,
                                              renamePort, setNodeExpression,
-                                             updateDocumentation, updateHints)
+                                             updateDocumentation)
 import NodeEditor.Action.Batch              (addImport)
 import NodeEditor.Action.State.Action       (beginActionWithKey,
                                              continueActionWithKey,
@@ -68,6 +68,9 @@ import NodeEditor.State.Action              (Action (begin, continue, end, updat
                                              searcherAction)
 import NodeEditor.State.Global              (State, visualizers)
 import Text.Read                            (readMaybe)
+
+import Lift.Searcher
+
 
 instance Action (Command State) Searcher where
     begin    = beginActionWithKey    searcherAction
@@ -261,12 +264,12 @@ updateInput input selectionStart selectionEnd action = do
         modifySearcher $ Searcher.mode
             . Mode._Node . NodeMode.mode
             . NodeMode._ExpressionMode . NodeMode.arguments .= lambdaArgs
-        -- maybe
-        --     updateHints
-        --     (\endPos -> if selectionStart < endPos
-        --         then clearHints
-        --         else updateHints)
-        --     mayLambdaEndPos
+        maybe
+            updateHints
+            (\endPos -> if selectionStart < endPos
+                then clearHints
+                else updateHints)
+            mayLambdaEndPos
     else updateHints
 
 openParen :: Searcher -> Command State ()
