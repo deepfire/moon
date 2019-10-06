@@ -45,3 +45,7 @@ $(JSEXE)/lib.js: node-editor.cabal
 	rm -f $(JSEXE)/index.html $(JSEXE)/app.css
 	ln -s $(JSEXETOROOT)/node-editor/index.html     $(JSEXE)/index.html
 	ln -s $(JSEXETOROOT)/node-editor/styles/app.css $(JSEXE)/app.css
+
+EXP := dist-newstyle/build/x86_64-linux/ghcjs-8.6.0.1/node-editor-0.1.0.0/x/exp/build/exp/exp.jsexe
+exp:
+	cabal new-build exe:exp

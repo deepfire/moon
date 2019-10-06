@@ -46,6 +46,7 @@ import           Options.Applicative hiding (Parser)
 import qualified Options.Applicative              as Opt
 import           Type.Reflection
 
+import qualified Codec.CBOR.Decoding              as CBOR'
 import qualified Codec.CBOR.Decoding              as CBOR (Decoder,  decodeListLen, decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (Encoding, encodeListLen, encodeWord)
 import qualified Codec.CBOR.Read                  as CBOR

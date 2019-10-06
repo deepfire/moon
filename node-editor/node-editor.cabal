@@ -15,6 +15,30 @@ maintainer:     New Byte Order <contact@luna-lang.org>
 license:        AllRightsReserved
 build-type:     Simple
 
+executable exp
+  main-is: ../exp.hs
+  other-modules:
+      JavaScript.Blob
+      JavaScript.NoGHCJS
+      JavaScript.WebSockets
+      JavaScript.WebSockets.FFI
+      JavaScript.WebSockets.Internal
+  default-language: Haskell2010
+  hs-source-dirs:
+      src
+  build-depends:
+                base
+              , base64-bytestring
+              , binary
+              , bytestring
+              , ghcjs-base
+              , ghcjs-prim
+              , ghcjs-dom
+              , ghcjs-dom-jsffi
+              , primitive
+              , text
+  default-extensions: AllowAmbiguousTypes ApplicativeDo Arrows BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse DuplicateRecordFields EmptyDataDecls FlexibleContexts FlexibleInstances FunctionalDependencies GeneralizedNewtypeDeriving InstanceSigs LambdaCase LiberalTypeSynonyms MonadComprehensions MultiWayIf NamedWildCards NegativeLiterals NoImplicitPrelude NumDecimals OverloadedLabels OverloadedStrings PackageImports QuasiQuotes RankNTypes RecursiveDo RelaxedPolyRec ScopedTypeVariables StandaloneDeriving TemplateHaskell TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators ViewPatterns
+
 executable node-editor
   main-is: Main.hs
   other-modules:
@@ -130,6 +154,13 @@ executable node-editor
       NodeEditor.State.Mouse
       NodeEditor.State.UI
       Paths_node_editor
+
+      JavaScript.Blob
+      JavaScript.NoGHCJS
+      JavaScript.WebSockets
+      JavaScript.WebSockets.FFI
+      JavaScript.WebSockets.Internal
+
   hs-source-dirs:
       src
   default-extensions: AllowAmbiguousTypes ApplicativeDo Arrows BangPatterns BinaryLiterals ConstraintKinds DataKinds DefaultSignatures DeriveDataTypeable DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DoAndIfThenElse DuplicateRecordFields EmptyDataDecls FlexibleContexts FlexibleInstances FunctionalDependencies GeneralizedNewtypeDeriving InstanceSigs LambdaCase LiberalTypeSynonyms MonadComprehensions MultiWayIf NamedWildCards NegativeLiterals NoImplicitPrelude NumDecimals OverloadedLabels OverloadedStrings PackageImports QuasiQuotes RankNTypes RecursiveDo RelaxedPolyRec ScopedTypeVariables StandaloneDeriving TemplateHaskell TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators ViewPatterns
@@ -150,6 +181,8 @@ executable node-editor
               , filepath
               , ghcjs-base
               , ghcjs-prim
+              , ghcjs-dom
+              , ghcjs-dom-jsffi
               , hashable
               , lens
               , luna-api-definition
@@ -170,6 +203,12 @@ executable node-editor
               , vector
               , vector-text
 
+              , contra-tracer
               , typed-protocols
               , typed-protocols-cbor
+
+              -- , ghcjs-websockets -- inlined for now
+              , base64-bytestring
+              , primitive
+
   default-language: Haskell2010

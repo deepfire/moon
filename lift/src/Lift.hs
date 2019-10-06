@@ -57,7 +57,7 @@ import           Control.Monad                      (forever)
 import           Control.Tracer
 import           Data.Time
 import qualified Network.WebSockets               as WS
-import           Shelly
+import           Shelly                             (run, shelly)
 import           System.Environment
 import qualified Unsafe.Coerce                    as Unsafe
 
@@ -152,6 +152,9 @@ channelFromWebsocket conn =
            (\(SomeException _x) -> pure Nothing)
   , send = WS.sendBinaryData conn
   }
+  where
+    tracer :: Show x => String -> x -> x
+    tracer desc x = trace (printf "%s:\n%s\n" desc (show x)) x
 
 wsServer :: Env -> IO ()
 wsServer env@Env{envConfig=Config{..},..} = forever $ do
