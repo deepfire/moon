@@ -87,7 +87,7 @@ module.exports = {
   })(this),
   setEventFilter: (function(_this) {
     return function(blocked, allowed, expected) {
-      console.warn("setEventFilter.cb !!!!!!!!!!!!!!!!!!!", );
+      console.warn("setEventFilter.cb !!!!!!!!!!!!!!!!!!!");
       return eventFilters = {
         blockedEvents: blocked,
         allowedEvents: allowed,

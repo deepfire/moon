@@ -98,8 +98,8 @@ BrowserFS.configure({
 //     });
 // });
 
-}).call(this,require('buffer').Buffer,require('/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js'))
-},{"./atom-callback.js":"/js/atom-callback.js","./lexer-classes.js":"/js/lexer-classes.js","./luna-visualizers.js":"/js/luna-visualizers.js","./visualizers":3,"/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js":4,"buffer":5,"react":"react","react-dom":"react-dom"}],3:[function(require,module,exports){
+}).call(this,require('buffer').Buffer,require('/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js'))
+},{"./atom-callback.js":"/js/atom-callback.js","./lexer-classes.js":"/js/lexer-classes.js","./luna-visualizers.js":"/js/luna-visualizers.js","./visualizers":3,"/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js":4,"buffer":5,"react":"react","react-dom":"react-dom"}],3:[function(require,module,exports){
 "use strict";
 var knownFrames = {};
 
@@ -24920,23 +24920,23 @@ return /******/ (function(modules) { // webpackBootstrap
 (function (BrowserFS){
 module.exports = BrowserFS.BFSRequire('buffer');
 
-}).call(this,require('/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js'))
-},{"/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js":4}],6:[function(require,module,exports){
+}).call(this,require('/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js'))
+},{"/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js":4}],6:[function(require,module,exports){
 (function (BrowserFS){
 module.exports = BrowserFS.BFSRequire('fs');
 
-}).call(this,require('/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js'))
-},{"/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js":4}],7:[function(require,module,exports){
+}).call(this,require('/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js'))
+},{"/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js":4}],7:[function(require,module,exports){
 (function (BrowserFS){
 module.exports = BrowserFS.BFSRequire('path');
 
-}).call(this,require('/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js'))
-},{"/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js":4}],8:[function(require,module,exports){
+}).call(this,require('/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js'))
+},{"/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js":4}],8:[function(require,module,exports){
 (function (BrowserFS){
 module.exports = BrowserFS.BFSRequire('process');
 
-}).call(this,require('/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js'))
-},{"/home/desktop/moon/node-editor/node_modules/browserfs/dist/browserfs.js":4}],9:[function(require,module,exports){
+}).call(this,require('/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js'))
+},{"/home/desktop/lift/node-editor/node_modules/browserfs/dist/browserfs.js":4}],9:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -46055,7 +46055,7 @@ module.exports = {
   })(this),
   setEventFilter: (function(_this) {
     return function(blocked, allowed, expected) {
-      console.warn("setEventFilter.cb !!!!!!!!!!!!!!!!!!!", );
+      console.warn("setEventFilter.cb !!!!!!!!!!!!!!!!!!!");
       return eventFilters = {
         blockedEvents: blocked,
         allowedEvents: allowed,
