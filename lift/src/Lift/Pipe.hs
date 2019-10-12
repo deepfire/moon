@@ -1,9 +1,3 @@
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE PackageImports             #-}
-{-# LANGUAGE ViewPatterns               #-}
-
 module Lift.Pipe
   ( lookupPipe
   , addPipe

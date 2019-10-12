@@ -64,7 +64,6 @@ import Data.Orphanage ()
 import Generics.SOP.Mapping hiding (cFields)
 import Data.SOP.NP
 
-import Debug.Trace                (trace)
 import Text.Printf                (printf)
 
 

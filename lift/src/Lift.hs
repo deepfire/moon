@@ -1,26 +1,3 @@
-{-# LANGUAGE BangPatterns               #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE NamedFieldPuns             #-}
-{-# LANGUAGE PartialTypeSignatures      #-}
-{-# LANGUAGE PackageImports             #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeInType                 #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE UndecidableInstances       #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE ViewPatterns               #-}
-{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
@@ -181,11 +158,11 @@ haskellServer env@Env{..} =
     server
   where
     server = Server {
-      recvMsgRequest = \req -> do
+      processRequest = \req -> do
         traceWith (showTracing envTracer) req
         r <- handleRequest env req
         pure (r, server)
-    , recvMsgDone = ()
+    , processDone = ()
     }
 
 handleRequest :: Env -> SomeRequest -> IO (Either Text SomeReply)

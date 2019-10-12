@@ -1,10 +1,3 @@
-{-# LANGUAGE DeriveGeneric              #-}
---{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE UndecidableInstances       #-}
-
 module Ground.Hask
   (
   -- Generic-ish

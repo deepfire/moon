@@ -11,7 +11,7 @@ let
   ds = c "deepshared";
   io = repo: rev: s: subdir: c "input-output-hk" repo rev s "--subpath ${subdir}";
   io-on  = io "ouroboros-network";
-  io-onp = x: dontCheck (io-on "f07df5a9bafb5d7347e9a5f14848b0463f353990" "0bgr7nyb58kazk7ki8rmvw4dyni8lg0alm4y00m5x3vaiwnjx9q6" x);
+  io-onp = x: dontCheck (io-on "6cbde599eba87edf983c620fd8a9ed4015c9b50a" "0pqhradp9g5vcyrsh7ywy0wdzy8j8i6gdphscslfaa2sk5ai1n45" x);
   io-mfp = io "iohk-monitoring-framework" "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w";
   # overcabal = pkgs.haskell.lib.overrideCabal;
   # hubsrc    =      repo: rev: sha256:       pkgs.fetchgit { url = "https://github.com/" + repo; rev = rev; sha256 = sha256; };

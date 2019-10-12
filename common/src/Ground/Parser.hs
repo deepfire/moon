@@ -1,13 +1,3 @@
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE KindSignatures             #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-
 module Ground.Parser
   ( parseTag
   , parseQName
@@ -19,10 +9,13 @@ import           Control.Applicative                ((<|>))
 import qualified Data.Sequence                    as Seq
 import           Data.Text                          (split)
 
-import Text.Parser.Combinators
-import Text.Parser.Char
+import Text.Parser.Combinators ((<?>))
+import Text.Parser.Char (alphaNum, char, letter, string)
 import Text.Parser.Token.Highlight
+       (Highlight(..))
 import Text.Parser.Token
+       (IdentifierStyle(..), TokenParsing
+       , ident)
 
 import Basis
 import Data.Some
@@ -31,8 +24,8 @@ import Type
 
 -- * Some Tag
 --
-instance Parser (Some Tag) where
-  parser = parseTag
+-- instance Parser (Some Tag) where
+--   parser = parseTag
 
 parseTag
   :: forall m
@@ -62,7 +55,7 @@ parseTag = do
 
 -- * QName
 --
-instance Typeable a => Parser (QName a) where
+instance Typeable (a :: *) => Parser (QName a) where
   parser = parseQName
 
 parseQName
@@ -90,7 +83,7 @@ parseQName =
 
 -- * Name
 --
-instance Typeable a => Parser (Name a) where
+instance Typeable (a :: *) => Parser (Name a) where
   parser = parseName
 
 parseName
