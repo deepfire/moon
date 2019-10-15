@@ -37,7 +37,7 @@ import "common" Type
 import Lift.Orphanage
 
 
-pipeSpace :: QName PipeScope -> PipeSpace
+pipeSpace :: QName Scope -> SomePipeSpace
 pipeSpace graft = emptyPipeSpace "Hackage"
   & attachScopes (graft)
       [ pipeScope "Hackage"

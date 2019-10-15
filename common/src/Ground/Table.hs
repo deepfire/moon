@@ -149,12 +149,14 @@ groundTypes = Dict.empty
   & Dict.insert "Type"            # Proxy @Type
   & Dict.insert "Sig"             # Proxy @Sig
   & Dict.insert "Struct"          # Proxy @Struct
+  & Dict.insert "PipeDesc"        # Proxy @PipeDesc
   & Dict.insert "SomeTypeRep"     # Proxy @SomeTypeRep
   & Dict.insert "SomeTypeRep2"    # Proxy @(SomeTypeRep, SomeTypeRep)
   & Dict.insert "NameType"        # Proxy @(Name Type)
-  & Dict.insert "NamePipe"        # Proxy @(Name SomePipe)
-  & Dict.insert "QNamePipe"       # Proxy @(QName SomePipe)
-  & Dict.insert "QNameScopePipe"  # Proxy @(QName (Scope Point SomePipe))
+  & Dict.insert "NamePipe"        # Proxy @(Name Pipe)
+  & Dict.insert "QNamePipe"       # Proxy @(QName Pipe)
+  & Dict.insert "QNameScope"      # Proxy @(QName Scope)
+  & Dict.insert "QNameScope"      # Proxy @(PipeSpace PipeDesc)
   -- Atom
   & Dict.insert "Int"             # Proxy @Int
   & Dict.insert "Integer"         # Proxy @Integer

@@ -17,6 +17,7 @@ module Type
   , Tag2(..)
   , splitTag2
   , Repr
+  , mapRepr
   , Type(..)
   , proxyType
   , tagType
@@ -30,6 +31,7 @@ module Type
   , SomeKindValue(..)
   , SomeValue(..)
   , someValueSomeTypeRep
+  , Representable(..)
   -- * Re-exports
   , Some(..)
   , module Basis
@@ -158,6 +160,14 @@ type family Repr (k :: Con) (a :: *) :: * where
   --            that which already exists?
   -- Option:    Set of pairs with enforced left hand uniqueness?
 
+mapRepr :: Tag k -> (a -> b) -> Repr k a -> Repr k b
+mapRepr TPoint f = f
+mapRepr TList  f = fmap f
+mapRepr TSet   f = fmap f
+mapRepr TTree  f = fmap f
+mapRepr TDag   f = fmap f
+mapRepr TGraph f = fmap f
+
 --------------------------------------------------------------------------------
 -- | 'Type' is a serialisable form of 'Tag.
 data Type =
@@ -206,6 +216,16 @@ instance (Ground a, HasTypeData Ground a) => GroundData a
 
 data SomeValue = forall a. Ground a => SomeValue  (SomeKindValue a)
 
+--------------------------------------------------------------------------------
+-- * Representable
+--
+class Representable (a :: *) where
+  type Present a :: *
+  repr :: a -> Present a
+
+instance {-# OVERLAPPABLE #-} Representable a where
+  type instance Present a = a
+  repr = id
 
 {-------------------------------------------------------------------------------
   Boring.

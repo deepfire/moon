@@ -30,16 +30,16 @@ import Type
 --
 compile
   :: (Monad m, e ~ Text)
-  => (QName SomePipe -> m (Either Text SomePipe))
-  -> Expr (QName SomePipe)
+  => (QName Pipe -> m (Either Text SomePipe))
+  -> Expr (QName Pipe)
   -> m (Either e SomePipe)
 compile lookupPipe nameTree =
   join <$> ((assemble <$>) <$> resolveNames lookupPipe nameTree)
 
 resolveNames
   :: (Monad m, e ~ Text)
-  => (QName SomePipe -> m (Either Text SomePipe))
-  -> Expr (QName SomePipe)
+  => (QName Pipe -> m (Either Text SomePipe))
+  -> Expr (QName Pipe)
   -> m (Either e (Expr SomePipe))
 resolveNames lookupPipe = (sequence <$>) . traverse lookupPipe
 
@@ -142,7 +142,7 @@ gen'
   -> Result (Repr kt tt)
   -> Pipe c
 gen' name (splitTag2 -> (tagTo, pTo)) mv
-                = Pipe name sig struct tagTo pTo dyn
+                = Pipe (PipeDesc name sig struct) tagTo pTo dyn
   where ty      = tagType tagTo pTo
         sig     = Gen unitType ty
         struct  = Struct graph
@@ -161,7 +161,7 @@ link'
   -> (Repr kf tf -> Result (Repr kt tt))
   -> Pipe c
 link' name (splitTag2 -> (tagFrom, pFrom)) (splitTag2 -> (tagTo, pTo)) mf
-                = Pipe name sig struct tagTo pTo dyn
+                = Pipe (PipeDesc name sig struct) tagTo pTo dyn
   where tyFrom  = tagType tagFrom pFrom
         tyTo    = tagType tagTo pTo
         sig     = Link tyFrom tyTo
@@ -318,8 +318,9 @@ doTraverse
 doTraverse
   (FLink   cT c (f :: b -> Result c))  (Name ln) (Struct lg)
   (FOutput bT b (t ::      Result rb)) (Name rn) (Struct rg)
-  = Right $ Pipe (Name $ "("<>ln<>")-<trav>-("<>rn<>")") sig struct cT c dyn
-  where ty      = proxyType (Proxy @kb) (Proxy @c)
+  = Right $ Pipe desc cT c dyn
+  where desc    = PipeDesc (Name $ "("<>ln<>")-<trav>-("<>rn<>")") sig struct
+        ty      = proxyType (Proxy @kb) (Proxy @c)
         sig     = Gen unitType ty
         struct  = Struct graph
         graph   = lg `G.overlay` rg -- XXX: structure!
@@ -345,8 +346,9 @@ doBind
   -> Either Text (Pipe resC)
 doBind (FLink cT c (f :: lb -> Result lc)) (Name ln) (Struct lg)
        (FOutput _bT _b (v :: Result rb))  (Name rn) (Struct rg)
-  = Right $ Pipe (Name $ ln<>">>="<>rn) sig struct cT c dyn
-  where ty      = proxyType (Proxy @kc) c
+  = Right $ Pipe desc cT c dyn
+  where desc    = PipeDesc (Name $ ln<>">>="<>rn) sig struct
+        ty      = proxyType (Proxy @kc) c
         sig     = Gen unitType ty
         struct  = Struct graph
         graph   = G.overlay lg rg
@@ -367,8 +369,9 @@ doApply
   -> Either Text (Pipe c)
 doApply (FLink bT b (f :: ra -> Result rb)) (Name rn) (Struct rg)
         v
-  = Right $ Pipe (Name $ "app-"<>rn) sig struct bT b dyn
-  where ty      = proxyType (Proxy @kb) (Proxy @b)
+  = Right $ Pipe desc bT b dyn
+  where desc    = PipeDesc (Name $ "app-"<>rn) sig struct
+        ty      = proxyType (Proxy @kb) (Proxy @b)
         sig     = Gen unitType ty
         struct  = Struct graph
         graph   = rg -- XXX ???

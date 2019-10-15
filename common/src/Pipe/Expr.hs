@@ -39,7 +39,7 @@ parse
   :: forall e
   . (e ~ Text)
   => Text
-  -> (Either e (Expr (QName SomePipe)))
+  -> (Either e (Expr (QName Pipe)))
 parse s = do
   case Parsec.parse parseExpr "" ("("<>s<>")") of
     -- XXX: get rid of the parens
@@ -52,24 +52,24 @@ parseExpr
   . ( e ~ Text
     , Monad m
     , TokenParsing m)
-  => m (Either e (Expr (QName SomePipe)))
+  => m (Either e (Expr (QName Pipe)))
 parseExpr =
   buildExpressionParser table term
   <?> "Expr"
  where
-   term :: (Monad m, TokenParsing m) => m (Either e (Expr (QName SomePipe)))
+   term :: (Monad m, TokenParsing m) => m (Either e (Expr (QName Pipe)))
    term = parens applys
           <|> (pure . PPipe <$> parseQName)
           <|> (pure . PVal  <$> parseSomeValue)
           <?> "Expr.term"
-   applys :: (Monad m, TokenParsing m) => m (Either e (Expr (QName SomePipe)))
+   applys :: (Monad m, TokenParsing m) => m (Either e (Expr (QName Pipe)))
    applys = do
      xss <- some parseExpr
      case xss of
        x : xs -> foldM (\l r -> pure $ PApp <$> l <*> r) x xs
        _ -> error "Invariant failed: 'some' failed us."
      <?> "Expr.applys"
-   table :: (Monad m, TokenParsing m) => [[Operator m (Either e (Expr (QName SomePipe)))]]
+   table :: (Monad m, TokenParsing m) => [[Operator m (Either e (Expr (QName Pipe)))]]
    table =
      [ -- (.) :: (b -> c) -> (a -> b) -> a -> c infixr 9
        [ binary "." (liftA2 PComp) AssocRight

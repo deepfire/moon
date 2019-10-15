@@ -28,6 +28,7 @@ module Namespace
 where
 
 import qualified Algebra.Graph.AdjacencyMap       as GA
+import           Codec.Serialise
 import           Data.Coerce                        (coerce)
 import qualified Data.Map.Strict                  as Map
 import qualified Data.Map.Monoidal.Strict         as MMap
@@ -42,9 +43,15 @@ import Type
 
 
 data Space k a = Space
-  { nsTree :: !(GA.AdjacencyMap (QName (Scope k a)))
-  , nsMap  :: !(MonoidalMap     (QName (Scope k a)) (Scope k a))
-  }
+  { nsTree :: !(GA.AdjacencyMap (QName Scope))
+  , nsMap  :: !(MonoidalMap     (QName Scope) (Scope k a))
+  } deriving Generic
+
+instance ReifyTag k => Functor (Space k) where
+  fmap f s@Space{nsMap} = s { nsMap = (f <$>) <$> nsMap }
+
+deriving instance Eq (Repr k a) => Eq (Space k a)
+deriving instance Ord (Repr k a) => Ord (Space k a)
 
 instance Semigroup (Space k a) where
   Space{nsTree=lt, nsMap=lm} <> Space{nsTree=rt, nsMap=rm}
@@ -52,6 +59,9 @@ instance Semigroup (Space k a) where
 
 instance Monoid (Space k a) where
   mempty = emptySpace
+
+instance (Generic (Repr k a), Ord (Repr k a), Serialise (Repr k a))
+         => Serialise (Space k a)
 
 emptySpace :: Space k a
 emptySpace = Space
@@ -62,31 +72,31 @@ emptySpace = Space
     ]
   } where
 
-insertScope :: QName (Scope k a) -> Scope k a -> Space k a -> Space k a
+insertScope :: QName Scope -> Scope k a -> Space k a -> Space k a
 insertScope prefix scope ns =
-  ns { nsMap  = MMap.insert name scope $ nsMap ns
+  ns { nsMap  = MMap.insert (coerceQName name) scope $ nsMap ns
      , nsTree = nsTree ns
                 `GA.overlay`
-                GA.edge prefix name
+                GA.edge prefix (coerceQName name)
      } where
-  name  = prefix `append` sName scope
+  name  = prefix `append` coerceName (sName scope)
 
 attachScopes
   :: forall k a
-  . QName (Scope k a)
+  . QName Scope
   -> [Scope k a]
   -> Space k a
   -> Space k a
 attachScopes sub scopes ns =
   foldr (insertScope sub) ns scopes
 
-scopeAt :: QName (Scope k a) -> Space k a -> Maybe (Scope k a)
+scopeAt :: QName Scope -> Space k a -> Maybe (Scope k a)
 scopeAt q ns = MMap.lookup q (nsMap ns)
 
 updateSpaceScope
   :: (e ~ Text, Typeable a)
   => (Scope k a -> Scope k a)
-  -> QName (Scope k a)
+  -> QName Scope
   -> Space k a
   -> Space k a
 updateSpaceScope f name ns =
@@ -95,7 +105,7 @@ updateSpaceScope f name ns =
 alterSpaceScope
   :: (e ~ Text, Typeable a)
   => (Maybe (Scope k a) -> Either e (Maybe (Scope k a)))
-  -> QName (Scope k a)
+  -> QName Scope
   -> Space k a
   -> Either e (Space k a)
 alterSpaceScope f name ns =
@@ -119,11 +129,11 @@ _failHasEntity
 _failHasEntity ty name _ (Just _) = Left $ "Already has "<>ty<>": " <> showQName name
 _failHasEntity _  _    x  Nothing = Just <$> x
 
-childScopeNamesAt :: QName (Scope k a) -> Space k a -> [QName (Scope k a)]
+childScopeNamesAt :: QName Scope -> Space k a -> [QName Scope]
 childScopeNamesAt q ns =
   Set'.toList (GA.postSet q (nsTree ns))
 
-_checkBusy :: QName (Scope k a) -> Space k a -> Bool
+_checkBusy :: QName Scope -> Space k a -> Bool
 _checkBusy name ns = MMap.member name (nsMap ns)
 
 lookupSpace :: QName a -> Space k a -> Maybe (Repr k a)
@@ -135,7 +145,7 @@ lookupSpace n s = withQScopeName n $
 spaceEntries :: Space k a -> [Repr k a]
 spaceEntries ns = concatMap scopeEntries $ MMap.elems (nsMap ns)
 
-spaceScopes :: Space k a -> [(QName (Scope k a), Scope k a)]
+spaceScopes :: Space k a -> [(QName Scope, Scope k a)]
 spaceScopes ns = MMap.toList (nsMap ns)
 
 alterSpace
@@ -150,7 +160,7 @@ alterSpace fqname ns f =
       Nothing -> Left $ "Malformed QName: " <> showQName fqname
       Just name ->
         alterSpaceScope
-        (failNoEntity "scope" scopeName
+        (failNoEntity "scope" (coerceQName scopeName)
          $ (sequence . Just <$>)
          $ alterScope f name)
         scopeName ns
@@ -179,24 +189,30 @@ spaceUpdate name f ns =
 
 
 data Scope k a = Scope
-  { sName :: !(Name (Scope k a))
+  { sName :: !(Name Scope)
   , sMap  :: !(Map (Name a) (Repr k a))
   } deriving Generic
--- deriving instance Eq (Repr k a) => Eq (Scope k a)
--- deriving instance Ord (Repr k a) => Eq (Scope k a)
+deriving instance Eq (Repr k a) => Eq (Scope k a)
+deriving instance Ord (Repr k a) => Ord (Scope k a)
 -- (Eq, Generic, Ord, Show)
 
-scopeName :: Scope k a -> Name (Scope k a)
+instance ReifyTag k => Functor (Scope k) where
+  fmap f s@Scope{sMap} =
+    s { sMap  = Unsafe.unsafeCoerce $ mapRepr (reifyTag $ Proxy @k) f <$> sMap }
+
+instance Serialise (Repr k a) => Serialise (Scope k a)
+
+scopeName :: Scope k a -> Name Scope
 scopeName = sName
 
 instance Semigroup (Scope k a) where
   Scope{sName, sMap=l} <> Scope{sMap=r}
     = Scope sName (l <> r)
 
-emptyScope :: Name (Scope k a) -> Scope k a
+emptyScope :: Name Scope -> Scope k a
 emptyScope = flip Scope mempty
 
-scope :: Name (Scope k a) -> [(Name a, Repr k a)] -> Scope k a
+scope :: Name Scope -> [(Name a, Repr k a)] -> Scope k a
 scope name = Scope name . Map.fromList
 
 lookupScope :: Name a -> Scope k a -> Maybe (Repr k a)
@@ -209,7 +225,7 @@ scopeEntries :: Scope k a -> [Repr k a]
 scopeEntries = Map.elems . sMap
 
 -- | Interpret a QName into its scope and name components.
-withQScopeName :: QName a -> (QName (Scope k a) -> Maybe (Name a) -> b) -> b
+withQScopeName :: QName a -> (QName Scope -> Maybe (Name a) -> b) -> b
 withQScopeName (QName ns) f
   | Seq.Empty           <- ns = f mempty     Nothing
   | Seq.Empty Seq.:|> x <- ns = f mempty     (Just x)

@@ -186,7 +186,7 @@ handleRequest Env{..} (SomeRequest x) = case x of
               Right x -> pure . Right . SomeReply . ReplyValue $ x
   -- x -> pure . Left . pack $ "Unhandled request: " <> show x
 
-compile :: QName SomePipe -> Text -> Result Sig
+compile :: QName Pipe -> Text -> Result Sig
 compile newname text =
   case Pipe.parse text of
     Left e -> pure . Left $ "Parse: " <> e
@@ -203,7 +203,7 @@ compile newname text =
             addPipe newname pipe
             pure . Right . somePipeSig $ pipe
 
-lookupPipeFail :: e ~ Text => QName SomePipe -> STM (Either e SomePipe)
+lookupPipeFail :: e ~ Text => QName Pipe -> STM (Either e SomePipe)
 lookupPipeFail name =
   lookupPipe name <&>
   guard ("No such pipe: " <> showQName name)

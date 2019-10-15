@@ -31,7 +31,7 @@ module Wire.Protocol
   , ClientHasAgency(..)
   , ServerHasAgency(..)
   , NobodyHasAgency(..)
-  , codec
+  , wireCodec
   )
 where
 
@@ -46,7 +46,6 @@ import           Options.Applicative hiding (Parser)
 import qualified Options.Applicative              as Opt
 import           Type.Reflection
 
-import qualified Codec.CBOR.Decoding              as CBOR'
 import qualified Codec.CBOR.Decoding              as CBOR (Decoder,  decodeListLen, decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (Encoding, encodeListLen, encodeWord)
 import qualified Codec.CBOR.Read                  as CBOR
@@ -67,8 +66,8 @@ import Pipe
 --------------------------------------------------------------------------------
 -- | Request/Reply:  asks with expectance of certain type of reply.
 data Request (k :: Con) a
-  = Run                      Text
-  | Compile (QName SomePipe) Text
+  = Run                  Text
+  | Compile (QName Pipe) Text
 
 data Reply   (k :: Con) a
   = ReplyValue SomeValue
@@ -208,9 +207,9 @@ instance Protocol (Piping rej) where
 
 deriving instance Show rej => Show (Message (Piping rej) from to)
 
-codec :: forall m rej. (Monad m, Serialise rej, m ~ IO) =>
+wireCodec :: forall m rej. (Monad m, Serialise rej, m ~ IO) =>
   Codec (Piping rej) CBOR.DeserialiseFailure m LBS.ByteString
-codec =
+wireCodec =
     mkCodecCborLazyBS' enc dec
   where
     enc :: forall (pr :: PeerRole) st st'.
