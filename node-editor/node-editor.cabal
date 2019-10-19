@@ -43,6 +43,7 @@ executable node-editor
   main-is: Main.hs
   other-modules:
       Lift.Client
+      Lift.Event
       Lift.Searcher
 
       Data.Curve
@@ -172,6 +173,7 @@ executable node-editor
                 common
 
               , aeson
+              , async
               , base
               , binary
               , bytestring

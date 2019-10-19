@@ -37,51 +37,46 @@ import NodeEditor.State.Global            (State)
 import Searcher.Data.Result               (Result)
 
 updateHints :: Command State ()
-updateHints = updateHints' >> updateDocumentation
+updateHints = updateHints' >> Lift.Searcher.updateDocumentation
 
 updateHints' :: Command State ()
 updateHints' = unlessM inTopLevelBreadcrumb $ do
-    -- nsData    <- use Global.searcherDatabase
+    pipes <- use Global.pipes
     modifySearcher $ do
         mayQuery <- preuse $ Searcher.input . Input._DividedInput
         let query = fromMaybe def mayQuery
-        isExprSearcher <- uses Searcher.mode Mode.isExpressionSearcher
-        newHints <- case isExprSearcher of
-            True -> do
-                mayClassName <- preuse $ Searcher.mode
-                    . Mode._Node . NodeMode.mode . NodeMode._ExpressionMode
-                    . NodeMode.parent . _Just
-                pure $ search query nsData mayClassName
-            False -> pure mempty
-        Searcher.results .= newHints
-        Searcher.waiting .= (Database.size (nsData ^. NodeHint.database) == 0)
+            results = case pipes of
+              Nothing -> []
+              Just ps -> []
+        Searcher.results .= results
+        Searcher.waiting .= (pipes == Nothing)
         let selectInput = maybe True (Text.null . view Input.query) mayQuery
         hintsLen <- use $ Searcher.results . to length
         Searcher.selectedPosition .= if selectInput || hintsLen == 0
                                          then Nothing
                                          else Just 0
 
-search :: Input.Divided -> NodeHint.Database
-       -> Maybe Class.Name -> [Result Hint.Hint]
-search input nsData mayClassName =
-    if Text.strip (input ^. Input.prefix) == "def"
-        then mempty
-        else fullDbSearch input localDb nsData mayClassName
+-- search :: Input.Divided -> NodeHint.Database
+--        -> Maybe Class.Name -> [Result Hint.Hint]
+-- search input nsData mayClassName =
+--     if Text.strip (input ^. Input.prefix) == "def"
+--         then mempty
+--         else fullDbSearch input localDb nsData mayClassName
 
-fullDbSearch :: Input.Divided -> NodeHint.Database
-             -> Maybe Class.Name -> [Result Hint.Hint]
-fullDbSearch input nsData mayClassName = let
-    query            = input ^. Input.query
-    nextSym          = input ^. Input.nextSymbolPrediction
-    scoredGlobal     = scoreTextMatch query nsData
-    semanticGlobal   = bumpGlobalSyms nextSym mayClassName scoredGlobal
-    filteredSnippets = filterSnippets input mayClassName semanticGlobal
-    scoredSnippets   = bumpSnippets filteredSnippets
-    scoredImports    = bumpImported scoredSnippets
-    allHints         = semanticLocal <> scoredImports
-    scoredPriority   = scorePriority <$> allHints
-    sorted = sortBy (comparing $ negate . view Result.score) scoredPriority
-    in Hint.Node <<$>> sorted
+-- fullDbSearch :: Input.Divided -> NodeHint.Database
+--              -> Maybe Class.Name -> [Result Hint.Hint]
+-- fullDbSearch input nsData mayClassName = let
+--     query            = input ^. Input.query
+--     nextSym          = input ^. Input.nextSymbolPrediction
+--     scoredGlobal     = scoreTextMatch query nsData
+--     semanticGlobal   = bumpGlobalSyms nextSym mayClassName scoredGlobal
+--     filteredSnippets = filterSnippets input mayClassName semanticGlobal
+--     scoredSnippets   = bumpSnippets filteredSnippets
+--     scoredImports    = bumpImported scoredSnippets
+--     allHints         = semanticLocal <> scoredImports
+--     scoredPriority   = scorePriority <$> allHints
+--     sorted = sortBy (comparing $ negate . view Result.score) scoredPriority
+--     in Hint.Node <<$>> sorted
 
 updateDocumentation :: Command State ()
 updateDocumentation = withJustM getSearcher $ \s -> do

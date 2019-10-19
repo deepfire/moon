@@ -29,6 +29,8 @@ import NodeEditor.React.Model.Visualization     (Visualizer, VisualizerId,
 import NodeEditor.React.Store                   (Ref)
 import NodeEditor.State.Action                  (ActionRep, Connect, SomeAction)
 import System.Random                            (StdGen)
+--
+import Pipe
 
 
 -- TODO: Reconsider our design. @wdanilo says that we shouldn't use MonadState at all
@@ -43,6 +45,9 @@ data State = State
         , _preferedVisualizers :: HashMap TypeRep Visualizer
         , _visualizers         :: Map VisualizerId VisualizerMatcher
         , _internalVisualizers :: Map VisualizerId VisualizerPath
+        --
+        , _pipes               :: Maybe (PipeSpace PipeDesc)
+        --
         , _random              :: StdGen
         }
 
@@ -83,6 +88,7 @@ mkState ref clientId' = State
     {- preferedVisualizers -} mempty
     {- visualizers         -} mempty
     {- internalVisualizers -} mempty
+    {- pipes               -} mempty
 
 
 nextRandom :: Command State Word8

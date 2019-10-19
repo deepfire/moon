@@ -438,12 +438,12 @@ close _ = do
 selectNextHint :: Searcher -> Command State ()
 selectNextHint s = do
     Basic.selectNextHint
-    updateDocumentation
+    NodeEditor.Action.Basic.updateDocumentation
 
 selectPreviousHint :: Searcher -> Command State ()
 selectPreviousHint s = do
     Basic.selectPreviousHint
-    updateDocumentation
+    NodeEditor.Action.Basic.updateDocumentation
 
 withHint :: Int -> (Searcher -> Command State ()) -> Searcher
          -> Command State ()

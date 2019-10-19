@@ -94,7 +94,7 @@ processEvent loop ev = handle handleAnyException $ modifyMVar_ (loop ^. Loop.sta
 connectEventSources :: WS.Connection -> LoopRef -> IO ()
 connectEventSources ws loop = do
     let handlers = [ JSHandlers.movementHandler
-                   , Lift.webSocketHandler ws
+                   -- , Lift.webSocketHandler ws
                    -- , JSHandlers.sceneResizeHandler
                    -- , JSHandlers.atomHandler
                    ]
