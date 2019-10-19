@@ -21,7 +21,11 @@ let
 in {
   ## We can't override ghc-lib, since it's not buildable with Nix -- from the git repo.
   # ghc-lib   = doJailbreak (overhub old.ghc-lib "digital-asset/ghc-lib" "686d81fdda68fb4c604b94186de8a5899ec8c21c" "0dcmwaxmfanpy9fdyfi82vyf3r6kvxnadni558hzvndsmpgmq4ys" {});
-  algebraic-graphs      = dontCheck (overrideCabal old.algebraic-graphs (old: { broken = false; }));
+  algebraic-graphs      = dontCheck (c "snowleopard" "alga"
+                          "eb0366ffd90802b1cfc2e2d739960d5f8bba3b3c"
+                          "0p9xv8w9iskg6lqygmf3myp892s5bq08xrgbm0zmy1isbh9rlzjv"
+                          "");
+  # (overrideCabal old.algebraic-graphs (old: { broken = false; }));
   async-timer           = dontCheck (overrideCabal old.async-timer (old: { broken = false; }));
   contra-tracer         = io-mfp "contra-tracer";
   iohk-monitoring       = io-mfp "iohk-monitoring";

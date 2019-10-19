@@ -42,7 +42,10 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
 
     Glob                  = dontCheck super.Glob;      # test failure
     SHA                   = dontCheck super.SHA;
-    algebraic-graphs      = dontCheck super.algebraic-graphs; 
+    algebraic-graphs      = dontCheck (c "snowleopard" "alga"
+                            "eb0366ffd90802b1cfc2e2d739960d5f8bba3b3c"
+                            "0p9xv8w9iskg6lqygmf3myp892s5bq08xrgbm0zmy1isbh9rlzjv"
+                            "");
     async-timer           = dontCheck (overrideCabal super.async-timer (old: { broken = false; }));
     conduit               = dontCheck super.conduit;
     constraint            = overrideCabal super.constraint (old: { broken = false; });
