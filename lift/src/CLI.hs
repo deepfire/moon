@@ -43,10 +43,27 @@ cli = do
   WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
     \conn -> do
       let tracer = stdoutTracer
-          req = fromMaybe (SomeRequest $ Run "pipes") mreq
+          req = fromMaybe (SomeRequest $ Run "meta.descs") mreq
           chan = channelFromWebsocket conn
-      st <- runAsyncPeer (showTracing tracer) codec "server" chan Nothing $
-        mkAsyncSubmitPeer (ClientAgency TokIdle) $ mkAsyncRequest req
-      runAsyncPeer (showTracing tracer) codec "server" chan Nothing $
-        resumeAsyncPeer (ServerAgency TokBusy) st
-      pure ()
+      runClient tracer (client tracer req) $ channelFromWebsocket conn
+      -- st <- runAsyncPeer (showTracing tracer) codec "server" chan Nothing $
+      --   mkAsyncSubmitPeer (ClientAgency TokIdle) $ mkAsyncRequest req
+      -- runAsyncPeer (showTracing tracer) codec "server" chan Nothing $
+      --   resumeAsyncPeer (ServerAgency TokBusy) st
+      -- pure ()
+
+client
+  :: forall rej m a
+  . (rej ~ Text, m ~ IO, a ~ SomeReply)
+  => Tracer m String
+  -> SomeRequest
+  -> m (ClientState rej m a)
+client tracer req = pure $
+  ClientRequesting req handleReply
+ where
+   handleReply (Left rej) = do
+     putStrLn $ "error: " <> unpack rej
+     pure ClientDone
+   handleReply (Right rep) = do
+     putStrLn $ show rep
+     pure ClientDone
