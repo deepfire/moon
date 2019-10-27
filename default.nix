@@ -34,9 +34,8 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
       df = c "deepfire";
       ds = c "deepshared";
       io = repo: rev: s: subdir: c "input-output-hk" repo rev s "--subpath ${subdir}";
-      io-on = io "ouroboros-network";
-      io-mf = io "iohk-monitoring-framework";
-      io-onp = x: dontCheck (io-on "f07df5a9bafb5d7347e9a5f14848b0463f353990" "0bgr7nyb58kazk7ki8rmvw4dyni8lg0alm4y00m5x3vaiwnjx9q6" x);
+      io-on = x: dontCheck (io "ouroboros-network" "6cbde599eba87edf983c620fd8a9ed4015c9b50a" "0pqhradp9g5vcyrsh7ywy0wdzy8j8i6gdphscslfaa2sk5ai1n45" x);
+      io-mf = io "iohk-monitoring-framework" "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w";
   in {
     common                = self.callCabal2nix "common" ./common {};
 
@@ -52,8 +51,6 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
     cryptohash-sha1       = dontCheck super.cryptohash-sha1;
     extra                 = dontCheck super.extra;
     half                  = dontCheck super.half;
-    cborg                 = dontCheck super.cborg;
-    serialise             = dontCheck super.serialise;
     lifted-async          = dontCheck super.lifted-async;
     mono-traversable      = dontCheck super.mono-traversable;
     shelly                = dontCheck super.shelly;
@@ -70,13 +67,16 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
     alg                   = c "strake" "alg"       "ee1d266587ea8315f224d9ea16ae51279c0c27eb" "02kb90glapbs39721p994d5fsw2vkqgi7hi3a0nplnr1q4hb6jg3" "";
     category              = df "category.hs"       "fba78a5a1f2487d9a1a7375605f90bdc125f07fa" "1hmfiilwc6rk0si6a96iflhzszyhivwzxz0aclssjbv3fkprw5nd" "";
 
-    contra-tracer         = io-mf                  "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w" "contra-tracer";
+    cborg                 = l "cborg" ../cborg/cborg "";
+    serialise             = l "serialise" ../cborg/serialise "";
+
+    contra-tracer         = io-mf "contra-tracer";
     # iohk-monitoring       = io-mf                  "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w" "iohk-monitoring";
-    io-sim                = io-onp "io-sim";
-    io-sim-classes        = io-onp "io-sim-classes";
-    network-mux           = io-onp "network-mux";
-    typed-protocols       = io-onp "typed-protocols";
-    typed-protocols-cbor  = io-onp "typed-protocols-cbor";
+    io-sim                = io-on "io-sim";
+    io-sim-classes        = io-on "io-sim-classes";
+    network-mux           = io-on "network-mux";
+    typed-protocols       = io-on "typed-protocols";
+    typed-protocols-cbor  = io-on "typed-protocols-cbor";
 
     container             = ds "container"         "1bac6323943afeb2b13d3e21e69ab4a537d3030e" "124wlvrybalr0xh3jsin2x5r3hcw846zafndg90lkyq529dcgm1x" "";
     convert               = ds "convert"           "d10f56856a656ee515bd0ddcfaba43ad10b70814" "1wxszfxmarrf1i1gcz4bhiv813qiks00wmy03rws7lmpr0009fbc" "";
