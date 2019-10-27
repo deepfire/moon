@@ -3,7 +3,6 @@ module NodeEditor.Event.Batch where
 
 import           Common.Prelude
 
-import           Common.Analytics                           (IsTrackedEvent (isTracked))
 import           Common.Data.Event                          (EventName)
 import qualified LunaStudio.API.Atom.MoveProject            as MoveProject
 import qualified LunaStudio.API.Atom.Paste                  as AtomPaste
@@ -85,7 +84,3 @@ data Event = UnknownEvent                                                String
            deriving (Show, Generic, NFData)
 
 instance EventName Event
-
-instance IsTrackedEvent Event where
-    isTracked (UnknownEvent _) = False
-    isTracked _                = True

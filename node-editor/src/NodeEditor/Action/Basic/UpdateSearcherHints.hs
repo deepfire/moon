@@ -36,6 +36,11 @@ import NodeEditor.Action.State.NodeEditor (getLocalFunctions, getSearcher,
 import NodeEditor.State.Global            (State)
 import Searcher.Data.Result               (Result)
 
+import Pipe hiding (Result, Set)
+import Type hiding (Set)
+import qualified Namespace as Namespace
+import qualified Lift.Types as Lift
+
 
 positionSucc :: Maybe Int -> Maybe Int
 positionSucc = \case
@@ -100,22 +105,29 @@ updateHints = updateHints' >> updateDocumentation
 
 updateHints' :: Command State ()
 updateHints' = unlessM inTopLevelBreadcrumb $ do
-    nsData    <- use Global.searcherDatabase
-    localFuns <- getLocalFunctions
+    pipes   <- use Global.pipes
+    curPipe <- use Global.curPipe
     modifySearcher $ do
         mayQuery <- preuse $ Searcher.input . Input._DividedInput
         let query = fromMaybe def mayQuery
-        isExprSearcher <- uses Searcher.mode Mode.isExpressionSearcher
-        newHints <- case isExprSearcher of
-            True -> do
-                let localFunctionsDb = NodeHint.mkLocalFunctionsDb localFuns
-                mayClassName <- preuse $ Searcher.mode
-                    . Mode._Node . NodeMode.mode . NodeMode._ExpressionMode
-                    . NodeMode.parent . _Just
-                pure $ search query localFunctionsDb nsData mayClassName
-            False -> pure mempty
-        Searcher.results .= newHints
-        Searcher.waiting .= (Database.size (nsData ^. NodeHint.database) == 0)
+            toResult :: QName Pipe -> SomePipe () -> Result Lift.Hint
+            toResult pn (somePipeDesc -> pd) = Result.Result
+              { Result._id = 0
+              , Result._hint = Lift.HintPipe pn pd
+              , Result._score = 1.0
+              , Result._match = Nothing
+              }
+            results :: [Result Lift.Hint]
+            results = case pipes of
+              Nothing -> []
+              Just ps ->
+                (uncurry toResult <$>) .
+                    setToList $
+                    (id &&& fromJust . flip lookupSpace ps) <$>
+                    pipesFrom (tRep . sOut $ somePipeSig curPipe) ps
+
+        Searcher.results .= results
+        Searcher.waiting .= (pipes == Nothing)
         let selectInput = maybe True (Text.null . view Input.query) mayQuery
         hintsLen <- use $ Searcher.results . to length
         Searcher.selectedPosition .= if selectInput || hintsLen == 0
@@ -250,4 +262,3 @@ search input localDb nsData mayClassName =
     if Text.strip (input ^. Input.prefix) == "def"
         then mempty
         else fullDbSearch input localDb nsData mayClassName
-

@@ -27,6 +27,13 @@ handle _ (Shortcut (Shortcut.Event Shortcut.SearcherOpen arg))
     = Just $ timeAction "Shortcut.SearcherOpen"
            $ whenGraphLoaded $ Searcher.open $ fmap fromTuple
                                              $ readMaybe =<< arg
+
+-- TODO:  fix this roundabout way of event handling..
+handle scheduleEvent (Shortcut (Shortcut.Event Shortcut.GoUp _))
+    = Just $ handleEvent scheduleEvent Searcher.MoveUp
+handle scheduleEvent (Shortcut (Shortcut.Event Shortcut.GoDown _))
+    = Just $ handleEvent scheduleEvent Searcher.MoveDown
+
 handle _ (UI (AppEvent App.ContextMenu))
     = Just $ whenGraphLoaded $ Searcher.open def
 handle scheduleEvent (UI (SearcherEvent evt))
@@ -38,7 +45,6 @@ handle _ _ = Nothing
 handleEvent :: (Event -> IO ()) -> Searcher.Event -> Command State ()
 handleEvent scheduleEvent = \case
     Searcher.InputChanged input ss se -> do
-      liftIO $ warn "handleEvent Searcher.InputChanged" input
       continue $ Searcher.modifyInput input ss se
     -- Searcher.InputChanged input ss se -> continue $ Searcher.modifyInput input ss se
     Searcher.Accept                   -> continue $ Searcher.accept scheduleEvent
@@ -50,6 +56,8 @@ handleEvent scheduleEvent = \case
     Searcher.KeyDown k                -> do
       when (Keys.withoutMods k Keys.esc) $
         continue Searcher.close
+      when (Keys.withoutMods k Keys.enter) $
+        continue $ Searcher.accept scheduleEvent
     -- Searcher.KeyUp k                  -> when (Keys.withoutMods k Keys.backspace) $ continue Searcher.enableRollback
     -- Searcher.MoveLeft                 -> continue Searcher.tryRollback
     Searcher.MoveUp                   -> continue Searcher.selectNextHint

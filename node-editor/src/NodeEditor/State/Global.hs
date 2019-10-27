@@ -40,13 +40,14 @@ data State = State
         , _actions             :: ActionState
         , _collaboration       :: Collaboration.State
         , _debug               :: DebugState
-        , _selectionHistory    :: [Set NodeLoc]
+        , _selectionHistory    :: [Data.Set.Set NodeLoc]
         , _searcherDatabase    :: Searcher.Database
-        , _preferedVisualizers :: HashMap TypeRep Visualizer
+        , _preferedVisualizers :: HashMap LunaStudio.Data.TypeRep.TypeRep Visualizer
         , _visualizers         :: Map VisualizerId VisualizerMatcher
         , _internalVisualizers :: Map VisualizerId VisualizerPath
         --
-        , _pipes               :: Maybe (PipeSpace PipeDesc)
+        , _pipes               :: Maybe (PipeSpace (SomePipe ()))
+        , _curPipe             :: SomePipe ()
         --
         , _random              :: StdGen
         }
@@ -89,6 +90,7 @@ mkState ref clientId' = State
     {- visualizers         -} mempty
     {- internalVisualizers -} mempty
     {- pipes               -} mempty
+    {- curPipe             -} (G $ emptyPipe "cur" ())
 
 
 nextRandom :: Command State Word8

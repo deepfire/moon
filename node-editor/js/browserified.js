@@ -30,12 +30,6 @@ require('./lexer-classes.js');
 
 window.visualizerFramesManager = require('./visualizers');
 
-analytics = {
-    track: function (x) {
-        console.warn("track: %s", x);
-    }
-};
-
 function b64ToUint6 (nChr) {
   return nChr > 64 && nChr < 91 ?
       nChr - 65

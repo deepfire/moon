@@ -21425,9 +21425,3 @@ var lunaVisualizers = createCommonjsModule(function (module) {
 
 }).call(commonjsGlobal);
 });
-
-analytics = {
-    track: function (x) {
-        console.warn("track: %s", x);
-    }
-};

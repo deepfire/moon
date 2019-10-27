@@ -10,11 +10,15 @@ import           Prelude
 
 import           Control.Concurrent.Async (async)
 import           Control.Concurrent.MVar (MVar, modifyMVar_)
+import           Control.Exception
 import           Control.Lens ((.~))
+import           Control.Tracer
 
 import           NodeEditor.State.Global (State, pipes)
 
 import Basis
+import Pipe
+import Type
 import Lift.Client
 import Wire.Protocol
 
@@ -27,25 +31,42 @@ connect
   . f ~ Event
   => URL
   -> MVar State
-  -> IO ((SomeReply -> f SomeReply) -> SomeRequest -> IO ())
+  -> IO ((Reply -> f Reply) -> Request -> IO ())
 connect url state = do
   c <- mkConnection url (processor state)
-  async $ runConnectionWorkerIO c
+  async $ do
+    eres <- try (runConnectionWorkerIO c)
+    case eres of
+      Left (e :: SomeException) -> do
+        putStrLn $ "Exception in Event.connect:  " <> show e
+        throwIO e
+      Right x -> pure x
   pure (request c)
+ where
+   handleAnyException :: SomeException -> IO ()
+   handleAnyException = error . show
 
 processor
   :: forall rej
    . (rej ~ Text)
   => MVar State
-  -> (Either rej (Event SomeReply))
+  -> Tracer IO String
+  -> (Either rej (Event Reply))
   -> IO ()
-processor _ (Left e) = error (unpack e)
-processor state (Right x) = error "UGH"
-  -- modifyMVar_ state (process x)
-  -- where
-  --   process :: Event SomeReply -> State -> IO State
-  --   process (Pipes s) state = do
-  --     -- pure $
-  --     --   state & pipes .~ undefined
-      
-  --     pure $ trace (printf "FOOOOOOOOOOOOO") (error "foo")
+processor _ tr (Left e) = do
+  traceWith tr $ "Remote indicates error: " <> unpack e
+  -- error (unpack e)
+processor state tr (Right x) = do
+  traceWith tr $ "Handling reply.."
+  modifyMVar_ state (process x)
+ where
+   process :: Event Reply -> State -> IO State
+   process (Pipes (ReplyValue s)) state =
+     case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) s
+          (\(VPoint space) -> do
+              traceWith tr $ "Updating pipes.."
+              pure $ state & pipes .~ Just space)
+     of Right x -> x
+        Left e -> do
+          traceWith tr (unpack e)
+          pure state

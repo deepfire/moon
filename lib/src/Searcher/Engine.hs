@@ -39,7 +39,7 @@ rawQuery :: MatchSource -> JsDatabase -> Text -> [Result Int]
 rawQuery source db q = let
     bareResults  = jsQuery (unwrap db) (pToJSVal q)
     typedResults = castResults bareResults
-    mkResult match score ix = Result ix ix score (Match.make source match)
+    mkResult match score ix = Result ix ix score (Just $ Match.make source match)
     processResultGroup (ixes, match, score) = mkResult match score <$> ixes
     in concatMap processResultGroup typedResults
 

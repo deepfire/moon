@@ -47,23 +47,13 @@ module.exports =
 
     identify: ->
         if @userInfo.userInfoUUID?
-            if atom.config.get('luna-studio.analyticsEnabled')
-                if @isDevMode()
-                    console.log 'track.indentify: ', @userInfo.userInfoUUID
-                else
-                    mixpanel.identify @userInfo.userInfoUUID
+            mixpanel.identify @userInfo.userInfoUUID
 
     track: (title, data) ->
         data ?= {}
         data.user_info = @userInfo
         if isConfigured()
-            if atom.config.get('luna-studio.analyticsEnabled') && test(title)
-                if @isDevMode()
-                    console.log ("track.accept: " + title), data
-                else
-                    mixpanel.track title, data
-            else
-                if @isDevMode()
-                    console.log ("track.discard: " + title), data
+            if @isDevMode()
+                console.log ("track.discard: " + title), data
         else
             cacheEvent title, data

@@ -6,7 +6,6 @@ import           Data.Monoid                            (Last (..))
 import           GHCJS.Prim                             (JSException)
 
 import           Common.Action.Command                  (Command, execCommand, runCommand)
-import qualified Common.Analytics                       as Analytics
 import           Common.Prelude
 import           Common.Report                          (error)
 import           NodeEditor.Action.State.App            (renderIfNeeded)
@@ -45,6 +44,8 @@ import qualified NodeEditor.React.Event.Port            as Port
 import qualified JavaScript.WebSockets                  as WS
 import qualified Lift.Client                            as Lift
 
+import Debug.Trace (trace)
+
 actions :: LoopRef -> [Event -> Maybe (Command State ())]
 actions loop =
     [ App.handle
@@ -69,30 +70,33 @@ actions loop =
 runCommands :: [Event -> Maybe (Command State ())] -> Event -> Command State ()
 runCommands cmds event = sequence_ . catMaybes $ fmap ($ event) cmds
 
-preprocessEvent :: Event -> IO Event
-preprocessEvent ev = do
+preprocessEvent :: Bool -> Event -> IO Event
+preprocessEvent hasSearcher ev = do
     let batchEvent    = BatchEventPreprocessor.process ev
-        shortcutEvent = ShortcutEventPreprocessor.process ev
-    return $ fromMaybe ev $ getLast $ Last batchEvent <> Last shortcutEvent
+        shortcutEvent = ShortcutEventPreprocessor.process hasSearcher ev
+    return $ fromMaybe ev $ getLast $
+      --Last batchEvent <>
+      Last shortcutEvent
 
 processEvent :: LoopRef -> Event -> IO ()
 processEvent loop ev = handle handleAnyException $ modifyMVar_ (loop ^. Loop.state) $ \state -> do
-    (searcher, _) <- runCommand getSearcher state
-    realEvent <- case searcher of
-      Nothing -> preprocessEvent ev
-      Just _  -> pure ev
-    case realEvent of
-      Event.UI (Event.AppEvent  Event.MouseMove{}) -> pure ()
-      Event.UI (Event.PortEvent Port.MouseEnter{}) -> pure ()
-      Event.UI (Event.PortEvent Port.MouseLeave{}) -> pure ()
-      ev -> warn "processEvent" (show ev<>"\n→ "<>show realEvent)
-    filterEvents state realEvent $ do
-        Analytics.track realEvent
-        handle (handleExcept state realEvent) $
-            execCommand (runCommands (actions loop) realEvent >> renderIfNeeded) state
+  (searcher, _) <- runCommand getSearcher state
+  realEvent <- case searcher of
+    Nothing -> preprocessEvent False ev
+    Just _  -> preprocessEvent True  ev -- pure ev
+  -- case realEvent of
+  --   Event.UI (Event.AppEvent  Event.MouseMove{}) -> pure ()
+  --   Event.UI (Event.PortEvent Port.MouseEnter{}) -> pure ()
+  --   Event.UI (Event.PortEvent Port.MouseLeave{}) -> pure ()
+  --   ev -> warn "processEvent" (show ev<>"\n→ "<>show realEvent)
+  filterEvents state realEvent $ do
+    handle (handleExcept state realEvent) $
+      execCommand (runCommands (actions loop)
+                    (trace ("handling "<> show realEvent) realEvent)
+                   >> renderIfNeeded) state
 
-connectEventSources :: WS.Connection -> LoopRef -> IO ()
-connectEventSources ws loop = do
+connectEventSources :: LoopRef -> IO ()
+connectEventSources loop = do
     let handlers = [ JSHandlers.movementHandler
                    -- , Lift.webSocketHandler ws
                    -- , JSHandlers.sceneResizeHandler

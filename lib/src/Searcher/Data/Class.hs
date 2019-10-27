@@ -4,6 +4,7 @@ import Common.Prelude
 
 class SearcherData a where
     text     :: Getter a Text
+    typeOf   :: Getter a Text
     tags     :: Getter a [Text]
     priority :: Getter a (Maybe Int)
 

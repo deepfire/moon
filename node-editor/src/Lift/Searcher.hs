@@ -34,63 +34,13 @@ import NodeEditor.Action.Batch            (searchNodes)
 import NodeEditor.Action.State.NodeEditor (getLocalFunctions, getSearcher,
                                            inTopLevelBreadcrumb, modifySearcher)
 import NodeEditor.State.Global            (State)
-import Searcher.Data.Result               (Result)
+import qualified Searcher.Data.Result   as Searcher
+import qualified NodeEditor.React.Model.Searcher.Hint as Searcher
+import Searcher.Data.Result               (Result(..))
+import Searcher.Data.Class                          (SearcherData (text), SearcherHint (documentation, prefix))
 
-updateHints :: Command State ()
-updateHints = updateHints' >> Lift.Searcher.updateDocumentation
+import Pipe
+import Type
+import qualified Namespace as Namespace
+import Lift.Types
 
-updateHints' :: Command State ()
-updateHints' = unlessM inTopLevelBreadcrumb $ do
-    pipes <- use Global.pipes
-    modifySearcher $ do
-        mayQuery <- preuse $ Searcher.input . Input._DividedInput
-        let query = fromMaybe def mayQuery
-            results = case pipes of
-              Nothing -> []
-              Just ps -> []
-        Searcher.results .= results
-        Searcher.waiting .= (pipes == Nothing)
-        let selectInput = maybe True (Text.null . view Input.query) mayQuery
-        hintsLen <- use $ Searcher.results . to length
-        Searcher.selectedPosition .= if selectInput || hintsLen == 0
-                                         then Nothing
-                                         else Just 0
-
--- search :: Input.Divided -> NodeHint.Database
---        -> Maybe Class.Name -> [Result Hint.Hint]
--- search input nsData mayClassName =
---     if Text.strip (input ^. Input.prefix) == "def"
---         then mempty
---         else fullDbSearch input localDb nsData mayClassName
-
--- fullDbSearch :: Input.Divided -> NodeHint.Database
---              -> Maybe Class.Name -> [Result Hint.Hint]
--- fullDbSearch input nsData mayClassName = let
---     query            = input ^. Input.query
---     nextSym          = input ^. Input.nextSymbolPrediction
---     scoredGlobal     = scoreTextMatch query nsData
---     semanticGlobal   = bumpGlobalSyms nextSym mayClassName scoredGlobal
---     filteredSnippets = filterSnippets input mayClassName semanticGlobal
---     scoredSnippets   = bumpSnippets filteredSnippets
---     scoredImports    = bumpImported scoredSnippets
---     allHints         = semanticLocal <> scoredImports
---     scoredPriority   = scorePriority <$> allHints
---     sorted = sortBy (comparing $ negate . view Result.score) scoredPriority
---     in Hint.Node <<$>> sorted
-
-updateDocumentation :: Command State ()
-updateDocumentation = withJustM getSearcher $ \s -> do
-    let mayDocVis = s ^? Searcher.documentationVisualization
-        mayDoc = s ^? Searcher.selectedResult . _Just . Searcher.documentation
-        mayDocData = (,) <$> mayDocVis <*> mayDoc
-    withJust mayDocData $ \(docVis, doc) -> liftIO $ sendVisualizationData
-        (docVis ^. Visualization.visualizationId)
-        (ConstructorRep "Text" def)
-        =<< (IS.fromJSString . JSString.pack . BS.unpack $ Aeson.encode doc)
-
-clearHints :: Command State ()
-clearHints = do
-    modifySearcher $ do
-        Searcher.selectedPosition .= def
-        Searcher.results          .= mempty
-    updateDocumentation

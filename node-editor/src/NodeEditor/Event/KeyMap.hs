@@ -8,17 +8,17 @@ import           NodeEditor.Event.Shortcut       (Command (..))
 import qualified React.Flux                      as React
 
 
-isEventHandled :: KeyboardEvent -> Bool
-isEventHandled = isJust . handleKeyApp
+isEventHandled :: Bool -> KeyboardEvent -> Bool
+isEventHandled srch = isJust . handleKeyApp srch
 
-handleKeyApp :: KeyboardEvent -> Maybe Command
-handleKeyApp evt
+handleKeyApp :: Bool -> KeyboardEvent -> Maybe Command
+handleKeyApp srch evt
     | Keys.withoutMods      evt Keys.esc        = Just Cancel
     -- camera
-    | Keys.withCtrl         evt Keys.leftArrow  = Just PanLeft
-    | Keys.withCtrl         evt Keys.rightArrow = Just PanRight
-    | Keys.withCtrl         evt Keys.upArrow    = Just PanUp
-    | Keys.withCtrl         evt Keys.downArrow  = Just PanDown
+    | Keys.withCtrl         evt Keys.leftArrow  = unlessSrch PanLeft
+    | Keys.withCtrl         evt Keys.rightArrow = unlessSrch PanRight
+    | Keys.withCtrl         evt Keys.upArrow    = unlessSrch PanUp
+    | Keys.withCtrl         evt Keys.downArrow  = unlessSrch PanDown
     | Keys.withCtrl         evt Keys.plus       = Just ZoomIn
     | Keys.withCtrlShift    evt Keys.plus       = Just ZoomIn
     | Keys.withCtrl         evt Keys.minus      = Just ZoomOut
@@ -27,7 +27,6 @@ handleKeyApp evt
     | Keys.withCtrlShift    evt Keys.zero       = Just ResetPan
     | Keys.withCtrlAltShift evt Keys.zero       = Just ResetCamera
     | Keys.withCtrlShift    evt Keys.zero       = Just CenterGraph
-    | Keys.withoutMods      evt Keys.h          = Just CenterGraph
     -- navigation
     | Keys.withCtrl         evt Keys.esc        = Just ExitGraph
     | Keys.withCtrlShift    evt Keys.downArrow  = Just GoConeDown
@@ -41,19 +40,19 @@ handleKeyApp evt
     | Keys.withShift        evt Keys.leftArrow  = Just GoPrev
     | Keys.withShift        evt Keys.rightArrow = Just GoNext
     -- nodes
-    | Keys.withCtrl         evt Keys.a          = Just SelectAll
-    | Keys.withCtrl         evt Keys.e          = Just UnfoldSelectedNodes
-    | Keys.withCtrl         evt Keys.enter      = Just EditSelectedNodes
-    | Keys.withCtrl         evt Keys.l          = Just AutolayoutAllNodes
-    | Keys.withCtrl         evt Keys.space      = Just ZoomVisualization
-    | Keys.withoutMods      evt Keys.backspace  = Just RemoveSelectedNodes
-    | Keys.withoutMods      evt Keys.del        = Just RemoveSelectedNodes
-    | Keys.withoutMods      evt Keys.enter      = Just ExpandSelectedNodes
-    | Keys.withoutMods      evt Keys.f          = Just CollapseToFunction
-    | Keys.withoutMods      evt Keys.l          = Just AutolayoutSelectedNodes
+    | Keys.withCtrl         evt Keys.a          = unlessSrch SelectAll
+    | Keys.withCtrl         evt Keys.e          = unlessSrch UnfoldSelectedNodes
+    | Keys.withCtrl         evt Keys.enter      = unlessSrch EditSelectedNodes
+    | Keys.withCtrl         evt Keys.l          = unlessSrch AutolayoutAllNodes
+    | Keys.withCtrl         evt Keys.space      = unlessSrch ZoomVisualization
+    | Keys.withoutMods      evt Keys.backspace  = unlessSrch RemoveSelectedNodes
+    | Keys.withoutMods      evt Keys.del        = unlessSrch RemoveSelectedNodes
+    | Keys.withoutMods      evt Keys.enter      = unlessSrch ExpandSelectedNodes
+    | Keys.withoutMods      evt Keys.f          = unlessSrch CollapseToFunction
+    | Keys.withoutMods      evt Keys.l          = unlessSrch AutolayoutSelectedNodes
     -- searcher
-    | Keys.withAlt     evt Keys.space           = Just SearcherOpen
-    | Keys.withShift   evt Keys.tab             = Just SearcherEditExpression
+    | Keys.withAlt     evt Keys.space           = unlessSrch SearcherOpen
+    | Keys.withShift   evt Keys.tab             = unlessSrch SearcherEditExpression
 
     -- undo / redo
     | Keys.withCtrl         evt Keys.z          = Just Undo
@@ -64,3 +63,12 @@ handleKeyApp evt
     | Keys.withCtrlShift    evt Keys.m          = Just MockClearMonads
     --
     | otherwise                                 = Nothing
+ where
+   unlessSrch :: a -> Maybe a
+   unlessSrch = case srch of
+     False -> Just
+     True  -> const Nothing
+   whenSrch :: a -> Maybe a
+   whenSrch = case srch of
+     False -> const Nothing
+     True  -> Just

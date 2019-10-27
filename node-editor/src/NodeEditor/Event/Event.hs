@@ -2,7 +2,6 @@
 {-# LANGUAGE StrictData     #-}
 module NodeEditor.Event.Event where
 
-import           Common.Analytics            (IsTrackedEvent (isTracked))
 import           Common.Data.Event           (EventName (eventName), consName)
 import           Common.Prelude
 import qualified NodeEditor.Event.Atom       as Atom
@@ -20,16 +19,6 @@ data Event = Init
            deriving (Generic, Show, NFData)
 
 makeLenses ''Event
-
-
-instance IsTrackedEvent Event where
-    isTracked = \case
-        Init          -> True
-        Batch      ev -> isTracked ev
-        Connection ev -> isTracked ev
-        Atom       ev -> isTracked ev
-        Shortcut   ev -> isTracked ev
-        UI         ev -> isTracked ev
 
 instance EventName Event where
     eventName event = "NodeEditor.Event." <> consName event <> case event of

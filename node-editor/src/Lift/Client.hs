@@ -1,4 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
+--{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TypeInType #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Lift.Client
@@ -26,10 +27,9 @@ import           GHCJS.DOM.Types                          (ArrayBuffer, toJSStri
 import qualified Unsafe.Coerce                          as Unsafe
 
 import           Network.TypedProtocol.Core
-import qualified Network.TypedProtocol.Core             as Net
-import           Network.TypedProtocol.Driver
-import           Network.TypedProtocol.Channel
-import qualified Network.TypedProtocol.Channel          as Net
+import qualified Network.TypedProtocol.Core    as Net
+import qualified Network.TypedProtocol.Driver  as Net
+import qualified Network.TypedProtocol.Channel as Net
 
 import qualified JavaScript.Web.CloseEvent              as WS
 import qualified JavaScript.Web.MessageEvent            as WS
@@ -43,8 +43,8 @@ newtype URL = URL Text
 
 data Connection rej f = Connection
   { _cRaw :: !(Q.TBQueue SBS.ByteString)
-  , cRequests :: !(Q.TBQueue (SomeRequest, SomeReply -> f SomeReply))
-  , cReplyHandler :: !(Either rej (f SomeReply) -> IO ())
+  , cRequests :: !(Q.TBQueue (Request, Reply -> f Reply))
+  , cReplyHandler :: !(Tracer IO String -> Either rej (f Reply) -> IO ())
   , cChannel :: !(Net.Channel IO LBS.ByteString)
   , _cSocket :: !(WS.WebSocket)
   , cTracer :: !(Tracer IO String)
@@ -56,36 +56,32 @@ data ClientState rej m a
 
 mkClientSTS
   :: forall rej m a f
-  . (m ~ IO, a ~ SomeReply)
+  . (m ~ IO, a ~ Reply)
   => Connection rej f
-  -> Peer (Piping rej) AsClient StIdle m ()
-mkClientSTS Connection{cRequests, cReplyHandler} =
+  -> Peer (Piping rej) Net.AsClient StIdle m ()
+mkClientSTS Connection{cRequests, cReplyHandler, cTracer} =
     go WaitingForRequest
   where
     go :: ClientState rej m a
-       -> Peer (Piping rej) AsClient StIdle m ()
+       -> Peer (Piping rej) Net.AsClient StIdle m ()
     go WaitingForRequest =
       Effect $ do
         (,) req f <- atomically $ Q.readTBQueue cRequests
-        putStrLn "Got request!"
         pure $
           Yield (ClientAgency TokIdle) (MsgRequest req) $
             Await (ServerAgency TokBusy) $ \case
               MsgReply rep ->
                 Effect $ do
-                  putStrLn "MsgReply"
-                  Async.async (cReplyHandler (Right $ f rep))
+                  Async.async (cReplyHandler cTracer (Right $ f rep))
                   pure $ go WaitingForRequest
               MsgBadRequest rej ->
                 Effect $ do
-                  putStrLn "MsgBadRequest"
-                  Async.async (cReplyHandler (Left rej))
+                  Async.async (cReplyHandler cTracer (Left rej))
                   pure $ go WaitingForRequest
       -- where
-      --   projectReply :: Message (Piping rej) StBusy st -> Either rej SomeReply
+      --   projectReply :: Message (Piping rej) StBusy st -> Either rej Reply
       --   projectReply (MsgReply rep)      = Right rep
       --   projectReply (MsgBadRequest rej) = Left  rej
-
     go Closing =
       Yield (ClientAgency TokIdle)
             MsgDone
@@ -94,8 +90,8 @@ mkClientSTS Connection{cRequests, cReplyHandler} =
 request
   :: (Serialise rej, Show rej, rej ~ Text)
   => Connection rej f
-  -> (SomeReply -> f SomeReply)
-  -> SomeRequest
+  -> (Reply -> f Reply)
+  -> Request
   -> IO ()
 request c f req = atomically $
   Q.writeTBQueue (cRequests c) (req, f)
@@ -104,14 +100,14 @@ runConnectionWorkerIO
   :: (Serialise rej, Show rej, rej ~ Text)
   => Connection rej f -> IO ()
 runConnectionWorkerIO c@Connection{cChannel, cTracer} = do
-  runPeer (showTracing cTracer) wireCodec "server" cChannel peer
+  Net.runPeer (showTracing cTracer) wireCodec "server" cChannel peer
  where
    peer = mkClientSTS c
 
 mkConnection
   :: (Serialise rej, Show rej, rej ~ Text)
   => URL
-  -> (Either rej (f SomeReply) -> IO ())
+  -> (Tracer IO String -> Either rej (f Reply) -> IO ())
   -> IO (Connection rej f)
 mkConnection (URL url) handler = do
   rawReadQueue <- Q.newTBQueueIO 10
@@ -123,7 +119,9 @@ mkConnection (URL url) handler = do
     <*> pure handler
     <*> pure (channel rawReadQueue ws)
     <*> pure ws
-    <*> pure stdoutTracer
+    <*> pure (Tracer putStrLn)
+    -- XXX: 'stdoutTracer' doesn't seem to work in GHCJS
+    -- ..which is very weird, given its definition
  where
    wsc readQueue = WS.WebSocketRequest
      { WS.url = toJSString url
@@ -144,10 +142,7 @@ mkConnection (URL url) handler = do
      -> WS.WebSocket
      -> Net.Channel IO LBS.ByteString
    channel readQueue ws = Net.Channel
-     { recv = do
-         r <- Just . LBS.fromStrict <$> atomically (Q.readTBQueue readQueue)
-         putStrLn "recv() got data"
-         pure r
+     { recv = Just . LBS.fromStrict <$> atomically (Q.readTBQueue readQueue)
      , send = flip WS.sendArrayBuffer ws
             . Unsafe.unsafeCoerce
             . byteStringToArrayBuffer
@@ -157,8 +152,6 @@ mkConnection (URL url) handler = do
    byteStringToArrayBuffer bs =
      let (js_getArrayBuffer -> buf, start, end) = Buffer.fromByteString bs
      in js_sliceBuffer start end buf
-   _tracer :: Show x => String -> x -> x
-   _tracer desc x = trace (printf "%s:\n%s\n" desc (show x)) x
 
 foreign import javascript safe "$3.slice($1, $2)"
   js_sliceBuffer :: Int -> Int -> ArrayBuffer -> ArrayBuffer

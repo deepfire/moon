@@ -287,12 +287,6 @@ require("./luna-visualizers.js");
 // import lunaVis from './luna-visualizers.js';
 // lunaVis();
 
-analytics = {
-    track: function (x) {
-        console.warn("track: %s", x);
-    }
-};
-
 },{"./atom-callback.js":2,"./luna-visualizers.js":1,"react":188,"react-dom":36}],4:[function(require,module,exports){
 
 },{}],5:[function(require,module,exports){

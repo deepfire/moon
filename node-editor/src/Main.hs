@@ -22,7 +22,6 @@ import Wire.Protocol
 import Lift.Client
 import Lift.Event
 
-
 main :: IO ()
 main = do
     chan <- Chan.newChan
@@ -36,8 +35,8 @@ main = do
         let initState = mkState appRef clientId random
         state <- newMVar initState
         request <- connect (URL "ws://127.0.0.1:29671") state
-        -- Engine.connectEventSources ws loop
-        request Pipes (SomeRequest $ Run "meta.space")
+        Engine.connectEventSources loop
+        request Pipes (Run "meta.space")
         pure ()
     App.focus
     Engine.start chan

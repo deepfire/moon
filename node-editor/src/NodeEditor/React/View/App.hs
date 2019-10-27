@@ -26,6 +26,7 @@ import React.Flux                         hiding (Event)
 name :: JSString
 name = "app"
 
+-- XXX: deal with this
 handleKeyDown :: IsRef ref => ref -> React.Event -> KeyboardEvent -> [SomeStoreAction]
 handleKeyDown ref e k = mayStopPropagation $ dispatch ref (UI.AppEvent $ App.KeyDown k) where
     mayStopPropagation = id --if isEventHandled k then (preventDefault e :) else id

@@ -69,8 +69,6 @@ import NodeEditor.State.Action              (Action (begin, continue, end, updat
 import NodeEditor.State.Global              (State, visualizers)
 import Text.Read                            (readMaybe)
 
-import Lift.Searcher
-
 
 instance Action (Command State) Searcher where
     begin    = beginActionWithKey    searcherAction
@@ -259,18 +257,18 @@ updateInput input selectionStart selectionEnd action = do
         mayLambdaEndPos = snd <$> mayLambdaArgsAndEndPos
     modifySearcher $ Searcher.input .= searcherInput
     mayMode <- view Searcher.mode `fmap2` getSearcher
-    if not $ has Input._DividedInput searcherInput then clearHints
+    if not $ has Input._DividedInput searcherInput then Basic.clearHints
     else if has (_Just . Mode._Node) mayMode then do
         modifySearcher $ Searcher.mode
             . Mode._Node . NodeMode.mode
             . NodeMode._ExpressionMode . NodeMode.arguments .= lambdaArgs
         maybe
-            updateHints
+            Basic.updateHints
             (\endPos -> if selectionStart < endPos
-                then clearHints
-                else updateHints)
+                then Basic.clearHints
+                else Basic.updateHints)
             mayLambdaEndPos
-    else updateHints
+    else Basic.updateHints
 
 openParen :: Searcher -> Command State ()
 openParen sKey = do
@@ -390,9 +388,11 @@ updateInputWithSelectedHint action =
                 caretPosition
                 caretPosition
                 action
-    in withJustM getSearcher $ \s ->
+    in withJustM getSearcher $ \s -> do
+        liftIO $ warn "selectedResult: %s" (show (s ^. Searcher.selectedResult))
         withJust (s ^. Searcher.selectedResult) $ \h -> do
-            withJust (h ^? Result.hint . Hint._Node) includeImport
+            -- XXX: Hint.Node
+            -- withJust (h ^? Result.hint . Hint._Node) includeImport
             withJust
                 (s ^? Searcher.input . Input._DividedInput)
                 $ updateDividedInput h
@@ -438,11 +438,13 @@ close _ = do
 selectNextHint :: Searcher -> Command State ()
 selectNextHint s = do
     Basic.selectNextHint
+    -- updateInputWithSelectedHint s
     NodeEditor.Action.Basic.updateDocumentation
 
 selectPreviousHint :: Searcher -> Command State ()
 selectPreviousHint s = do
     Basic.selectPreviousHint
+    -- updateInputWithSelectedHint s
     NodeEditor.Action.Basic.updateDocumentation
 
 withHint :: Int -> (Searcher -> Command State ()) -> Searcher

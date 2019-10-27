@@ -9,6 +9,6 @@ import qualified NodeEditor.React.Event.App      as App
 import qualified NodeEditor.React.Event.Searcher as Searcher
 
 
-process :: Event -> Maybe Event
-process (UI (AppEvent      (App.KeyDown      e))) = Shortcut . flip Shortcut.Event def <$> handleKeyApp e
-process _ = Nothing
+process :: Bool -> Event -> Maybe Event
+process hasSearcher (UI (AppEvent      (App.KeyDown      e))) = Shortcut . flip Shortcut.Event def <$> handleKeyApp hasSearcher e
+process _ _ = Nothing

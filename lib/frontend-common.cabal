@@ -21,7 +21,6 @@ library
   exposed-modules:
       Atom
       Common.Action.Command
-      Common.Analytics
       Common.Batch.Connector.Connection
       Common.ClientId
       Common.Data.Event
@@ -33,7 +32,6 @@ library
       Common.Report
       GZip
       IdentityString
-      JS.Analytics
       Luna.Benchmark
       Luna.Benchmark.JS
       Searcher.Data.Class

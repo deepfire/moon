@@ -44,9 +44,11 @@ executable node-editor
   other-modules:
       Lift.Client
       Lift.Event
-      Lift.Searcher
+      Lift.Types
 
+      Data.Color
       Data.Curve
+      Data.Timestamp
       JS.Atom
       JS.Clipboard
       JS.Config
