@@ -1251,7 +1251,7 @@ svg.luna-node__ports {
   background: #131311;
   padding: 0 6px;
   transform: translate(-50%, calc(var(--ul-total-zoom) * -4px));
-  width: calc(var(--ul-total-zoom) * 400px - 2*6px);
+  width: calc(var(--ul-total-zoom) * 600px - 2*6px);
 }
 .luna-searcher__input--selected {
   background: #1d1d19 !important;
@@ -1261,8 +1261,8 @@ svg.luna-node__ports {
   flex-direction: column-reverse;
   bottom: calc(var(--ul-total-zoom) * 28px);
   position: absolute;
-  left: calc(var(--ul-total-zoom) * -400px/2);
-  width: calc(var(--ul-total-zoom) * 400px + 2px);
+  left: calc(var(--ul-total-zoom) * -600px/2);
+  width: calc(var(--ul-total-zoom) * 600px + 2px);
   border: calc(var(--ul-total-zoom) * 2.2 * 1px) solid transparent;
   transform: translateX(-2.2px);
   height: calc(var(--ul-total-zoom) * 24 * 10px);
@@ -1279,7 +1279,7 @@ svg.luna-node__ports {
   text-align: center;
   border-radius: 12px 12px 0 0;
   padding: 0;
-  width: calc(var(--ul-total-zoom) * 400px);
+  width: calc(var(--ul-total-zoom) *600px);
   max-height: calc(var(--ul-total-zoom) * 24 * 10px);
 }
 .luna-searcher__doc {
@@ -1289,9 +1289,9 @@ svg.luna-node__ports {
   box-sizing: border-box;
   position: absolute;
   bottom: 30px;
-  left: calc(var(--ul-total-zoom) * 400px/2 + 2px);
+  left: calc(var(--ul-total-zoom) * 600px/2 + 2px);
   height: calc(var(--ul-total-zoom) * 24 * 10px);
-  width: calc(var(--ul-total-zoom) * 400px/2);
+  width: calc(var(--ul-total-zoom) * 600px/2);
   white-space: normal;
 }
 .luna-searcher__doc.luna-visualization--active .luna-visualization-container {
@@ -1317,47 +1317,70 @@ svg.luna-node__ports {
   color: #a76624;
   opacity: 1;
 }
+.luna-searcher__results__item .luna-searcher__name {
+  color: #b58900;
+  opacity: 1;
+
+  width: auto;
+  text-align: left;
+  float: left;
+}
+.luna-searcher__results__item .luna-searcher__sep {
+  opacity: 1;
+
+  width: 2em;
+  text-align: center;
+  float: left;
+}
+.luna-searcher__results__item .luna-searcher__type {
+  color: #268bd2;
+  opacity: 1;
+
+  width: auto;
+  text-align: left;
+  float: left;
+}
 .luna-searcher__results__item::before {
   position: absolute;
   left: calc(var(--ul-total-zoom) * 7px);
   opacity: 0.5;
 }
 .luna-searcher__results__item:nth-of-type(1)::before {
-  content: "⌘1";
+  content: "#1";
 }
 .luna-searcher__results__item:nth-of-type(2)::before {
-  content: "⌘2";
+  content: "#2";
 }
 .luna-searcher__results__item:nth-of-type(3)::before {
-  content: "⌘3";
+  content: "#3";
 }
 .luna-searcher__results__item:nth-of-type(4)::before {
-  content: "⌘4";
+  content: "#4";
 }
 .luna-searcher__results__item:nth-of-type(5)::before {
-  content: "⌘5";
+  content: "#5";
 }
 .luna-searcher__results__item:nth-of-type(6)::before {
-  content: "⌘6";
+  content: "#6";
 }
 .luna-searcher__results__item:nth-of-type(7)::before {
-  content: "⌘7";
+  content: "#7";
 }
 .luna-searcher__results__item:nth-of-type(8)::before {
-  content: "⌘8";
+  content: "#8";
 }
 .luna-searcher__results__item:nth-of-type(9)::before {
-  content: "⌘9";
+  content: "#9";
 }
 .luna-searcher__results__item:nth-of-type(10)::before {
-  content: "⌘0";
+  content: "#0";
 }
 .luna-searcher__pre,
 .luna-searcher__pre + span {
   height: calc(var(--ul-total-zoom) * 24 * 1px);
   display: block;
   text-align: left;
-  width: 50%;
+  width: 40%;
   float: left;
 }
 .luna-searcher__pre {
