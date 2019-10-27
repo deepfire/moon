@@ -1,6 +1,7 @@
 module Basis
   ( module Control.Applicative
   , module Control.Arrow
+  , module Control.DeepSeq
   , module Control.Monad
   , module Data.Bifunctor
   -- , module Data.Coerce
@@ -31,15 +32,19 @@ module Basis
   , listSetUnsafe
   , setToList
   , guard
+  , tr
+  , dynRep
+  , (.:)
   )
 where
 
 import Control.Applicative        ((<|>), liftA2)
 import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, first, second)
+import Control.DeepSeq            (NFData(..))
 import Control.Monad              (join)
 import Data.Bifunctor             (bimap)
 import Data.Dynamic               (Dynamic(..), Typeable)
-import Data.Function              ((&))
+import Data.Function              ((&), on)
 import Data.Functor               ((<&>))
 import Data.Foldable              (toList)
 import Data.Kind                  (Constraint)
@@ -56,7 +61,7 @@ import Debug.Trace                (trace)
 import Generics.SOP               (All, All2, Top)
 import Text.Printf                (printf)
 import Text.Read                  (Read(..))
-import Type.Reflection            (TypeRep, SomeTypeRep, someTypeRep, typeRep)
+import Type.Reflection            (TypeRep, SomeTypeRep(..), someTypeRep, typeRep)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Map.Monoidal.Strict as MMap
@@ -85,3 +90,12 @@ guard :: e -> Maybe a -> Either e a
 guard e = \case
   Nothing -> Left  e
   Just x  -> Right x
+
+tr :: (a -> String) -> a -> a
+tr f x = trace (f x) x
+
+dynRep :: Dynamic -> SomeTypeRep
+dynRep (Dynamic rep _) = SomeTypeRep rep
+
+(.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
+(.:) = (.) . (.)

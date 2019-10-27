@@ -37,29 +37,25 @@ import qualified Data.ByteString.Lazy             as LBS
 import           Codec.Serialise
 import           Control.Tracer
 
-import           Control.Monad.Class.MonadThrow
-
 import           Network.TypedProtocol.Codec
-import           Network.TypedProtocol.Channel      (Channel(..))
 import qualified Network.TypedProtocol.Channel    as Net
 import           Network.TypedProtocol.Core         (Peer(..))
 import qualified Network.TypedProtocol.Core       as Net
 import qualified Network.TypedProtocol.Driver     as Net
 
-import Basis
 import Wire.Protocol
 
 
 data Server rej m a =
      Server
-     { processRequest :: SomeRequest
+     { processRequest :: Request
                       -> m ( Either rej a
                            , Server rej m a )
      , processDone    :: ()
      }
 
 runServer :: forall rej m a
-           . (Monad m, Serialise rej, Show rej, m ~ IO, a ~ SomeReply)
+           . (Monad m, Serialise rej, Show rej, m ~ IO, a ~ Reply)
           => Tracer m String
           -> Server rej m a
           -> Net.Channel IO LBS.ByteString
@@ -70,7 +66,7 @@ runServer tracer server channel = Net.runPeer (showTracing tracer) wireCodec pee
     peer   = serverPeer $ pure server
 
 serverPeer :: forall rej m a
-           . (m ~ IO, a ~ SomeReply)
+           . (m ~ IO, a ~ Reply)
            => m (Server rej m a)
            -> Peer (Piping rej) AsServer StIdle m ()
 serverPeer server =
@@ -101,7 +97,7 @@ serverPeer server =
 
 data ClientState rej m a where
      ClientRequesting
-       :: SomeRequest
+       :: Request
        -> (Either rej a -> m (ClientState rej m a))
        -> ClientState rej m a
 
@@ -109,7 +105,7 @@ data ClientState rej m a where
        :: ClientState rej m a
 
 runClient :: forall rej m a
-           . (Monad m, Serialise rej, Show rej, a ~ SomeReply, m ~ IO)
+           . (Monad m, Serialise rej, Show rej, a ~ Reply, m ~ IO)
           => Tracer m String
           -> m (ClientState rej m a)
           -> Net.Channel m LBS.ByteString
@@ -121,7 +117,7 @@ runClient tracer firstStep channel =
     peer   = mkClientSTS firstStep
 
 mkClientSTS :: forall rej m a
-           . (Monad m, a ~ SomeReply)
+           . (Monad m, a ~ Reply)
            => m (ClientState rej m a)
            -> Peer (Piping rej) AsClient StIdle m ()
 mkClientSTS firstStep =

@@ -8,6 +8,7 @@ module Data.Dict
   , Dicts
   , lookupRep
   , lookupName
+  , lookupNameRep
   , empty
   , insert
   , link
@@ -38,6 +39,10 @@ lookupRep  (Dicts rep _name) = flip Map.lookup rep
 
 lookupName :: forall (c :: Type -> Constraint). Dicts c -> Text -> Maybe (Dict c)
 lookupName (Dicts _rep name) = flip Map.lookup name
+
+lookupNameRep :: forall (c :: Type -> Constraint). Dicts c -> Text -> Maybe SomeTypeRep
+lookupNameRep (Dicts _rep name) n =
+  (\case Dict (a :: Proxy a) -> someTypeRep a) <$> Map.lookup n name
 
 empty :: Dicts c
 empty = Dicts mempty mempty

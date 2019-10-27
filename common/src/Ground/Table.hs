@@ -1,6 +1,7 @@
 module Ground.Table
   ( lookupRep
   , lookupName
+  , lookupNameRep
   , withRepGroundType
   , withNameGroundType
   , groundTypeReps
@@ -10,6 +11,14 @@ module Ground.Table
   , parseSomeValue
   )
 where
+
+import           Codec.Serialise
+import           Codec.CBOR.Encoding                (encodeListLen, encodeWord)
+import           Codec.CBOR.Decoding                (decodeListLen, decodeWord)
+import           Control.Monad                      (unless)
+import qualified Data.Kind                        as K
+import           Data.Reflection
+import           Type.Reflection                    ((:~~:)(..), TypeRep, eqTypeRep, typeRepKind, withTypeable)
 
 import qualified Data.Set.Monad                   as Set
 import Text.Read (Lexeme(..), ReadPrec, lexP)
@@ -36,6 +45,9 @@ lookupRep = Dict.lookupRep groundTypes
 
 lookupName :: Text       -> Maybe (Dict Ground)
 lookupName = Dict.lookupName groundTypes
+
+lookupNameRep :: Name Type -> Maybe SomeTypeRep
+lookupNameRep (Name n) = Dict.lookupNameRep groundTypes n
 
 withRepGroundType :: SomeTypeRep -> (Dict Ground -> b) -> Maybe b
 withRepGroundType  str f = f <$> lookupRep str
@@ -102,13 +114,13 @@ parseSomeValue =
     case tag of
       TPoint -> do
         v :: a <- parser
-        pure $ SomeValue $ SomeKindValue $ mkValue' a tag v
+        pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
       TList -> do
         v :: [a] <- commaSep parser
-        pure $ SomeValue $ SomeKindValue $ mkValue' a tag v
+        pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
       TSet -> do
         v :: [a] <- commaSep parser
-        pure $ SomeValue $ SomeKindValue $ mkValue' a tag $ Set.fromList v
+        pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag $ Set.fromList v
       _ -> trace (printf "No parser for structures outside of Point/List/Set.")
                  (fail "")
 
@@ -117,13 +129,13 @@ readValue tag (Dict (a :: Proxy a)) = do
   case tag of
     TPoint -> do
       v :: a <- readPrec
-      pure $ SomeValue $ SomeKindValue $ mkValue' a tag v
+      pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
     TList -> do
       v :: [a] <- readListPrec
-      pure $ SomeValue $ SomeKindValue $ mkValue' a tag v
+      pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
     TSet -> do
       v :: [a] <- readListPrec
-      pure $ SomeValue $ SomeKindValue $ mkValue' a tag $ Set.fromList v
+      pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag $ Set.fromList v
     _ -> trace (printf "No parser for structures outside of Point/List/Set.")
                (fail "")
 
@@ -135,11 +147,98 @@ instance Read SomeValue where
       Exists tag' -> readValue tag' dict
 
 
+mkSomeDesc
+  :: forall (ka :: Con) (a :: *) (kb :: Con) (b :: *)
+  . ( ReifyTag ka, ReifyTag kb
+    , Typeable ka, Typeable a, Typeable kb, Typeable b
+    )
+  => Tag ka -> Proxy a -> Tag kb -> Proxy b
+  -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomeDesc
+mkSomeDesc ta a tb b name sig struct rep =
+  case lookupRep (someTypeRep b) of
+    Nothing ->
+      SomeDesc $
+      (Desc name sig struct rep ta a tb b
+        :: Desc Top ka a kb b)
+    Just (Dict (_ :: Ground b' => Proxy b')) ->
+      case typeRep @b' `eqTypeRep` typeRep @b of
+        Just HRefl ->
+          SomeDesc $ (Desc name sig struct rep ta a tb b :: Desc Ground ka a kb b)
+        Nothing ->
+          SomeDesc $ (Desc name sig struct rep ta a tb b :: Desc Top    ka a kb b)
+
+instance Serialise SomeDesc where
+  encode (SomeDesc (Desc name sig struct rep _ _ _ _ :: Desc c ka a kb b)) = do
+    encodeListLen 10
+    <> encode (SomeTag . reifyTag $ Proxy @ka)
+    <> encode (typeRep @ka)
+    <> encode (tRep $ sIn  sig)
+    <> encode (SomeTag . reifyTag $ Proxy @kb)
+    <> encode (typeRep @kb)
+    <> encode (tRep $ sOut sig)
+    <> encode name
+    <> encode sig
+    <> encode struct
+    <> encode rep
+  decode = do
+    len <- decodeListLen
+    unless (len == 10)
+      (fail $ "decode SomeDesc: expected list len=8, got: " <> show len)
+    sta    :: SomeTag     <- decode
+    strka  :: SomeTypeRep <- decode
+    stra   :: SomeTypeRep <- decode
+    stb    :: SomeTag     <- decode
+    strkb  :: SomeTypeRep <- decode
+    strb   :: SomeTypeRep <- decode
+    name   :: Name Pipe   <- decode
+    sig    :: Sig         <- decode
+    struct :: Struct      <- decode
+    rep    :: SomeTypeRep <- decode
+    case (,,,,,) sta strka stra stb strkb strb of
+      (,,,,,)
+        (SomeTag (ta :: Tag tka)) (SomeTypeRep (ka :: TypeRep ka)) (SomeTypeRep (a :: TypeRep a))
+        (SomeTag (tb :: Tag tkb)) (SomeTypeRep (kb :: TypeRep kb)) (SomeTypeRep (b :: TypeRep b))
+        -> case (,,,,,)
+                (typeRep @K.Type `eqTypeRep` typeRepKind a)
+                (typeRep @K.Type `eqTypeRep` typeRepKind b)
+                (typeRep @Con    `eqTypeRep` typeRepKind ka)
+                (typeRep @Con    `eqTypeRep` typeRepKind kb)
+                (typeRep @tka    `eqTypeRep` ka)
+                (typeRep @tkb    `eqTypeRep` kb)
+                of
+             (Just HRefl, Just HRefl, Just HRefl, Just HRefl, Just HRefl, Just HRefl) ->
+               withTypeable ka $ withTypeable kb $
+               withTypeable  a $ withTypeable  b $
+               withReifyTag ta $ withReifyTag tb $
+                 pure $ mkSomeDesc ta (Proxy @a) tb (Proxy @b) name sig struct rep
+             _ -> fail $ "decode SomeDesc: something went awry."
+
+instance Serialise (SomePipe ()) where
+  encode (G (Pipe desc ())) = encode (SomeDesc desc)
+  encode (T (Pipe desc ())) = encode (SomeDesc desc)
+  decode = do
+    sd <- decode
+    case sd of
+      (SomeDesc (d@Desc{} :: Desc c ka a kb b)) ->
+        case ( eqTypeRep (typeRep @c) (typeRep @(Ground :: * -> Constraint))
+             , eqTypeRep (typeRep @c) (typeRep @(Top    :: * -> Constraint))
+             ) of
+          (Just HRefl, Nothing)    -> pure . G $ Pipe d ()
+          (Nothing,    Just HRefl) -> pure . T $ Pipe d ()
+          (eg,         et) -> fail $ "SomeDesc failed decode: "
+            <>" eqTypeRep @c @Ground="<>show eg
+            <>" eqTypeRep @c @Top="<>show et
+            <>" rep:\n"<>unpack (showDesc d)
+
+
 -- * Tables
 --
 infixr 2 #
 (#) :: (a -> b) -> a -> b
 (#) = ($)
+
+deriving instance Typeable Pipe
+deriving instance Typeable Scope
 
 groundTypes :: Dicts Ground
 groundTypes = Dict.empty
@@ -149,14 +248,14 @@ groundTypes = Dict.empty
   & Dict.insert "Type"            # Proxy @Type
   & Dict.insert "Sig"             # Proxy @Sig
   & Dict.insert "Struct"          # Proxy @Struct
-  & Dict.insert "PipeDesc"        # Proxy @PipeDesc
-  & Dict.insert "SomeTypeRep"     # Proxy @SomeTypeRep
-  & Dict.insert "SomeTypeRep2"    # Proxy @(SomeTypeRep, SomeTypeRep)
+  & Dict.insert "PipeDesc"        # Proxy @SomeDesc
+  & Dict.insert "TypeRep"         # Proxy @SomeTypeRep
+  & Dict.insert "TypeRep2"        # Proxy @(SomeTypeRep, SomeTypeRep)
   & Dict.insert "NameType"        # Proxy @(Name Type)
   & Dict.insert "NamePipe"        # Proxy @(Name Pipe)
   & Dict.insert "QNamePipe"       # Proxy @(QName Pipe)
   & Dict.insert "QNameScope"      # Proxy @(QName Scope)
-  & Dict.insert "QNameScope"      # Proxy @(PipeSpace PipeDesc)
+  & Dict.insert "PipeSpace"       # Proxy @(PipeSpace (SomePipe ()))
   -- Atom
   & Dict.insert "Int"             # Proxy @Int
   & Dict.insert "Integer"         # Proxy @Integer

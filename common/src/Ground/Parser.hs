@@ -1,5 +1,6 @@
 module Ground.Parser
-  ( parseTag
+  ( Parser(..)
+  , parseTag
   , parseQName
   , parseName
   )
@@ -55,7 +56,7 @@ parseTag = do
 
 -- * QName
 --
-instance Typeable (a :: *) => Parser (QName a) where
+instance Typeable a => Parser (QName a) where
   parser = parseQName
 
 parseQName
@@ -67,7 +68,7 @@ parseQName
 parseQName =
   (string "()" >> pure (QName mempty))
   <|>
-  (QName . (Name <$>) . Seq.fromList . split (== '.') <$> identifier)
+  (textQName <$> identifier)
   <?> "QName"
  where
   identifier :: (Monad m, TokenParsing m) => m Text
@@ -83,7 +84,7 @@ parseQName =
 
 -- * Name
 --
-instance Typeable (a :: *) => Parser (Name a) where
+instance Typeable a => Parser (Name a) where
   parser = parseName
 
 parseName

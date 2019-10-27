@@ -1,5 +1,6 @@
 module Namespace
   ( Space
+  , PointSpace
   , emptySpace
   , insertScope
   , attachScopes
@@ -13,6 +14,7 @@ module Namespace
   , spaceAdd
   , spaceUpdate
   , Scope
+  , PointScope
   , scopeName
   , emptyScope
   , scope
@@ -47,6 +49,8 @@ data Space k a = Space
   , nsMap  :: !(MonoidalMap     (QName Scope) (Scope k a))
   } deriving Generic
 
+type PointSpace a = Space Point a
+
 instance ReifyTag k => Functor (Space k) where
   fmap f s@Space{nsMap} = s { nsMap = (f <$>) <$> nsMap }
 
@@ -60,7 +64,7 @@ instance Semigroup (Space k a) where
 instance Monoid (Space k a) where
   mempty = emptySpace
 
-instance (Generic (Repr k a), Ord (Repr k a), Serialise (Repr k a))
+instance (Ord (Repr k a), Serialise (Repr k a))
          => Serialise (Space k a)
 
 emptySpace :: Space k a
@@ -195,6 +199,8 @@ data Scope k a = Scope
 deriving instance Eq (Repr k a) => Eq (Scope k a)
 deriving instance Ord (Repr k a) => Ord (Scope k a)
 -- (Eq, Generic, Ord, Show)
+
+type PointScope a = Scope Point a
 
 instance ReifyTag k => Functor (Scope k) where
   fmap f s@Scope{sMap} =

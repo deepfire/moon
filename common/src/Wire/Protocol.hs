@@ -21,10 +21,8 @@
 {-# LANGUAGE UndecidableInstances       #-}
 module Wire.Protocol
   ( Request(..)
-  , SomeRequest(..)
   , Reply(..)
-  , SomeReply(..)
-  , parseSomeRequest
+  , parseRequest
   , Piping(..)
   , Protocol(..)
   , Message(..)
@@ -65,38 +63,27 @@ import Pipe
 
 --------------------------------------------------------------------------------
 -- | Request/Reply:  asks with expectance of certain type of reply.
-data Request (k :: Con) a
+data Request
   = Run                  Text
   | Compile (QName Pipe) Text
 
-data Reply   (k :: Con) a
+data Reply
   = ReplyValue SomeValue
 
-instance Show (Request k a) where
+instance Show Request where
   show (Run       text) = "Run "                      <> unpack text
   show (Compile n text) = "Compile " <> show n <> " " <> unpack text
-instance Show (Reply   k a) where show (ReplyValue n) = "ReplyValue " <> show n
+instance Show Reply where show (ReplyValue n) = "ReplyValue " <> show n
 
---------------------------------------------------------------------------------
--- | SomeRequest/SomeReploy:  serialisable form of the above.
-data SomeRequest = forall k a. SomeRequest (Request k a)
-
-data SomeReply   = forall k a. SomeReply   (Reply   k a)
-
-instance Show SomeRequest   where show (SomeRequest x) = show x
-instance Show SomeReply     where show (SomeReply   x) = show x
-
-parseSomeRequest :: Opt.Parser SomeRequest
-parseSomeRequest = subparser $ mconcat
+parseRequest :: Opt.Parser Request
+parseRequest = subparser $ mconcat
   [ cmd "run" $
-    SomeRequest
-      <$> (Run
-             <$> strArgument (metavar "PIPEDESC"))
+    Run
+      <$> strArgument (metavar "PIPEDESC")
   , cmd "compile" $
-    SomeRequest
-      <$> (Compile
-             <$> (QName <$> argument auto (metavar "NAME"))
-             <*> strArgument (metavar "PIPEDESC"))
+    Compile
+      <$> (QName <$> argument auto (metavar "NAME"))
+      <*> strArgument (metavar "PIPEDESC")
   ]
   where
     cmd name p = command name $ info (p <**> helper) mempty
@@ -104,31 +91,31 @@ parseSomeRequest = subparser $ mconcat
 --------------------------------------------------------------------------------
 -- | Serialise instances
 
-tagSomeRequest, tagSomeReply, tagSomeValue :: Word
-tagSomeRequest  = 31--415926535
-tagSomeReply   = 27--182818284
-tagSomeValue   = 16--180339887
+tagRequest, tagReply, tagSomeValue :: Word
+tagRequest   = 31--415926535
+tagReply     = 27--182818284
+tagSomeValue = 16--180339887
 
-instance Serialise SomeRequest where
-  encode (SomeRequest x) = case x of
-    Run       text -> encodeListLen 3 <> encodeWord (tagSomeRequest + 0) <> encode text
-    Compile x text -> encodeListLen 3 <> encodeWord (tagSomeRequest + 1) <> encode x <> encode text
+instance Serialise Request where
+  encode x = case x of
+    Run       text -> encodeListLen 3 <> encodeWord (tagRequest + 0) <> encode text
+    Compile x text -> encodeListLen 3 <> encodeWord (tagRequest + 1) <> encode x <> encode text
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (3, 31) -> SomeRequest <$> (Run     <$> decode)
-      (3, 32) -> SomeRequest <$> (Compile <$> decode <*> decode)
+      (3, 31) -> Run     <$> decode
+      (3, 32) -> Compile <$> decode <*> decode
       _ -> failLenTag len tag
 
-instance Serialise SomeReply where
-  encode (SomeReply x) = case x of
-    ReplyValue x -> encodeListLen 2 <> encodeWord tagSomeReply <> encode (x :: SomeValue)
+instance Serialise Reply where
+  encode x = case x of
+    ReplyValue x -> encodeListLen 2 <> encodeWord tagReply <> encode (x :: SomeValue)
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (2, _tagSomeReply) -> SomeReply <$> (ReplyValue <$> (decode :: Decoder s SomeValue))
+      (2, _tagSomeReply) -> ReplyValue <$> (decode :: Decoder s SomeValue)
       _ -> failLenTag len tag
 
 failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
@@ -158,7 +145,7 @@ instance Serialise SomeValue where
       _ -> failLenTag len tag
 
 instance (Ord a, Typeable a, Serialise a) => Serialise (SomeKindValue a) where
-  encode (SomeKindValue x) = case x of
+  encode (SomeKindValue _ x) = case x of
     VPoint x -> encodeListLen 2 <> encodeWord 2 <> encode x
     VList  x -> encodeListLen 2 <> encodeWord 3 <> encode x
     VSet   x -> encodeListLen 2 <> encodeWord 4 <> encode x
@@ -169,12 +156,12 @@ instance (Ord a, Typeable a, Serialise a) => Serialise (SomeKindValue a) where
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (2, 2) -> SomeKindValue . VPoint <$> decode
-      (2, 3) -> SomeKindValue . VList  <$> decode
-      (2, 4) -> SomeKindValue . VSet   <$> decode
-      (2, 5) -> SomeKindValue . VTree  <$> decode
-      (2, 6) -> SomeKindValue . VDag   <$> decode
-      (2, 7) -> SomeKindValue . VGraph <$> decode
+      (2, 2) -> SomeKindValue TPoint . VPoint <$> decode
+      (2, 3) -> SomeKindValue TList  . VList  <$> decode
+      (2, 4) -> SomeKindValue TSet   . VSet   <$> decode
+      (2, 5) -> SomeKindValue TTree  . VTree  <$> decode
+      (2, 6) -> SomeKindValue TDag   . VDag   <$> decode
+      (2, 7) -> SomeKindValue TGraph . VGraph <$> decode
       _ -> failLenTag len tag
 
 --------------------------------------------------------------------------------
@@ -192,10 +179,10 @@ instance Show (ServerHasAgency (st :: Piping rej)) where show TokBusy = "TokBusy
 -- | Protocol & codec
 instance Protocol (Piping rej) where
   data Message (Piping rej) from to where
-    MsgRequest    :: SomeRequest  -> Message (Piping rej) StIdle StBusy
-    MsgReply      :: SomeReply    -> Message (Piping rej) StBusy StIdle
-    MsgBadRequest ::          rej -> Message (Piping rej) StBusy StIdle
-    MsgDone       ::                 Message (Piping rej) StIdle StDone
+    MsgRequest    :: Request  -> Message (Piping rej) StIdle StBusy
+    MsgReply      :: Reply    -> Message (Piping rej) StBusy StIdle
+    MsgBadRequest ::      rej -> Message (Piping rej) StBusy StIdle
+    MsgDone       ::             Message (Piping rej) StIdle StDone
 
   data ClientHasAgency st where TokIdle :: ClientHasAgency StIdle
   data ServerHasAgency st where TokBusy :: ServerHasAgency StBusy

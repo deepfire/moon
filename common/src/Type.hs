@@ -6,6 +6,7 @@ module Type
   , append
   , prepend
   , (<|), (|>)
+  , textQName
   , listQName
   , showName
   , showQName
@@ -13,6 +14,8 @@ module Type
   , coerceQName
   , Con(..)
   , Tag(..)
+  , withReifyTag
+  , SomeTag(..)
   , ReifyTag(..)
   , Tag2(..)
   , splitTag2
@@ -22,15 +25,18 @@ module Type
   , proxyType
   , tagType
   , unitType
+  , showType
   , Value(..)
   , mkValue
   , mkValue'
   , Parser(..)
   , Ground
   , GroundData
+  , GroundDataFull
   , SomeKindValue(..)
   , SomeValue(..)
   , someValueSomeTypeRep
+  , withSomeValue
   , Representable(..)
   -- * Re-exports
   , Some(..)
@@ -41,9 +47,14 @@ where
 
 import qualified Algebra.Graph                    as G
 import           Codec.Serialise
+import qualified Codec.CBOR.Decoding              as CBOR (decodeWord)
+import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
+import           Control.DeepSeq                    (NFData(..))
 import qualified Data.Sequence                    as Seq
 import qualified Data.Set.Monad                   as S
 import qualified Data.Text                        as Text
+import           Data.Text                          (split)
+import           Data.String                        (IsString(..))
 import           GHC.Generics                       (Generic)
 import           Text.Parser.Token                  (TokenParsing)
 import           Text.Read                          (Read(..), Lexeme(..), lexP)
@@ -59,13 +70,16 @@ import qualified Generics.SOP.Some as SOP
   Metatheory
 -------------------------------------------------------------------------------}
 newtype  Name a  = Name      Text
-  deriving (Eq, Generic, Ord, IsString, Read, Serialise)
+  deriving (Eq, Generic, Ord, Read, Serialise, Typeable)
 
 newtype QName a = QName (Seq (Name a))
-  deriving (Eq, Generic, Ord,           Read, Serialise)
+  deriving (Eq, Generic, Ord,           Read, Serialise, Typeable)
 
 instance Show (Name a)  where show = unpack . showName
 instance Show (QName a) where show = unpack . showQName
+
+instance IsString (Name  a) where fromString = Name . pack
+instance IsString (QName a) where fromString = textQName . pack
 
 instance Semigroup (QName a) where
   QName l <> QName r = QName (l <> r)
@@ -86,6 +100,9 @@ prepend x (QName xs) = QName $ x Seq.<| xs
 
 (<|) = prepend
 
+textQName :: Text -> QName a
+textQName = QName . (Name <$>) . Seq.fromList . split (== '.')
+
 listQName :: [Name a] -> QName a
 listQName = QName . Seq.fromList
 
@@ -93,7 +110,7 @@ showName :: Name a -> Text
 showName (Name x) = x
 
 showQName :: QName a -> Text
-showQName (QName s) = Text.intercalate ":" $ flip fmap (toList s) $
+showQName (QName s) = Text.intercalate "." $ flip fmap (toList s) $
   \(Name x) -> x
 
 coerceName :: Name a -> Name b
@@ -120,7 +137,27 @@ data Tag (k :: Con) where
   TTree  :: Tag Tree
   TDag   :: Tag Dag
   TGraph :: Tag Graph
-  deriving Typeable
+  deriving (Typeable)
+
+instance NFData (Tag k) where
+  rnf TPoint = ()
+  rnf _      = ()
+
+instance Eq (Tag k) where
+  TPoint == TPoint = True
+  TList  == TList  = True
+  TSet   == TSet   = True
+  TTree  == TTree  = True
+  TDag   == TDag   = True
+  TGraph == TGraph = True
+
+instance Ord (Tag k) where
+  compare TPoint TPoint = EQ
+  compare TList  TList  = EQ
+  compare TSet   TSet   = EQ
+  compare TTree  TTree  = EQ
+  compare TDag   TDag   = EQ
+  compare TGraph TGraph = EQ
 
 data Tag2   (k :: Con) a where
   TPoint'  :: Tag2 Point a
@@ -168,8 +205,39 @@ mapRepr TTree  f = fmap f
 mapRepr TDag   f = fmap f
 mapRepr TGraph f = fmap f
 
+withReifyTag :: Tag k -> (ReifyTag k => r) -> r
+withReifyTag = \case
+  TPoint -> id
+  TList  -> id
+  TSet   -> id
+  TTree  -> id
+  TDag   -> id
+  TGraph -> id
+
+data SomeTag where
+  SomeTag :: (ReifyTag k, Typeable k) => Tag (k :: Con) -> SomeTag
+
+instance Serialise SomeTag where
+  encode = CBOR.encodeWord . \(SomeTag tag) -> case tag of
+    TPoint -> 1
+    TList  -> 2
+    TSet   -> 3
+    TTree  -> 4
+    TDag   -> 5
+    TGraph -> 6
+  decode = do
+    tag <- CBOR.decodeWord
+    case tag of
+      1 -> pure $ SomeTag TPoint
+      2 -> pure $ SomeTag TList
+      3 -> pure $ SomeTag TSet
+      4 -> pure $ SomeTag TTree
+      5 -> pure $ SomeTag TDag
+      6 -> pure $ SomeTag TGraph
+      _ -> fail $ "invalid SomeTag encoding: tag="<>show tag
+
 --------------------------------------------------------------------------------
--- | 'Type' is a serialisable form of 'Tag.
+-- | 'Type' is a serialisable form of 'Tag + the typerep.
 data Type =
   Type
   { tName :: Name Type      -- ^ Extracted from the typerep
@@ -179,6 +247,16 @@ data Type =
 
 unitType :: Type
 unitType = tagType TPoint (Proxy @())
+
+showType :: Type -> Text
+showType Type{tName=(showName -> n), tCon} =
+  case R.tyConName tCon of
+    "'Point" -> "• "<>n
+    "'List"  -> "["<>n<>"]"
+    "'Set"   -> "{"<>n<>"}"
+    "'Tree"  -> "♆⇊ "<>n
+    "'Dag"   -> "♆⇄ "<>n
+    "'Graph" -> "☸ "<>n
 
 --------------------------------------------------------------------------------
 data Value (k :: Con) a where
@@ -193,7 +271,7 @@ data Value (k :: Con) a where
 
 -- * Generic parser
 --
-class Typeable a => Parser a where
+class Parser a where
   parser :: (Monad m, TokenParsing m) => m a
 
 instance {-# OVERLAPPABLE #-} Typeable a => Parser a where
@@ -205,7 +283,9 @@ instance {-# OVERLAPPABLE #-} Typeable a => Parser a where
 --------------------------------------------------------------------------------
 -- * Ground
 --
-data SomeKindValue a = forall (k :: Con). Typeable k => SomeKindValue (Value k a)
+data SomeKindValue a =
+  forall (k :: Con). Typeable k
+  => SomeKindValue (Tag k) (Value k a)
 
 type     GCtx a = (Ord a, Typeable a, Serialise a, Parser a, Read a, Show a)
 class    GCtx a => Ground a
@@ -214,7 +294,33 @@ instance GCtx a => Ground a
 class    (Ground a, HasTypeData Ground a) => GroundData a
 instance (Ground a, HasTypeData Ground a) => GroundData a
 
+class    ( Ground a, HasTypeData Ground a
+         , All2 Ground (Code a)
+         ) => GroundDataFull a
+instance ( Ground a, HasTypeData Ground a
+         , All2 Ground (Code a)
+         ) => GroundDataFull a
+
 data SomeValue = forall a. Ground a => SomeValue  (SomeKindValue a)
+
+withSomeValue
+  :: forall a k b
+   . (Ground a, Typeable k)
+  => Tag k
+  -> Proxy a
+  -> SomeValue
+  -> (Value k a -> b)
+  -> Either Text b
+withSomeValue _ _ (SomeValue (SomeKindValue (_ :: Tag k') r :: SomeKindValue a')) f =
+  let exptr = typeRep @a
+      svtr  = typeRep @a'
+      expk  = typeRep @k
+      svk   = typeRep @k'
+  in case (,) (svtr `R.eqTypeRep` exptr)
+              (svk  `R.eqTypeRep` expk) of
+    (Just R.HRefl, Just R.HRefl) -> Right $ f r
+    _ -> Left . pack $ printf "withSomeValue: expected %s/%s, got %s/%s"
+                (show exptr) (show expk) (show svtr) (show svk)
 
 --------------------------------------------------------------------------------
 -- * Representable
@@ -226,6 +332,45 @@ class Representable (a :: *) where
 instance {-# OVERLAPPABLE #-} Representable a where
   type instance Present a = a
   repr = id
+
+--------------------------------------------------------------------------------
+-- * Aux
+--
+proxyType  :: forall k a. (Typeable k, Typeable a) => Proxy k -> Proxy a -> Type
+proxyType _ pa =
+  Type (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
+       (R.typeRepTyCon $ R.typeRep @k)
+       tr
+  where tr = R.someTypeRep pa
+
+tagType :: forall k a. Typeable a => Tag k -> Proxy a -> Type
+tagType TPoint a = proxyType (Proxy @k) a
+tagType TList  a = proxyType (Proxy @k) a
+tagType TSet   a = proxyType (Proxy @k) a
+tagType TTree  a = proxyType (Proxy @k) a
+tagType TDag   a = proxyType (Proxy @k) a
+tagType TGraph a = proxyType (Proxy @k) a
+
+mkValue' :: Proxy a -> Tag k -> Repr k a -> Value k a
+mkValue' = const $ \case
+  TPoint -> VPoint
+  TList  -> VList
+  TSet   -> VSet
+  TTree  -> VTree
+  TDag   -> VDag
+  TGraph -> VGraph
+
+mkValue :: Proxy a -> Tag k -> Repr k a -> Value k a
+mkValue = const $ \case
+  TPoint -> VPoint
+  TList  -> VList
+  TSet   -> VSet
+  TTree  -> VTree
+  TDag   -> VDag
+  TGraph -> VGraph
+
+someValueSomeTypeRep :: SomeValue -> R.SomeTypeRep
+someValueSomeTypeRep (SomeValue (_ :: SomeKindValue a)) = R.someTypeRep $ Proxy @a
 
 {-------------------------------------------------------------------------------
   Boring.
@@ -262,21 +407,6 @@ instance Show (Tag2 k a) where
   show TDag'    = "TDag"
   show TGraph'  = "TGraph"
 
-proxyType  :: forall k a. (Typeable k, Typeable a) => Proxy k -> Proxy a -> Type
-proxyType _ pa =
-  Type (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
-       (R.typeRepTyCon $ R.typeRep @k)
-       tr
-  where tr = R.someTypeRep pa
-
-tagType :: forall k a. Typeable a => Tag k -> Proxy a -> Type
-tagType TPoint a = proxyType (Proxy @k) a
-tagType TList  a = proxyType (Proxy @k) a
-tagType TSet   a = proxyType (Proxy @k) a
-tagType TTree  a = proxyType (Proxy @k) a
-tagType TDag   a = proxyType (Proxy @k) a
-tagType TGraph a = proxyType (Proxy @k) a
-
 instance Read Type where readPrec = failRead
 instance Show Type where
   show (Type _ tycon sometyperep) =
@@ -300,29 +430,8 @@ instance Functor (Value k) where
   fmap f (VDag x) = VDag $ f <$> x
   fmap f (VGraph x) = VGraph $ f <$> x
 
-mkValue' :: Proxy a -> Tag k -> Repr k a -> Value k a
-mkValue' = const $ \case
-  TPoint -> VPoint
-  TList  -> VList
-  TSet   -> VSet
-  TTree  -> VTree
-  TDag   -> VDag
-  TGraph -> VGraph
-
-mkValue :: Proxy a -> Tag k -> Repr k a -> Value k a
-mkValue = const $ \case
-  TPoint -> VPoint
-  TList  -> VList
-  TSet   -> VSet
-  TTree  -> VTree
-  TDag   -> VDag
-  TGraph -> VGraph
-
 instance (Ord a, Show a) => Show (SomeKindValue a) where
-  show (SomeKindValue x) = "(SKV "<>show x<>")"
+  show (SomeKindValue _ x) = "(SKV "<>show x<>")"
 
 instance Show SomeValue where
-  show (SomeValue (SomeKindValue x)) = show x
-
-someValueSomeTypeRep :: SomeValue -> R.SomeTypeRep
-someValueSomeTypeRep (SomeValue (_ :: SomeKindValue a)) = R.someTypeRep $ Proxy @a
+  show (SomeValue (SomeKindValue _ x)) = show x

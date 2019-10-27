@@ -2,7 +2,6 @@
 
 module Pipe.Scope
   ( SomePipeScope
-  , PipeScope
   , pipeScope
   , emptyPipeScope
   , dataProjScope
@@ -29,50 +28,64 @@ import Pipe.Types
 
 
 --------------------------------------------------------------------------------
-emptyPipeScope :: Name Scope -> SomePipeScope
+emptyPipeScope :: Name Scope -> SomePipeScope p
 emptyPipeScope = Namespace.emptyScope . coerceName
 
-pipeScope :: Name Scope -> [SomePipe] -> SomePipeScope
+pipeScope :: Name Scope -> [SomePipe p] -> SomePipeScope p
 pipeScope name pipes = scope (coerceName name) $
   zip (coerceName . somePipeName <$> pipes) pipes
 
 dataProjPipes
   :: forall c u
-  . (Typeable c, Typeable u, SOP.HasTypeData c u, c u)
-  => Proxy u -> [Pipe c]
-dataProjPipes u =
+  . ( Typeable c, Typeable u
+    , SOP.HasTypeData c u, SOP.Generic u
+    , All2 (SOP.And Typeable c) (SOP.Code u)
+    , c u)
+  => (forall ka a kb b
+      . ( ReifyTag ka, ReifyTag kb
+        , Typeable ka, Typeable kb
+        , Typeable  a, Typeable  b
+        , c b
+        )
+      => Pipe c ka a kb b Dynamic -> SomePipe Dynamic)
+  -> Proxy c -> Proxy u -> [SomePipe Dynamic]
+dataProjPipes ctor c u =
   let d :: SOP.Data SOP.Fun c u
-      d = SOP.typeData (Proxy @c) u
+      d = SOP.typeData c u
       fieldPipe
         :: SOP.Data  SOP.Fun c u
         -> SOP.Ctor  SOP.Fun c u
         -> SOP.Field SOP.Fun c u
-        -> Pipe c
+        -> SomePipe Dynamic
       fieldPipe _d _c f =
         case SOP.fAccess f of
           SOP.SomeAccessors
             (SOP.Accessors getter _ :: SOP.Accessors u c a) ->
+            ctor $
             link' (Name $ SOP.fName f)
             TPoint'
             TPoint' -- XXX: Kind can be non-Point!
             (pure . Right . getter)
-  in [ fieldPipe d c f
-     | c <- SOP.dCtors  d
-     , f <- SOP.cFields c]
+  in [ fieldPipe d ct f
+     | ct <- SOP.dCtors  d
+     , f  <- SOP.cFields ct]
 
 -- TODO: make this a generic operation?
 dataProjScope
   :: forall u.
-  ( SOP.HasDatatypeInfo u, SOP.Generic u, All2 (SOP.And Typeable Top) (SOP.Code u)
-  , Typeable u)
-  => Proxy u -> Scope Point SomePipe
-dataProjScope  p = dataProjScope' p $ T <$> dataProjPipes p
+  ( Typeable u, SOP.HasDatatypeInfo u, SOP.Generic u
+  , All2 (SOP.And Typeable Top) (SOP.Code u)
+  )
+  => Proxy u -> Scope Point (SomePipe Dynamic)
+dataProjScope  p = dataProjScope' p $ dataProjPipes T (Proxy @Top) p
 
-dataProjScopeG :: forall u. GroundData u => Proxy u -> Scope Point SomePipe
-dataProjScopeG p = dataProjScope' p $ G <$> dataProjPipes p
+dataProjScopeG
+  :: forall u. (GroundData u)
+  => Proxy u -> Scope Point (SomePipe Dynamic)
+dataProjScopeG p = dataProjScope' p $ dataProjPipes G (Proxy @Ground) p
 
 dataProjScope'
   :: forall u. Typeable u
-  => Proxy u -> [SomePipe] -> SomePipeScope
+  => Proxy u -> [SomePipe Dynamic] -> SomePipeScope Dynamic
 dataProjScope' _p ps = pipeScope name ps
   where name  = Name $ pack $ show (R.typeRepTyCon (typeRep @u))

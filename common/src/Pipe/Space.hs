@@ -24,14 +24,14 @@ import qualified Data.Set.Monad                   as Set
 import qualified Data.Text                        as Text
 
 import Basis
-import Namespace (Scope)
+import Namespace (PointScope, Scope)
 import qualified Namespace
 import Pipe.Scope
 import Pipe.Types
 import Type
 
 
-emptyPipeSpace :: Name PipeSpace -> SomePipeSpace
+emptyPipeSpace :: Name PipeSpace -> SomePipeSpace p
 emptyPipeSpace n = PipeSpace
   { psName  = qname n
   , psSpace = Namespace.emptySpace
@@ -40,7 +40,7 @@ emptyPipeSpace n = PipeSpace
   }
 
 -- pipeDescs :: PipeSpace a -> Set a
--- pipeDescs = Set.fromList . (somePipeDesc <$>) . Namespace.spaceEntries . psSpace
+-- pipeDescs = Set.fromList . (someDesc <$>) . Namespace.spaceEntries . psSpace
 
 pipesFrom :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
 pipesFrom str =
@@ -50,33 +50,36 @@ pipesTo :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
 pipesTo str =
   fromMaybe mempty . MMap.lookup str . psTo
 
-type PipeRepIndex = MonoidalMap SomeTypeRep (Set (QName Pipe))
+type PipeRepIndex p = MonoidalMap SomeTypeRep (Set (QName Pipe))
 
-insertScope :: QName Scope -> SomePipeScope -> SomePipeSpace -> SomePipeSpace
+insertScope :: QName Scope -> SomePipeScope p -> SomePipeSpace p -> SomePipeSpace p
 insertScope prefix scope ps =
   ps { psSpace = Namespace.insertScope (coerceQName prefix) scope (psSpace ps)
      , psFrom  = psFrom'
      , psTo    = psTo'
      }
  where
-   fro, to, psFrom', psTo' :: PipeRepIndex
-   (,) fro to =  scopeIndices prefix scope
+   fro, to, psFrom', psTo' :: PipeRepIndex p
+   (,) fro to =  scopeIndices (prefix <> (qname $ Namespace.scopeName scope)) scope
    psFrom' = psFrom ps <> fro
    psTo'   = psTo   ps <> to
 
-   _showPRI :: PipeRepIndex -> Text
+   _showPRI :: PipeRepIndex p -> Text
    _showPRI map =
      Text.intercalate ", " $
      MMap.foldlWithKey (\ss str qs-> pack (printf "%s -> (%s)" (show str) (Text.intercalate ", " $ showQName <$> Set.toList qs)) : ss) [] map
 
 
-pipeIndexElems :: PipeRepIndex -> [QName Pipe]
+pipeIndexElems :: PipeRepIndex p -> [QName Pipe]
 pipeIndexElems = MMap.elems >>> (Set.elems <$>) >>> mconcat
 
-pipeIndexPower :: PipeRepIndex -> Int
+pipeIndexPower :: PipeRepIndex p -> Int
 pipeIndexPower = length . pipeIndexElems
 
-scopeIndices :: QName Scope -> PipeScope SomePipe -> (PipeRepIndex, PipeRepIndex)
+scopeIndices
+  :: QName Scope
+  -> PointScope (SomePipe p)
+  -> (PipeRepIndex p, PipeRepIndex p)
 scopeIndices prefix =
   Namespace.scopeEntries
   >>> ((<&> pipeEdge prefix sIn)
@@ -84,17 +87,18 @@ scopeIndices prefix =
        (<&> pipeEdge prefix sOut))
   >>> join (***) mconcat
  where
-   pipeEdge :: QName Scope -> (Sig -> Type) -> SomePipe -> PipeRepIndex
+   pipeEdge :: QName Scope -> (Sig -> Type) -> SomePipe p -> PipeRepIndex p
    pipeEdge prefix selector =
      (somePipeSig  >>> selector >>> tRep)
      &&&
-     (somePipeName >>> (coerceQName prefix |>) >>> Set.singleton)
+     (somePipeName >>> (coerceQName prefix |>)
+      >>> Set.singleton)
      >>> uncurry MMap.singleton
 
-attachScopes :: QName Scope -> [SomePipeScope] -> SomePipeSpace -> SomePipeSpace
+attachScopes :: QName Scope -> [SomePipeScope p] -> SomePipeSpace p -> SomePipeSpace p
 attachScopes sub scopes ns = foldr (insertScope sub) ns scopes
 
-scopeAt :: QName Scope -> PipeSpace a -> Maybe (PipeScope a)
+scopeAt :: QName Scope -> PipeSpace a -> Maybe (PointScope a)
 scopeAt q ps = Namespace.scopeAt (coerceQName q) (psSpace ps)
 
 childScopeNamesAt :: QName Scope -> PipeSpace a -> [QName Scope]
@@ -105,10 +109,10 @@ lookupSpace :: QName Pipe -> PipeSpace a -> Maybe a
 lookupSpace q ps = Namespace.lookupSpace (coerceQName q) (psSpace ps)
 
 spaceAdd
-  :: forall e. (e ~ Text)
+  :: forall e p. (e ~ Text, Typeable p)
   => QName Pipe
-  -> SomePipe
-  -> SomePipeSpace -> Either e SomePipeSpace
+  -> SomePipe p
+  -> SomePipeSpace p -> Either e (SomePipeSpace p)
 spaceAdd name x ps =
   PipeSpace
    <$> pure (psName ps)
