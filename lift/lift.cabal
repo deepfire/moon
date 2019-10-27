@@ -53,8 +53,8 @@ library
                      , contra-tracer
                      , io-sim-classes
                      , iohk-monitoring
-                     -- , typed-protocols
-                     -- , typed-protocols-cbor
+                     , typed-protocols
+                     , typed-protocols-cbor
 
                      , async
                      , brick

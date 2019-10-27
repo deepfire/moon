@@ -41,12 +41,12 @@ library
                        Pipe
                        Type
 
-                       Network.TypedProtocol.Channel
-                       Network.TypedProtocol.Codec
-                       Network.TypedProtocol.Codec.Cbor
-                       Network.TypedProtocol.Core
-                       Network.TypedProtocol.Driver
-                       Network.TypedProtocol.Pipelined
+                       -- Network.TypedProtocol.Channel
+                       -- Network.TypedProtocol.Codec
+                       -- Network.TypedProtocol.Codec.Cbor
+                       -- Network.TypedProtocol.Core
+                       -- Network.TypedProtocol.Driver
+                       -- Network.TypedProtocol.Pipelined
 
   build-depends:       base
                      , algebraic-graphs
@@ -71,8 +71,8 @@ library
 
                      , contra-tracer
                      , io-sim-classes
-                     -- , typed-protocols
-                     -- , typed-protocols-cbor
+                     , typed-protocols
+                     , typed-protocols-cbor
 
                      , time
 
