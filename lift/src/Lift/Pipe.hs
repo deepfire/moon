@@ -21,20 +21,20 @@ import Lift.Hackage as Hackage
 import Lift.Haskell as Haskell
 
 
-initialPipeSpace :: SomePipeSpace
+initialPipeSpace :: SomePipeSpace Dynamic
 initialPipeSpace
   =  Haskell.pipeSpace      (qname "Data")
   <> Hackage.pipeSpace       mempty
   <> pipeSpaceMeta
 
-mutablePipeSpace :: TVar SomePipeSpace
+mutablePipeSpace :: TVar (SomePipeSpace Dynamic)
 mutablePipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO $ initialPipeSpace
 {-# NOINLINE mutablePipeSpace #-}
 
-lookupPipe :: QName Pipe -> STM (Maybe SomePipe)
+lookupPipe :: QName Pipe -> STM (Maybe (SomePipe Dynamic))
 lookupPipe name = lookupSpace name <$> STM.readTVar mutablePipeSpace
 
-addPipe :: e ~ Text => QName Pipe -> SomePipe -> STM (Either e Sig)
+addPipe :: e ~ Text => QName Pipe -> SomePipe Dynamic -> STM (Either e Sig)
 addPipe name pipe = do
   space <- STM.readTVar mutablePipeSpace
   case lookupSpace name space of
@@ -46,7 +46,7 @@ addPipe name pipe = do
           STM.writeTVar mutablePipeSpace s'
           pure . Right $ somePipeSig pipe
 
-pipeSpaceMeta :: SomePipeSpace
+pipeSpaceMeta :: SomePipeSpace Dynamic
 pipeSpaceMeta =
   emptyPipeSpace "Meta"
   & insertScope mempty
@@ -58,7 +58,10 @@ pipeSpaceMeta =
      , genG  "ground"          TSet'   $ ground
      , linkG "from"    TPoint' TSet'   $ fromTo sOut
      , linkG "to"      TPoint' TSet'   $ fromTo sIn
+     , linkG "fromrep" TPoint' TSet'   $ fromToRep pipesFrom
+     , linkG "torep"   TPoint' TSet'   $ fromToRep pipesTo
      , genG  "space"           TPoint' $ space
+     , genG  "unit"            TPoint' $ pure (Right ())
      ])
   where
     sig :: QName Pipe -> Result Sig
@@ -77,9 +80,9 @@ pipeSpaceMeta =
     pipes name =
       guard ("No scope for name: " <> pack (show name))
       . ((coerceName <$>) . scopeNames <$>) . scopeAt name <$> STM.readTVarIO mutablePipeSpace
-    space :: Result (PipeSpace PipeDesc)
+    space :: Result (PipeSpace (SomePipe ()))
     space =
-      Right . (somePipeDesc <$>) <$> STM.readTVarIO mutablePipeSpace
+      Right . ((const () <$>) <$>) <$> STM.readTVarIO mutablePipeSpace
     scopes :: QName Scope -> Result (Set (QName Scope))
     scopes name =
       Right . Set.fromList . childScopeNamesAt name <$> STM.readTVarIO mutablePipeSpace
@@ -92,3 +95,10 @@ pipeSpaceMeta =
         Nothing -> pure . Left $ "Missing pipe: " <> pack (show name)
         Just (tRep . sigSide . somePipeSig -> toRep) -> do
           Right . pipesFrom toRep <$> STM.readTVar mutablePipeSpace
+    fromToRep :: (SomeTypeRep -> SomePipeSpace Dynamic -> Set (QName Pipe)) -> Name Type -> Result (Set (QName Pipe))
+    fromToRep lister name = atomically $ do
+        let rep = lookupNameRep name
+        case rep of
+          Nothing -> pure . Left $ "Unknown ground: " <> pack (show name)
+          Just rep -> do
+            Right . lister rep <$> STM.readTVar mutablePipeSpace

@@ -151,7 +151,7 @@ wsServer env@Env{envConfig=Config{..},..} = forever $ do
 
 haskellServer
   :: forall rej m a
-  . (rej ~ Text, m ~ IO, a ~ SomeReply)
+  . (rej ~ Text, m ~ IO, a ~ Reply)
   => Env
   -> Server rej m a
 haskellServer env@Env{..} =
@@ -165,25 +165,25 @@ haskellServer env@Env{..} =
     , processDone = ()
     }
 
-handleRequest :: Env -> SomeRequest -> IO (Either Text SomeReply)
-handleRequest Env{..} (SomeRequest x) = case x of
+handleRequest :: Env -> Request -> IO (Either Text Reply)
+handleRequest Env{..} x = case x of
   Compile name text ->
     Lift.compile name text
-    <&> (SomeReply . ReplyValue . SomeValue . SomeKindValue . VPoint <$>)
+    <&> (ReplyValue . SomeValue . SomeKindValue TPoint . VPoint <$>)
   Run text ->
     case Pipe.parse text of
       Left e -> pure . Left $ "Parse: " <> e
       Right nameTree -> do
         putStrLn $ unpack $ Data.Text.unlines
           ["Pipe:", pack $ show nameTree ]
-        res <- atomically $ Pipe.compile lookupPipeFail nameTree
+        res <- atomically $ Pipe.compile opsFull lookupPipeFail nameTree
         case res of
           Left e -> pure . Left $ "Compilation: " <> e
           Right runnable -> do
             res :: Either Text SomeValue <- runPipe runnable
             case res of
               Left e -> pure . Left $ "Runtime: " <> e
-              Right x -> pure . Right . SomeReply . ReplyValue $ x
+              Right x -> pure . Right . ReplyValue $ x
   -- x -> pure . Left . pack $ "Unhandled request: " <> show x
 
 compile :: QName Pipe -> Text -> Result Sig
@@ -195,7 +195,7 @@ compile newname text =
         ["Pipe:", pack $ show nameTree ]
       atomically $ do
         old <- lookupPipe newname
-        res <- Pipe.compile lookupPipeFail nameTree
+        res <- Pipe.compile opsFull lookupPipeFail nameTree
         case (old, res) of
           (Just _,  _)    -> pure . Left $ "Already exists: " <> pack (show newname)
           (_,  Left e)    -> pure . Left $ e
@@ -203,7 +203,7 @@ compile newname text =
             addPipe newname pipe
             pure . Right . somePipeSig $ pipe
 
-lookupPipeFail :: e ~ Text => QName Pipe -> STM (Either e SomePipe)
+lookupPipeFail :: e ~ Text => QName Pipe -> STM (Either e (SomePipe Dynamic))
 lookupPipeFail name =
   lookupPipe name <&>
   guard ("No such pipe: " <> showQName name)

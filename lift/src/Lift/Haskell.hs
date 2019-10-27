@@ -66,7 +66,7 @@ import "common" Type
 
 newtype GhcLibDir = GhcLibDir FilePath deriving Show
 
-pipeSpace :: QName Scope -> SomePipeSpace
+pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptyPipeSpace "Haskell"
   & attachScopes (graft |> "Hask")
       [ dataProjScope $ Proxy @Loc
