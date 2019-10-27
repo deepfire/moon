@@ -26,6 +26,8 @@ import NodeEditor.React.View.Visualization  (docVisualization_)
 import Searcher.Data.Match                  (Range)
 import Searcher.Data.Result                 (Result)
 
+import qualified Lift.Types as Lift
+
 
 name :: JSString
 name = "searcher"
@@ -90,7 +92,7 @@ searcher =  React.defineView name $ \(ref, properties) -> do
 searcher_ :: IsRef ref => ref -> Searcher.Properties -> ReactElementM ViewEventHandler ()
 searcher_ ref model = React.viewWithSKey searcher name (ref, model) mempty
 
-results_ :: IsRef ref => ref -> Maybe Int -> Bool -> [Result Hint]
+results_ :: IsRef ref => ref -> Maybe Int -> Bool -> [Result Lift.Hint]
     -> ReactElementM ViewEventHandler ()
 results_ ref selected wait results = when (not (null results) || wait) $ do
     div_
@@ -122,27 +124,36 @@ results_ ref selected wait results = when (not (null results) || wait) $ do
             when wait $ div_
                 [ "key" $= "searcherResultsWaiting"
                 , "className" $= Style.prefix "searcher__results__wait"
-                ] $ elemString "Indexing hints, please wait..."
+                ] $ elemJSString "Indexing hints, please wait..."
 
-isSnippet :: Result Hint -> Bool
-isSnippet = has $ Result.hint . Hint._Node . NodeHint.kind . NodeHint._Snippet
+isSnippet :: Result Lift.Hint -> Bool
+isSnippet = const False -- XXX: Hint.Node
+  -- has $ Result.hint . Hint._Node . NodeHint.kind . NodeHint._Snippet
 
-result_ :: Result Hint -> ReactElementM ViewEventHandler ()
+result_ :: Result Lift.Hint -> ReactElementM ViewEventHandler ()
 result_ result = prefixElem >> expression where
     prefix     = convert $ result ^. SearcherData.prefix
     prefixElem = unless (isSnippet result) .
         span_ [ "className" $= Style.prefix "searcher__pre"
               , "key"       $= "searcherPre"
               ] . elemString $ if prefix == "" then prefix else prefix <> " . "
-    expression = if has (Result.match . Match.source . Match._Expression) result
-        then highlighted_ result
-        else span_ [ "key" $= "l" ] . elemString . convert
-                                    $ result ^. SearcherData.text
+    expression =
+      if has (Result.match . _Just . Match.source . Match._Expression) result
+      then highlighted_ result
+      else do
+        span_ [ "className" $= Style.prefix "searcher__name"
+              , "key" $= "l" ] . elemString . convert
+          $ result ^. SearcherData.text
+        span_ [ "className" $= Style.prefix "searcher__sep"
+              ] . elemJSString . convert $
+          (" :: " :: Text)
+        span_ [ "className" $= Style.prefix "searcher__type"
+              , "key" $= "t" ] . elemString . convert
+          $ result ^. SearcherData.typeOf
 
-
-highlighted_ :: Result Hint -> ReactElementM ViewEventHandler ()
+highlighted_ :: Result Lift.Hint -> ReactElementM ViewEventHandler ()
 highlighted_ result = go 0 highlights where
-    highlights = result ^. Result.match . Match.range
+    highlights = result ^. Result.match . _Just . Match.range
     name       = convert $ result ^. SearcherData.text
     go :: Int -> [Range] -> ReactElementM ViewEventHandler ()
     go omit [] = span_ [ "key" $= "l" ] . elemString

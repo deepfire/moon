@@ -3,4 +3,3 @@ packages:
   ./.
   ../common
   ../lib
-  ../node-editor-view

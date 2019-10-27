@@ -15,6 +15,7 @@ import NodeEditor.React.Model.Searcher.UndoRedo (UndoRedoState)
 import NodeEditor.React.Model.Visualization     (RunningVisualization)
 import Searcher.Data.Result                     (Result)
 
+import Lift.Types as Lift
 
 ----------------------
 -- === Searcher === --
@@ -25,7 +26,7 @@ import Searcher.Data.Result                     (Result)
 data Searcher = Searcher
     { _input            :: Input
     , _replaceInput     :: Bool
-    , _results          :: [Result Hint]
+    , _results          :: [Result Lift.Hint]
     , _selectedPosition :: Maybe Int
     , _mode             :: Mode
     , _waiting          :: Bool
@@ -37,7 +38,7 @@ makeLenses ''Searcher
 instance NFData Searcher
 
 
-selectedResult :: Getter Searcher (Maybe (Result Hint))
+selectedResult :: Getter Searcher (Maybe (Result Lift.Hint))
 selectedResult = to $ \s -> let
     mayPosition  = s ^. selectedPosition
     atPosition p = s ^? results . ix p

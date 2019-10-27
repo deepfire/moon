@@ -86,7 +86,8 @@ mockSearcherNode ne = maybe ne withSearcher maySearcher where
         mayNewNodeData = ns ^? NodeSearcher.mode 
             . NodeSearcher._ExpressionMode . NodeSearcher.newNode . _Just
         nl   = ns ^. NodeSearcher.nodeLoc
-        hint = s ^? Searcher.selectedResult . _Just . Result.hint . Hint._Node
+        hint = Nothing -- XXX: Hint.Node
+          -- s ^? Searcher.selectedResult . _Just . Result.hint . Hint._Node
         in maybe (updateNode nl hint) (mockNewNode nl hint) mayNewNodeData
     updateNode :: NodeLoc -> Maybe Hint.Node -> NodeEditor
     updateNode nl mayHint = maybe
