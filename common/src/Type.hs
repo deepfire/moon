@@ -8,7 +8,6 @@ module Type
   , (<|), (|>)
   , textQName
   , listQName
-  , showName
   , showQName
   , coerceName
   , coerceQName
@@ -69,7 +68,7 @@ import qualified Generics.SOP.Some as SOP
 {-------------------------------------------------------------------------------
   Metatheory
 -------------------------------------------------------------------------------}
-newtype  Name a  = Name      Text
+newtype  Name a  = Name { showName :: Text }
   deriving (Eq, Generic, Ord, Read, Serialise, Typeable)
 
 newtype QName a = QName (Seq (Name a))
@@ -105,9 +104,6 @@ textQName = QName . (Name <$>) . Seq.fromList . split (== '.')
 
 listQName :: [Name a] -> QName a
 listQName = QName . Seq.fromList
-
-showName :: Name a -> Text
-showName (Name x) = x
 
 showQName :: QName a -> Text
 showQName (QName s) = Text.intercalate "." $ flip fmap (toList s) $
@@ -410,8 +406,14 @@ instance Show (Tag2 k a) where
 instance Read Type where readPrec = failRead
 instance Show Type where
   show (Type _ tycon sometyperep) =
-    show tycon<>":"<>(map (\case {' ' -> '-'; x -> x})
-                       $ show sometyperep)
+    show tycon<>":"<>unpack
+    -- cut out the middle part of a name: we don't care about the kind
+    (if Text.isPrefixOf "Name"  shownRep ||
+        Text.isPrefixOf "QName" shownRep
+     then Text.takeWhile (/= ' ') shownRep <> " " <>
+          (Text.reverse . Text.takeWhile (/= ' ') . Text.reverse $ shownRep)
+     else shownRep)
+    where shownRep = pack $ show sometyperep
 instance Serialise Type
 
 instance (Ord a, Show a) => Show (Value k a) where

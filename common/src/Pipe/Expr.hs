@@ -1,16 +1,20 @@
 module Pipe.Expr
   ( Expr(..)
   , parse
+  , parseLocated
   )
 where
 
 import Control.Applicative (liftA2, (<|>))
 import Control.Monad (foldM)
+import Data.Functor.Identity (Identity)
 
-import qualified Text.Parsec.Prim as Parsec
+import Text.Parsec (ParsecT, SourcePos)
+import Text.Parsec.Expr
+import qualified Text.Parsec as Parsec
 import Text.Parser.Combinators ((<?>), some)
-import Text.Parser.Expression
-import Text.Parser.Token (TokenParsing, parens, reserve)
+-- import Text.Parser.Expression
+import Text.Parser.Token (parens, reserve)
 import Text.Parser.Token.Style (emptyOps)
 
 import Basis
@@ -35,41 +39,54 @@ data Expr p where
     } -> Expr p
   deriving (Foldable, Functor, Traversable)
 
-parse
-  :: forall e
+parse :: Text -> Either Text (Expr (QName Pipe))
+parse = parse' parseQName
+
+parseLocated :: Text -> Either Text (Expr (SourcePos, QName Pipe, SourcePos))
+parseLocated = parse' parseQNameLocated
+ where
+   parseQNameLocated =
+     (,,)
+     <$> Parsec.getPosition
+     <*> parseQName
+     <*> Parsec.getPosition
+
+parse'
+  :: forall e n
   . (e ~ Text)
-  => Text
-  -> (Either e (Expr (QName Pipe)))
-parse s = do
-  case Parsec.parse parseExpr "" ("("<>s<>")") of
+  => ParsecT Text () Identity n
+  -> Text
+  -> Either e (Expr n)
+parse' nameParser s = do
+  case Parsec.parse (parseExpr nameParser) "" ("("<>s<>")") of
     -- XXX: get rid of the parens
     Left         e  -> Left $ "Pipe expr parser: " <> pack (show e)
     Right (Left  e) -> Left $ pack (show e)
     Right (Right x) -> Right $ x
 
 parseExpr
-  :: forall e m
+  :: forall e u m n
   . ( e ~ Text
-    , Monad m
-    , TokenParsing m)
-  => m (Either e (Expr (QName Pipe)))
-parseExpr =
+    , Monad m)
+  => ParsecT Text u m n
+  -> ParsecT Text u m (Either e (Expr n))
+parseExpr nameParser =
   buildExpressionParser table term
   <?> "Expr"
  where
-   term :: (Monad m, TokenParsing m) => m (Either e (Expr (QName Pipe)))
+   term :: ParsecT Text u m (Either e (Expr n))
    term = parens applys
-          <|> (pure . PPipe <$> parseQName)
+          <|> (Right . PPipe <$> nameParser)
           <|> (pure . PVal  <$> parseSomeValue)
           <?> "Expr.term"
-   applys :: (Monad m, TokenParsing m) => m (Either e (Expr (QName Pipe)))
+   applys :: ParsecT Text u m (Either e (Expr n))
    applys = do
-     xss <- some parseExpr
+     xss <- some (parseExpr nameParser)
      case xss of
        x : xs -> foldM (\l r -> pure $ PApp <$> l <*> r) x xs
        _ -> error "Invariant failed: 'some' failed us."
      <?> "Expr.applys"
-   table :: (Monad m, TokenParsing m) => [[Operator m (Either e (Expr (QName Pipe)))]]
+   table :: [[Operator Text u m (Either e (Expr n))]]
    table =
      [ -- (.) :: (b -> c) -> (a -> b) -> a -> c infixr 9
        [ binary "." (liftA2 PComp) AssocRight

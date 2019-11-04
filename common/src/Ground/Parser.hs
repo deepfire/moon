@@ -7,8 +7,6 @@ module Ground.Parser
 where
 
 import           Control.Applicative                ((<|>))
-import qualified Data.Sequence                    as Seq
-import           Data.Text                          (split)
 
 import Text.Parser.Combinators ((<?>))
 import Text.Parser.Char (alphaNum, char, letter, string)

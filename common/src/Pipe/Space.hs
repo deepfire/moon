@@ -4,6 +4,8 @@ module Pipe.Space
   , emptyPipeSpace
   , pipesFrom
   , pipesTo
+  , pipeNamesFrom
+  , pipeNamesTo
   -- , pipeDescs
   , insertScope
   , attachScopes
@@ -42,12 +44,20 @@ emptyPipeSpace n = PipeSpace
 -- pipeDescs :: PipeSpace a -> Set a
 -- pipeDescs = Set.fromList . (someDesc <$>) . Namespace.spaceEntries . psSpace
 
-pipesFrom :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
-pipesFrom str =
+pipesFrom :: SomeTypeRep -> PipeSpace a -> [a]
+pipesFrom str spc = setToList (pipeNamesFrom str spc) &
+  mapMaybe (flip lookupSpace spc . coerceQName)
+
+pipesTo :: SomeTypeRep -> PipeSpace a -> [a]
+pipesTo str spc = setToList (pipeNamesTo str spc) &
+  mapMaybe (flip lookupSpace spc . coerceQName)
+
+pipeNamesFrom :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
+pipeNamesFrom str =
   fromMaybe mempty . MMap.lookup str . psFrom
 
-pipesTo :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
-pipesTo str =
+pipeNamesTo :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
+pipeNamesTo str =
   fromMaybe mempty . MMap.lookup str . psTo
 
 type PipeRepIndex p = MonoidalMap SomeTypeRep (Set (QName Pipe))

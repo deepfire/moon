@@ -16,6 +16,8 @@ module Pipe.Types
   , showPipe
   , showPipeP
   , SomeDesc(..)
+  , someDescName
+  , someDescSig
   , Desc(..)
   , showDesc
   , pattern PipeD
@@ -224,6 +226,12 @@ data SomeDesc where
       ) =>
     { _spdDesc :: Desc c ka a kb b
     } -> SomeDesc
+
+someDescName :: SomeDesc -> Name Pipe
+someDescName (SomeDesc pd) = pdName pd
+
+someDescSig :: SomeDesc -> Sig
+someDescSig (SomeDesc pd) = pdSig pd
 
 instance Eq SomeDesc where
   -- Note, that this is sligtly weak:

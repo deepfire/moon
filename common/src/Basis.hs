@@ -10,6 +10,7 @@ module Basis
   , module Data.Function
   , module Data.Functor
   , module Data.Kind
+  , module Data.List
   , module Data.Map.Monoidal.Strict
   , module Data.Map.Strict
   , module Data.Maybe
@@ -19,6 +20,7 @@ module Basis
   , module Data.Set.Monad
   , module Data.String
   , module Data.Text
+  , module Data.Witherable
   , module Debug.Trace
   , module Generics.SOP
   , module Text.Printf
@@ -35,19 +37,23 @@ module Basis
   , tr
   , dynRep
   , (.:)
+  , eitherLeft
+  , eitherRight
   )
 where
 
 import Control.Applicative        ((<|>), liftA2)
 import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, first, second)
 import Control.DeepSeq            (NFData(..))
-import Control.Monad              (join)
+import Control.Monad              (join, void)
 import Data.Bifunctor             (bimap)
 import Data.Dynamic               (Dynamic(..), Typeable)
+import Data.Either.Extra          (eitherToMaybe)
 import Data.Function              ((&), on)
 import Data.Functor               ((<&>))
 import Data.Foldable              (toList)
 import Data.Kind                  (Constraint)
+import Data.List                  (sortBy)
 import Data.Map.Strict            (Map)
 import Data.Maybe                 (fromMaybe)
 import Data.Map.Monoidal.Strict   (MonoidalMap)
@@ -57,6 +63,7 @@ import Data.Sequence              (Seq)
 import Data.Set.Monad             (Set)
 import Data.String                (IsString)
 import Data.Text                  (Text, pack, unpack)
+import Data.Witherable            (catMaybes, mapMaybe, wither)
 import Debug.Trace                (trace)
 import Generics.SOP               (All, All2, Top)
 import Text.Printf                (printf)
@@ -99,3 +106,11 @@ dynRep (Dynamic rep _) = SomeTypeRep rep
 
 (.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.:) = (.) . (.)
+
+eitherLeft :: Either a b -> Maybe a
+eitherLeft = \case
+  Left a  -> Just a
+  Right{} -> Nothing
+
+eitherRight :: Either a b -> Maybe b
+eitherRight = eitherToMaybe
