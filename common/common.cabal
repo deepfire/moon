@@ -57,6 +57,7 @@ library
                      , deepseq
                      , extra
                      , fclabels
+                     , fingertree
                      , generic-monoid
                      , generics-sop
                      , ghc-prim
@@ -70,6 +71,8 @@ library
                      , set-monad
                      , sop-core
                      , text
+                     , witherable
+                     , zippers
 
                      , contra-tracer
                      , io-sim-classes

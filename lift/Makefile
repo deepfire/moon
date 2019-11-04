@@ -1,7 +1,10 @@
 all: cli lift
 
-cli lift:
+lift:
 	bash -c "time cabal -j new-build all"
+	cabal new-exec   $@
+cli vty:
+	bash -c "time cabal -j new-build exe:$@"
 	cabal new-exec   $@
 
 cls:
