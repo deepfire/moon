@@ -15,7 +15,7 @@ import qualified Data.Set      as Set
 import           Algebra.Graph (Graph)
 import           Data.Map (Map)
 import           Data.Set (Set)
-import           Data.Maybe
+import           Data.Maybe hiding (catMaybes)
 import           Data.Text
 import           Data.String
 ---------------- Effectful

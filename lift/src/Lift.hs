@@ -25,7 +25,7 @@ import qualified GHC.TypeLits                     as Ty
 import           Options.Applicative
 import qualified Type.Reflection                  as R
 
-import qualified Control.Concurrent.Chan.Unagi    as Unagi
+-- import qualified Control.Concurrent.Chan.Unagi    as Unagi
 import qualified Control.Concurrent               as Conc
 import qualified Control.Concurrent.STM           as STM
 import           Control.Concurrent.STM             (STM, TVar, atomically)
@@ -38,11 +38,11 @@ import           Shelly                             (run, shelly)
 import           System.Environment
 import qualified Unsafe.Coerce                    as Unsafe
 
-import qualified Cardano.BM.Configuration         as BM
-import qualified Cardano.BM.Configuration.Model   as BM
-import qualified Cardano.BM.Setup                 as BM
-import qualified Cardano.BM.Backend.Switchboard   as BM
-import qualified Cardano.BM.Trace                 as BM
+-- import qualified Cardano.BM.Configuration         as BM
+-- import qualified Cardano.BM.Configuration.Model   as BM
+-- import qualified Cardano.BM.Setup                 as BM
+-- import qualified Cardano.BM.Backend.Switchboard   as BM
+-- import qualified Cardano.BM.Trace                 as BM
 
 import qualified Network.TypedProtocol.Channel    as Net
 
@@ -70,14 +70,10 @@ data Config a =
   , cfWSPortIn   :: Int
   , cfWSPortOut  :: Int
   , cfWSPingTime :: Int
-  , cfMonitoring :: CFMonitoring a
   , cfGhcLibDir  :: CFGhcLibDir a
   , cfGitRoot    :: FileName
   , cfHackageTmo :: NominalDiffTime
   }
-type family CFMonitoring (a :: ConfigPhase) where
-  CFMonitoring Initial = IO BM.Configuration
-  CFMonitoring Final   = BM.Configuration
 type family CFGhcLibDir (a :: ConfigPhase) where
   CFGhcLibDir Initial  = Maybe FileName
   CFGhcLibDir Final    = FileName
@@ -88,7 +84,6 @@ defaultConfig = Config
   , cfWSPortIn   = 29670
   , cfWSPortOut  = 29671
   , cfWSPingTime = 30
-  , cfMonitoring = BM.empty
   , cfGhcLibDir  = Nothing
   , cfGitRoot    = "."
   , cfHackageTmo = fromInteger 3600
@@ -98,27 +93,22 @@ lift :: IO ()
 lift = do
   -- establish config
   let preConfig@Config{..} = defaultConfig
-  monitoring <- cfMonitoring
   libDir <- case cfGhcLibDir of
     Just x  -> pure x
     Nothing -> (FileName <$>) <$> shelly $ run "ghc" ["--print-libdir"]
   let config :: Config Final = preConfig
-        { cfMonitoring = monitoring
-        , cfGhcLibDir  = libDir }
+        { cfGhcLibDir  = libDir }
 
   wsServer =<< finalise config
 
 data Env =
   Env
   { envConfig      :: !(Config Final)
-  , envTrace       :: !(BM.Trace IO Text)
-  , envSwitchboard :: !(BM.Switchboard Text)
   , envTracer      :: !(Tracer IO String)
   }
 
 finalise :: Config Final -> IO Env
 finalise envConfig@Config{..} = do
-  (envTrace, envSwitchboard) <- BM.setupTrace_ cfMonitoring "lift"
   let envTracer = stdoutTracer
   pure Env{..}
 

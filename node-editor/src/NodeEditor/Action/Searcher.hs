@@ -375,6 +375,10 @@ handleTabPressed action = withJustM getSearcher $ \s ->
 updateInputWithSelectedHint :: Searcher -> Command State ()
 updateInputWithSelectedHint action =
     let updateDividedInput h input = do
+          -- 1. what is divided input?
+          -- 2. arrows have anomalous effect on the input:
+          --  - up-arrow inserts entry 0
+          --  - movement ceases
             let mayNextChar         = input ^? Input.suffix . ix 0
                 needsSpace c        = notElem c [' ', ')']
                 trailingSpaceNeeded = maybe True needsSpace mayNextChar
@@ -389,12 +393,10 @@ updateInputWithSelectedHint action =
                 caretPosition
                 action
     in withJustM getSearcher $ \s -> do
-        liftIO $ warn "selectedResult: %s" (show (s ^. Searcher.selectedResult))
         withJust (s ^. Searcher.selectedResult) $ \h -> do
             -- XXX: Hint.Node
             -- withJust (h ^? Result.hint . Hint._Node) includeImport
-            withJust
-                (s ^? Searcher.input . Input._DividedInput)
+            withJust (s ^? Searcher.input . Input._DividedInput)
                 $ updateDividedInput h
 
 accept :: (Event -> IO ()) -> Searcher -> Command State ()
@@ -438,13 +440,13 @@ close _ = do
 selectNextHint :: Searcher -> Command State ()
 selectNextHint s = do
     Basic.selectNextHint
-    -- updateInputWithSelectedHint s
+    updateInputWithSelectedHint s
     NodeEditor.Action.Basic.updateDocumentation
 
 selectPreviousHint :: Searcher -> Command State ()
 selectPreviousHint s = do
     Basic.selectPreviousHint
-    -- updateInputWithSelectedHint s
+    updateInputWithSelectedHint s
     NodeEditor.Action.Basic.updateDocumentation
 
 withHint :: Int -> (Searcher -> Command State ()) -> Searcher

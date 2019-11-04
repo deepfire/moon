@@ -58,8 +58,8 @@ pipeSpaceMeta =
      , genG  "ground"          TSet'   $ ground
      , linkG "from"    TPoint' TSet'   $ fromTo sOut
      , linkG "to"      TPoint' TSet'   $ fromTo sIn
-     , linkG "fromrep" TPoint' TSet'   $ fromToRep pipesFrom
-     , linkG "torep"   TPoint' TSet'   $ fromToRep pipesTo
+     , linkG "fromrep" TPoint' TSet'   $ fromToRep pipeNamesFrom
+     , linkG "torep"   TPoint' TSet'   $ fromToRep pipeNamesTo
      , genG  "space"           TPoint' $ space
      , genG  "unit"            TPoint' $ pure (Right ())
      ])
@@ -94,7 +94,7 @@ pipeSpaceMeta =
       case pipe of
         Nothing -> pure . Left $ "Missing pipe: " <> pack (show name)
         Just (tRep . sigSide . somePipeSig -> toRep) -> do
-          Right . pipesFrom toRep <$> STM.readTVar mutablePipeSpace
+          Right . pipeNamesFrom toRep <$> STM.readTVar mutablePipeSpace
     fromToRep :: (SomeTypeRep -> SomePipeSpace Dynamic -> Set (QName Pipe)) -> Name Type -> Result (Set (QName Pipe))
     fromToRep lister name = atomically $ do
         let rep = lookupNameRep name
