@@ -1,7 +1,6 @@
 let packages = {
     common           = ./common;
     node-editor      = ./node-editor;
-    node-editor-view = ./node-editor-view;
   };
 in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
   name = "luna-derivative";
@@ -12,8 +11,11 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
     ghcjs = [
       "common"
       "node-editor"
-      "node-editor-view"
       ];
+    ghc = [
+      "common"
+      "lift"
+    ];
   };
 
   shellToolOverrides = ghc: super: {
@@ -38,45 +40,43 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
       io-mf = io "iohk-monitoring-framework" "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w";
   in {
     common                = self.callCabal2nix "common" ./common {};
+    lift                  = self.callCabal2nix "lift"   ./lift   {};
 
-    Glob                  = dontCheck super.Glob;      # test failure
-    SHA                   = dontCheck super.SHA;
-    algebraic-graphs      = dontCheck (c "snowleopard" "alga"
-                            "eb0366ffd90802b1cfc2e2d739960d5f8bba3b3c"
-                            "0p9xv8w9iskg6lqygmf3myp892s5bq08xrgbm0zmy1isbh9rlzjv"
-                            "");
-    async-timer           = dontCheck (overrideCabal super.async-timer (old: { broken = false; }));
-    conduit               = dontCheck super.conduit;
-    constraint            = overrideCabal super.constraint (old: { broken = false; });
-    cryptohash-sha1       = dontCheck super.cryptohash-sha1;
-    extra                 = dontCheck super.extra;
-    half                  = dontCheck super.half;
-    lifted-async          = dontCheck super.lifted-async;
-    mono-traversable      = dontCheck super.mono-traversable;
-    shelly                = dontCheck super.shelly;
-    temporary             = dontCheck super.temporary;
-    unliftio              = dontCheck super.unliftio;  # test failure
-    yaml                  = dontCheck super.yaml;
-    zeromq4-haskell       = overrideCabal super.zeromq4-haskell (old: { broken = false; });
-    datetime              =            doJailbreak (self.callHackage "datetime" "0.3.1" {});
-    either                =            doJailbreak (self.callHackage "either" "4.4.1.1" {});
     frontend-common       = dontCheck (doJailbreak (self.callCabal2nix "frontend-common"           ./lib                           {}));
     luna-api-definition   = dontCheck (doJailbreak (self.callCabal2nix "luna-api-definition"       ./api-definition/api-definition {}));
-    luna-node-editor-view = dontCheck (doJailbreak (self.callCabal2nix "luna-node-editor-view"     ./node-editor-view              {}));
 
-    alg                   = c "strake" "alg"       "ee1d266587ea8315f224d9ea16ae51279c0c27eb" "02kb90glapbs39721p994d5fsw2vkqgi7hi3a0nplnr1q4hb6jg3" "";
-    category              = df "category.hs"       "fba78a5a1f2487d9a1a7375605f90bdc125f07fa" "1hmfiilwc6rk0si6a96iflhzszyhivwzxz0aclssjbv3fkprw5nd" "";
-
-    cborg                 = l "cborg" ../cborg/cborg "";
-    serialise             = l "serialise" ../cborg/serialise "";
-
-    contra-tracer         = io-mf "contra-tracer";
     # iohk-monitoring       = io-mf                  "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w" "iohk-monitoring";
+    Glob                  = dontCheck super.Glob;      # test failure
+    SHA                   = dontCheck super.SHA;
+    alg                   = c "strake" "alg"       "ee1d266587ea8315f224d9ea16ae51279c0c27eb" "02kb90glapbs39721p994d5fsw2vkqgi7hi3a0nplnr1q4hb6jg3" "";
+    algebraic-graphs      = dontCheck (c "snowleopard" "alga" "eb0366ffd90802b1cfc2e2d739960d5f8bba3b3c" "0p9xv8w9iskg6lqygmf3myp892s5bq08xrgbm0zmy1isbh9rlzjv" "");
+    async-timer           = dontCheck (overrideCabal super.async-timer (old: { broken = false; }));
+    category              = df "category.hs"       "fba78a5a1f2487d9a1a7375605f90bdc125f07fa" "1hmfiilwc6rk0si6a96iflhzszyhivwzxz0aclssjbv3fkprw5nd" "";
+    cborg                 = l "cborg" ../cborg/cborg "";
+    conduit               = dontCheck super.conduit;
+    constraint            = overrideCabal super.constraint (old: { broken = false; });
+    contra-tracer         = io-mf "contra-tracer";
+    cryptohash-sha1       = dontCheck super.cryptohash-sha1;
+    datetime              = doJailbreak (self.callHackage "datetime" "0.3.1" {});
+    either                = doJailbreak (self.callHackage "either" "4.4.1.1" {});
+    extra                 = dontCheck super.extra;
+    half                  = dontCheck super.half;
+    # iohk-monitoring       = io-mf "iohk-monitoring";
     io-sim                = io-on "io-sim";
     io-sim-classes        = io-on "io-sim-classes";
+    lifted-async          = dontCheck super.lifted-async;
+    mono-traversable      = dontCheck super.mono-traversable;
     network-mux           = io-on "network-mux";
+    # rebase                = doJailbreak (self.callHackage "rebase" "1.1.1" {});
+    reflex-vty            = c "reflex-frp" "reflex-vty" "594a35918ff93df68952d86b5aceaa9feecef13a" "1ngya1vyb7b0912my6qhk6l95y4mgq8iwj3qlwsmdhdc1xkcsd6i" "";
+    serialise             = l "serialise" ../cborg/serialise "";
+    shelly                = dontCheck super.shelly;
+    temporary             = dontCheck super.temporary;
     typed-protocols       = io-on "typed-protocols";
     typed-protocols-cbor  = io-on "typed-protocols-cbor";
+    unliftio              = dontCheck super.unliftio;  # test failure
+    yaml                  = dontCheck super.yaml;
+    # zeromq4-haskell       = overrideCabal super.zeromq4-haskell (old: { broken = false; });
 
     container             = ds "container"         "1bac6323943afeb2b13d3e21e69ab4a537d3030e" "124wlvrybalr0xh3jsin2x5r3hcw846zafndg90lkyq529dcgm1x" "";
     convert               = ds "convert"           "d10f56856a656ee515bd0ddcfaba43ad10b70814" "1wxszfxmarrf1i1gcz4bhiv813qiks00wmy03rws7lmpr0009fbc" "";

@@ -25,15 +25,17 @@ in {
                           "0p9xv8w9iskg6lqygmf3myp892s5bq08xrgbm0zmy1isbh9rlzjv"
                           "");
   # (overrideCabal old.algebraic-graphs (old: { broken = false; }));
-  async-timer           = dontCheck (overrideCabal old.async-timer (old: { broken = false; }));
+  async-timer           = dontCheck (overrideCabal old.async-timer  (old: { broken = false; }));
+  cborg                 = l "cborg" ../../cborg/cborg "";
   contra-tracer         = io-mf "contra-tracer";
-  iohk-monitoring       = io-mf "iohk-monitoring";
   io-sim                = io-on "io-sim";
   io-sim-classes        = io-on "io-sim-classes";
+  iohk-monitoring       = io-mf "iohk-monitoring";
+  reflex                = dontCheck (overrideCabal old.reflex       (old: { broken = false; }));
+  reflex-vty            = dontCheck (overrideCabal old.reflex-vty   (old: { broken = false; }));
+  serialise             = l "serialise" ../../cborg/serialise "";
   typed-protocols       = io-on "typed-protocols";
   typed-protocols-cbor  = io-on "typed-protocols-cbor";
-  cborg                 = l "cborg" ../../cborg/cborg "";
-  serialise             = l "serialise" ../../cborg/serialise "";
 
   common          = new.callCabal2nix "common" ../common {};
 }
