@@ -13,12 +13,16 @@ extra-source-files:  CHANGELOG.md
 library
   exposed-modules:
                        CLI
+                       Debug.Reflex
+                       Debug.TraceErr
                        Lift
                        Lift.Haskell
                        Lift.Hackage
                        Lift.Orphanage
                        Lift.Pipe
+                       Reflex.Vty.Widget.Input.RichText
                        -- TUI
+
   build-depends:       common
 
                      , base
@@ -34,10 +38,12 @@ library
                      , optparse-applicative
                      , parsec
                      , req
+                     , safe
                      , set-monad
                      , stm
                      , text
                      , time
+                     , tuple
                      , witherable
                      , zippers
 
@@ -70,9 +76,6 @@ library
                      , vector
                      , vty
 
-                     -- , brick
-                     -- , brick-filetree
-                     -- , byline
                      -- , unagi-chan
                      -- , zeromq4-haskell
 
@@ -147,11 +150,20 @@ executable vty
   hs-source-dirs:      .
   main-is:             MainReflexVty.hs
   build-depends:       base
+                     , bimap
+                     , blaze-builder
+                     , bytestring
                      , containers
+                     , dependent-sum
+                     , ref-tf
                      , reflex
                      , reflex-vty
                      , text
+                     , transformers
                      , vty
+                     , unix
+
+                     , lift
 
 -- executable tui
 --   default-language:    Haskell2010

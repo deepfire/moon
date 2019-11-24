@@ -2,14 +2,18 @@ module Pipe.Expr
   ( Expr(..)
   , parse
   , parseLocated
+  , indexLocated
+  , lookupLocatedQName
   )
 where
 
 import Control.Applicative (liftA2, (<|>))
 import Control.Monad (foldM)
+import Data.Foldable (fold)
 import Data.Functor.Identity (Identity)
+import qualified Data.IntervalMap.FingerTree            as IMap
 
-import Text.Parsec (ParsecT, SourcePos)
+import Text.Parsec (ParsecT, SourcePos, sourceColumn)
 import Text.Parsec.Expr
 import qualified Text.Parsec as Parsec
 import Text.Parser.Combinators ((<?>), some)
@@ -41,6 +45,22 @@ data Expr p where
 
 parse :: Text -> Either Text (Expr (QName Pipe))
 parse = parse' parseQName
+
+indexLocated
+  :: Expr (SourcePos, QName Pipe, SourcePos)
+  -> IMap.IntervalMap Int (QName Pipe)
+indexLocated =
+  fold
+  . fmap (\(sourceColumn -> l, x, sourceColumn -> r) ->
+            IMap.singleton (IMap.Interval l r) x)
+
+lookupLocatedQName
+  :: Int -> IMap.IntervalMap Int (QName Pipe)
+  -> Maybe (QName Pipe)
+lookupLocatedQName col imap =
+  case IMap.search col imap of
+    [] -> Nothing
+    (_, x):_ -> Just x
 
 parseLocated :: Text -> Either Text (Expr (SourcePos, QName Pipe, SourcePos))
 parseLocated = parse' parseQNameLocated

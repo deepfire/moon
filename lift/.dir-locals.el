@@ -1,1 +1,1 @@
-((nil . ((dante-repl-command-line "cabal" "new-repl" "exe:vty"))))
+((nil . ((dante-repl-command-line "cabal" "new-repl" "lib:lift"))))
