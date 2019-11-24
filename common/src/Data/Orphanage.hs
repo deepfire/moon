@@ -11,13 +11,12 @@ import Algebra.Graph.AdjacencyMap
 import Codec.Serialise
 import qualified Data.Map.Monoidal.Strict as MMap
 import qualified Data.Set.Monad as Set
-import GHC.Generics
 import Text.Read
 import Type.Reflection
 
 import Data.Map.Monoidal.Strict hiding (fromList, toList)
 
-instance (Ord k, Serialise k, Serialise v) => Serialise (MonoidalMap k v) where
+instance (Ord k, Serialise k, Semigroup v, Serialise v) => Serialise (MonoidalMap k v) where
   encode = encode . MMap.toList
   decode = MMap.fromList <$> decode
 
