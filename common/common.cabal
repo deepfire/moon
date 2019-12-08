@@ -35,6 +35,7 @@ library
                        Pipe.Scope
                        Pipe.Space
                        Pipe.Types
+                       Pipe.Zipper
 
                        Wire.Peer
                        Wire.Protocol
