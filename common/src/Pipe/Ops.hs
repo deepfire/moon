@@ -28,6 +28,7 @@ import           Type.Reflection
 import Basis
 import Pipe.Expr
 import Pipe.Types
+import Pipe.Zipper
 import Type
 
 
@@ -57,20 +58,72 @@ opsDesc = Ops
 -- * Compiling pipe expressions
 --
 compile
-  :: (Monad m, e ~ Text)
+  :: forall m e p
+  . (Monad m, e ~ Text)
   => Ops p
-  -> (QName Pipe -> m (Either Text (SomePipe p)))
+  -> (QName Pipe -> m (Maybe (SomePipe p)))
   -> Expr (QName Pipe)
   -> m (Either e (SomePipe p))
-compile ops lookupPipe nameTree =
-  join <$> ((assemble ops <$>) <$> resolveNames lookupPipe nameTree)
+compile ops lookupPipe expr =
+  (sequence <$> resolveNames lookupPipe expr)
+    <&>
+  (assemble ops <$>)
+    <&>
+  join . mapLeft failMissing
+ where
+   failMissing = ("No such pipe: " <>) . showQName
+
+data TCR p
+  = Known (SomePipe p)
+
+checkAndInfer
+  :: forall m e p
+  .  (Monad m, e ~ Text)
+  => Expr (Either (QName Pipe) (SomePipe p))
+  -> Either e (Expr (Either SomeDesc (SomePipe p)))
+checkAndInfer expr = go True $ fromExpr expr
+ where
+   toSig :: Either SomeDesc (SomePipe p) -> SomeDesc
+   toSig (Left x)  = x
+   toSig (Right p) = somePipeDesc p
+   go :: Bool
+      -> ZExpr (Either (QName Pipe) (SomePipe p))
+      -> Either e (Expr (Either SomeDesc (SomePipe p)))
+   go _ (_, PVal x)          = Right (PVal x)
+   go known z@(parents, PPipe p) = case p of
+     Right x   -> Right . PPipe $ Right x
+     Left name -> case parents of
+       [] -> Left $ "Lacking context to infer unknown: " <> showQName name
+       Right PApp{}:_  -> PPipe . Left <$> inferFnApp name z
+       Left  PApp{}:_  -> undefined
+       Right PComp{}:_ -> undefined
+       Left  PComp{}:_ -> undefined
+       _ -> Left $ "Child of an atom: " <> showQName name
+   inferFnApp
+     :: QName Pipe
+     -> ZExpr (Either (QName Pipe) (SomePipe p))
+     -> Either e SomeDesc
+   inferFnApp n = goIFA [] where
+     goIFA :: [SomeDesc]
+           -> ZExpr (Either (QName Pipe) (SomePipe p))
+           -> Either e SomeDesc
+     goIFA xs z@(Right (PApp f x):ps, self) = join $
+       goIFA <$> ((:)
+                  <$> undefined (go False (fromExpr x))
+                  <*> pure xs)
+             <*> pure (upFromLeft' z)
+     goIFA xs _ = undefined xs
 
 resolveNames
-  :: (Monad m, e ~ Text)
-  => (QName Pipe -> m (Either Text (SomePipe p)))
+  :: forall m e p
+  .  (Monad m, e ~ Text)
+  => (QName Pipe -> m (Maybe (SomePipe p)))
   -> Expr (QName Pipe)
-  -> m (Either e (Expr (SomePipe p)))
-resolveNames lookupPipe = (sequence <$>) . traverse lookupPipe
+  -> m (Expr (Either (QName Pipe) (SomePipe p)))
+resolveNames lookupPipe = traverse tryLookupPipe
+  where
+    tryLookupPipe :: QName Pipe -> m (Either (QName Pipe) (SomePipe p))
+    tryLookupPipe name = maybeToEither name <$> lookupPipe name
 
 assemble
   :: forall e p. e ~ Text
