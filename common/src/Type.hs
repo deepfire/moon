@@ -28,7 +28,7 @@ module Type
   , Value(..)
   , mkValue
   , mkValue'
-  , Parser(..)
+  , Parse(..)
   , Ground
   , GroundData
   , GroundDataFull
@@ -61,6 +61,7 @@ import qualified Type.Reflection                  as R
 import qualified Unsafe.Coerce                    as Unsafe
 
 import Basis
+import Data.Parsing
 import Data.Some
 import Generics.SOP.Some hiding (Generic)
 import qualified Generics.SOP.Some as SOP
@@ -267,10 +268,11 @@ data Value (k :: Con) a where
 
 -- * Generic parser
 --
-class Parser a where
-  parser :: (Monad m, TokenParsing m) => m a
+class Parse a where
+  -- parser :: (MonadParsec Text Text m, TokenParsing m) => m a
+  parser :: Parser a
 
-instance {-# OVERLAPPABLE #-} Typeable a => Parser a where
+instance {-# OVERLAPPABLE #-} Typeable a => Parse a where
   parser = failParser
     where
       failParser :: (Monad m, TokenParsing m) => m a
@@ -283,7 +285,7 @@ data SomeKindValue a =
   forall (k :: Con). Typeable k
   => SomeKindValue (Tag k) (Value k a)
 
-type     GCtx a = (Ord a, Typeable a, Serialise a, Parser a, Read a, Show a)
+type     GCtx a = (Ord a, Typeable a, Serialise a, Parse a, Read a, Show a)
 class    GCtx a => Ground a
 instance GCtx a => Ground a
 

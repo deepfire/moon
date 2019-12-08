@@ -1,4 +1,4 @@
- module Debug.Reflex
+module Debug.Reflex
 where
 
 import Debug.TraceErr (traceErr)

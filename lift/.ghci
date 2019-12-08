@@ -1,0 +1,11 @@
+:set -XOverloadedStrings
+:set -XPackageImports
+
+import           Control.Applicative                ((<|>))
+
+import "common" Type as T hiding ((<|>))
+import Ground.Parser as G
+import Pipe.Expr as Pipe
+import Text.Parsec as P hiding ((<|>))
+import Text.Parsec.Expr as P hiding ((<|>))
+import Data.Text.Zipper as TZ

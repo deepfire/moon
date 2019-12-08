@@ -78,7 +78,7 @@ pipeSpaceMeta =
         Just (somePipeSig >>> sIn &&& sOut >>> join (***) tRep -> x) -> Right x
     pipes :: QName Scope -> Result (Set (Name Pipe))
     pipes name =
-      guard ("No scope for name: " <> pack (show name))
+      maybeToEither ("No scope for name: " <> pack (show name))
       . ((coerceName <$>) . scopeNames <$>) . scopeAt name <$> STM.readTVarIO mutablePipeSpace
     space :: Result (PipeSpace (SomePipe ()))
     space =

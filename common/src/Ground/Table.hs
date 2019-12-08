@@ -13,25 +13,24 @@ module Ground.Table
 where
 
 import           Codec.Serialise
-import           Codec.CBOR.Encoding                (encodeListLen, encodeWord)
-import           Codec.CBOR.Decoding                (decodeListLen, decodeWord)
+import           Codec.CBOR.Encoding                (encodeListLen)
+import           Codec.CBOR.Decoding                (decodeListLen)
 import           Control.Monad                      (unless)
 import qualified Data.Kind                        as K
-import           Data.Reflection
 import           Type.Reflection                    ((:~~:)(..), TypeRep, eqTypeRep, typeRepKind, withTypeable)
 
 import qualified Data.Set.Monad                   as Set
 import Text.Read (Lexeme(..), ReadPrec, lexP)
-import Text.Parser.Combinators
-import Text.Parser.Char
+import Text.Megaparsec hiding (ParsecT)
+import Text.Megaparsec.Parsers
 import Text.Parser.Token.Highlight
-import Text.Parser.Token
 
 import Basis
 import qualified Data.Dict as Dict
 import Data.Dict (Dict(..), Dicts)
 import Type
 
+import Data.Parsing
 import Ground.Parser ()
 import qualified Ground.Hask as Hask
 import Namespace
@@ -64,7 +63,7 @@ groundTypeNames = Dict.names groundTypes
 
 -- * Dict Ground
 --
-instance Parser (Dict Ground) where
+instance Parse (Dict Ground) where
   parser = parseDict
 
 parseDict :: (Monad m, TokenParsing m) => m (Dict Ground)
@@ -98,17 +97,16 @@ instance Read (Dict Ground) where
 
 -- * SomeValue
 --
-instance Parser SomeValue where
+instance Parse SomeValue where
   parser = parseSomeValue
 
-parseSomeValue :: (Monad m, TokenParsing m) => m SomeValue
+parseSomeValue :: Parser SomeValue
 parseSomeValue =
   braces   (parseSV . reifyTag $ Proxy @Point)
   <|>
   brackets (parseSV . reifyTag $ Proxy @List)
-  <?> "Value"
  where
-  parseSV :: (Monad m, TokenParsing m) => Tag k -> m SomeValue
+  parseSV :: Tag k -> Parser SomeValue
   parseSV tag = do
     Dict a :: Dict Ground <- parser
     case tag of

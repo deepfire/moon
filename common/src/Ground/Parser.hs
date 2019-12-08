@@ -1,37 +1,38 @@
 module Ground.Parser
-  ( Parser(..)
-  , parseTag
+  ( parseTag
   , parseQName
+  , parseQName'
   , parseName
+  , parseName'
+  , magicToken
   )
 where
 
-import           Control.Applicative                ((<|>))
-
-import Text.Parser.Combinators ((<?>))
+import Text.Parser.Combinators ((<?>), try)
 import Text.Parser.Char (alphaNum, char, letter, string)
 import Text.Parser.Token.Highlight
        (Highlight(..))
 import Text.Parser.Token
        (IdentifierStyle(..), TokenParsing
-       , ident)
+       , ident, token, someSpace)
 
 import Basis
+import Data.Parsing
 import Data.Some
 import Type
 
 
 -- * Some Tag
 --
--- instance Parser (Some Tag) where
---   parser = parseTag
+instance Parse (Some Tag) where
+  parser = parseTag
 
 parseTag
   :: forall m
   . (Monad m, TokenParsing m)
   => m (Some Tag)
 parseTag = do
-  i <- identifier
+  i <- tagIdentifier
   case i of
     "Point" -> pure $ Exists TPoint
     "List"  -> pure $ Exists TList
@@ -40,49 +41,59 @@ parseTag = do
     "Dag"   -> pure $ Exists TDag
     "Graph" -> pure $ Exists TGraph
     x -> fail $ "Mal-Con: " <> show x
- where
-   identifier :: (Monad m, TokenParsing m) => m Text
-   identifier = ident $ IdentifierStyle
-     { _styleName = "Con tag"
-     , _styleStart = letter
-     , _styleLetter = alphaNum
-     , _styleReserved = mempty
-     , _styleHighlight = Identifier
-     , _styleReservedHighlight = ReservedIdentifier
-     }
+
+tagIdentifier :: (Monad m, TokenParsing m) => m Text
+tagIdentifier = ident $ IdentifierStyle
+  { _styleName = "Con tag"
+  , _styleStart = letter
+  , _styleLetter = alphaNum
+  , _styleReserved = mempty
+  , _styleHighlight = Identifier
+  , _styleReservedHighlight = ReservedIdentifier
+  }
 
 
 -- * QName
 --
-instance Typeable a => Parser (QName a) where
+instance Typeable a => Parse (QName a) where
   parser = parseQName
 
+magicToken :: Text
+magicToken = "!"
+
 parseQName
-  :: forall e m a
-  . ( e ~ Text
-    , Monad m
-    , TokenParsing m)
-  => m (QName a)
-parseQName =
-  (string "()" >> pure (QName mempty))
-  <|>
-  (textQName <$> identifier)
-  <?> "QName"
+  :: forall e a
+  . (e ~ Text)
+  => ParsecT e Text Identity (QName a)
+parseQName = snd3 <$> parseQName' False
+
+parseQName'
+  :: forall e a. (e ~ Text)
+  => Bool -> ParsecT Text Text Identity (Int, QName a, Int)
+parseQName' allowMagic =
+  if allowMagic
+  then doParse tok <|> doParse ((QName mempty)
+                                <$ string (unpack magicToken))
+  else doParse tok
  where
-  identifier :: (Monad m, TokenParsing m) => m Text
-  identifier = ident $ IdentifierStyle
-    { _styleName = "QName"
-    , _styleStart = alphaNum
-    , _styleLetter = alphaNum <|> char '.'
-    , _styleReserved = mempty
-    , _styleHighlight = Identifier
-    , _styleReservedHighlight = ReservedIdentifier
-    }
+   tok = textQName <$> alnumTokenDotty
+   doParse x = token $ do
+     pre <- getOffset
+     v <- x
+     post <- getOffset
+     -- someSpace
+     -- (someSpace <|> pure ())
+     pure (pre, v, post)
+   alnumTokenDotty :: (TokenParsing m, Monad m) => m Text
+   alnumTokenDotty = fmap pack $ try $ do
+     name <- ((:) <$> alphaNum <*> many constituent)
+     return name
+       where constituent = alphaNum <|> char '.'
 
 
 -- * Name
 --
-instance Typeable a => Parser (Name a) where
+instance Typeable a => Parse (Name a) where
   parser = parseName
 
 parseName
@@ -91,16 +102,27 @@ parseName
     , Monad m
     , TokenParsing m)
   => m (Name a)
-parseName =
-  Name <$> identifier
+parseName = parseName' False
+
+parseName'
+  :: forall e m a
+  . ( e ~ Text
+    , Monad m
+    , TokenParsing m)
+  => Bool -> m (Name a)
+parseName' allowMagic =
+  Name <$> (if allowMagic
+            then nameIdentifier <|> pure magicToken
+            else nameIdentifier)
   <?> "Name"
  where
-  identifier :: (Monad m, TokenParsing m) => m Text
-  identifier = ident $ IdentifierStyle
-    { _styleName = "Name"
-    , _styleStart = alphaNum
-    , _styleLetter = alphaNum <|> char '.'
-    , _styleReserved = mempty
-    , _styleHighlight = Identifier
-    , _styleReservedHighlight = ReservedIdentifier
-    }
+
+nameIdentifier :: (Monad m, TokenParsing m) => m Text
+nameIdentifier = ident $ IdentifierStyle
+  { _styleName = "Name"
+  , _styleStart = alphaNum
+  , _styleLetter = alphaNum <|> char '.'
+  , _styleReserved = mempty
+  , _styleHighlight = Identifier
+  , _styleReservedHighlight = ReservedIdentifier
+  }

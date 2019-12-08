@@ -16,28 +16,33 @@ import Control.Monad (join)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.NodeId (MonadNodeId)
 import Data.Default (Default(..))
+import Data.Function ((&), fix)
+import Data.Functor ((<&>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Zipper
+import Data.Text.Zipper.Extra
 import qualified Graphics.Vty as V
 import Reflex
 
 import Reflex.Vty.Widget
+-- import Reflex.Vty.Widget.Extra
 import Reflex.Vty.Widget.Layout
 
 -- | Configuration options for a 'textInput'. For more information on
 -- 'TextZipper', see 'Data.Text.Zipper'.
-data TextInputConfig t = TextInputConfig
+data TextInputConfig t a = TextInputConfig
   { _textInputConfig_initialValue :: TextZipper
   , _textInputConfig_modify :: Event t (TextZipper -> TextZipper)
   , _textInputConfig_tabWidth :: Int
   , _textInputConfig_display :: Dynamic t (Char -> Char)
   -- ^ Transform the characters in a text input before displaying them. This is useful, e.g., for
   -- masking characters when entering passwords.
+  , _textInputConfig_handler :: TextInputConfig t a -> Int -> a -> V.Event -> TextZipper -> TextZipper
   }
 
-instance Reflex t => Default (TextInputConfig t) where
-  def = TextInputConfig empty never 4 (pure id)
+instance Reflex t => Default (TextInputConfig t a) where
+  def = TextInputConfig empty never 4 (pure id) updateTextZipper
 
 -- | The output produced by text input widgets, including the text
 -- value and the number of display lines (post-wrapping). Note that some
@@ -51,16 +56,20 @@ data TextInput t = TextInput
 
 -- | A widget that allows text input
 textInput
-  :: (Reflex t, MonadHold t m, MonadFix m)
-  => TextInputConfig t
+  :: (Reflex t, MonadHold t m, MonadFix m, PostBuild t m)
+  => Behavior t a
+  -> TextInputConfig t a
   -> VtyWidget t m (TextInput t)
-textInput cfg = do
+textInput dyn cfg = do
   i <- input
   f <- focus
   dh <- displayHeight
   dw <- displayWidth
+  init <- getPostBuild
   rec v <- foldDyn ($) (_textInputConfig_initialValue cfg) $ mergeWith (.)
-        [ uncurry (updateTextZipper (_textInputConfig_tabWidth cfg)) <$> attach (current dh) i
+        [ attach (current dh) (attach dyn i)
+          <&> \(dhV, (dynV, iV)) ->
+                (_textInputConfig_handler cfg cfg dhV dynV iV)
         , _textInputConfig_modify cfg
         , let displayInfo = (,) <$> current rows <*> scrollTop
           in ffor (attach displayInfo click) $ \((dl, st), MouseDown _ (mx, my) _) ->
@@ -91,12 +100,13 @@ textInput cfg = do
 
 -- | A widget that allows multiline text input
 multilineTextInput
-  :: (Reflex t, MonadHold t m, MonadFix m)
-  => TextInputConfig t
+  :: (Reflex t, MonadHold t m, MonadFix m, PostBuild t m)
+  => Behavior t a
+  -> TextInputConfig t a
   -> VtyWidget t m (TextInput t)
-multilineTextInput cfg = do
+multilineTextInput b cfg = do
   i <- input
-  textInput $ cfg
+  textInput b $ cfg
     { _textInputConfig_modify = mergeWith (.)
       [ fforMaybe i $ \case
           V.EvKey V.KEnter [] -> Just $ insert "\n"
@@ -139,14 +149,15 @@ spanToImage (Span attrs t) = V.text' attrs t
 
 -- | Default vty event handler for text inputs
 updateTextZipper
-  :: Int -- ^ Tab width
+  :: TextInputConfig t a
   -> Int -- ^ Page size
+  -> a
   -> V.Event -- ^ The vty event to handle
   -> TextZipper -- ^ The zipper to modify
   -> TextZipper
-updateTextZipper tabWidth pageSize ev = case ev of
+updateTextZipper cf pageSize _ = \case
   -- Special characters
-  V.EvKey (V.KChar '\t') [] -> tab tabWidth
+  V.EvKey (V.KChar '\t') [] -> tab (_textInputConfig_tabWidth cf)
   -- Regular characters
   V.EvKey (V.KChar k) [] -> insertChar k
   -- Deletion buttons

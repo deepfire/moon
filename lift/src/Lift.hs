@@ -166,7 +166,7 @@ handleRequest Env{..} x = case x of
       Right nameTree -> do
         putStrLn $ unpack $ Data.Text.unlines
           ["Pipe:", pack $ show nameTree ]
-        res <- atomically $ Pipe.compile opsFull lookupPipeFail nameTree
+        res <- atomically $ Pipe.compile opsFull lookupPipe nameTree
         case res of
           Left e -> pure . Left $ "Compilation: " <> e
           Right runnable -> do
@@ -185,15 +185,10 @@ compile newname text =
         ["Pipe:", pack $ show nameTree ]
       atomically $ do
         old <- lookupPipe newname
-        res <- Pipe.compile opsFull lookupPipeFail nameTree
+        res <- Pipe.compile opsFull lookupPipe nameTree
         case (old, res) of
           (Just _,  _)    -> pure . Left $ "Already exists: " <> pack (show newname)
           (_,  Left e)    -> pure . Left $ e
           (_, Right pipe) -> do
             addPipe newname pipe
             pure . Right . somePipeSig $ pipe
-
-lookupPipeFail :: e ~ Text => QName Pipe -> STM (Either e (SomePipe Dynamic))
-lookupPipeFail name =
-  lookupPipe name <&>
-  guard ("No such pipe: " <> showQName name)

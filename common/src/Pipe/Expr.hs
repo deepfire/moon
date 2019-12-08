@@ -1,26 +1,29 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Pipe.Expr
   ( Expr(..)
   , parse
   , parseLocated
   , indexLocated
   , lookupLocatedQName
+  , parseExpr
   )
 where
 
-import Control.Applicative (liftA2, (<|>))
+import Control.Applicative (liftA2, some)
 import Control.Monad (foldM)
 import Data.Foldable (fold)
-import Data.Functor.Identity (Identity)
+import Data.Functor.Identity (Identity(..))
+import Data.Either (partitionEithers)
 import qualified Data.IntervalMap.FingerTree            as IMap
+import Data.Text (dropEnd, pack)
 
-import Text.Parsec (ParsecT, SourcePos, sourceColumn)
-import Text.Parsec.Expr
-import qualified Text.Parsec as Parsec
-import Text.Parser.Combinators ((<?>), some)
--- import Text.Parser.Expression
-import Text.Parser.Token (parens, reserve)
-import Text.Parser.Token.Style (emptyOps)
+import Text.Megaparsec (between, runParserT, eof)
+import Text.Megaparsec.Char (string)
+import Text.Megaparsec.Parsers (unParsecT, sepBy1, token)
+import Text.Parser.Token
 
+import Data.Parsing
+import Debug.TraceErr
 import Basis
 import Ground
 import Pipe.Types
@@ -43,15 +46,16 @@ data Expr p where
     } -> Expr p
   deriving (Foldable, Functor, Traversable)
 
+
 parse :: Text -> Either Text (Expr (QName Pipe))
-parse = parse' parseQName
+parse = fmap (fmap snd3) <$> parse' parseQName'
 
 indexLocated
-  :: Expr (SourcePos, QName Pipe, SourcePos)
+  :: Expr (Int, QName Pipe, Int)
   -> IMap.IntervalMap Int (QName Pipe)
 indexLocated =
   fold
-  . fmap (\(sourceColumn -> l, x, sourceColumn -> r) ->
+  . fmap (\(l, x, r) ->
             IMap.singleton (IMap.Interval l r) x)
 
 lookupLocatedQName
@@ -62,58 +66,55 @@ lookupLocatedQName col imap =
     [] -> Nothing
     (_, x):_ -> Just x
 
-parseLocated :: Text -> Either Text (Expr (SourcePos, QName Pipe, SourcePos))
-parseLocated = parse' parseQNameLocated
- where
-   parseQNameLocated =
-     (,,)
-     <$> Parsec.getPosition
-     <*> parseQName
-     <*> Parsec.getPosition
+parseLocated :: Text -> Either Text (Expr (Int, QName Pipe, Int))
+parseLocated = parse' parseQName'
 
 parse'
-  :: forall e n
-  . (e ~ Text)
-  => ParsecT Text () Identity n
+  :: forall e n. (e ~ Text)
+  => (Bool -> Parser n)
   -> Text
   -> Either e (Expr n)
-parse' nameParser s = do
-  case Parsec.parse (parseExpr nameParser) "" ("("<>s<>")") of
-    -- XXX: get rid of the parens
-    Left         e  -> Left $ "Pipe expr parser: " <> pack (show e)
-    Right (Left  e) -> Left $ pack (show e)
-    Right (Right x) -> Right $ x
+parse' nameParser s = tryParse True s
+ where
+   tryParse :: Bool -> Text -> Either e (Expr n)
+   tryParse mayExtend s =
+     case (,)
+          (runIdentity $ runParserT
+           (do
+               x <- unParsecT $ parseExpr (nameParser (not mayExtend))
+               eof
+               pure x)
+            "" s)
+          mayExtend
+     of
+       (Right (Right x), _)     -> Right $ x
+       (Left         e,  False) -> Left $ "Pipe expr parser: " <> pack (show e)
+       (Right (Left  e), False) -> Left $ pack (show e)
+       (_,               True)  -> tryParse False (s <> magicToken)
 
 parseExpr
-  :: forall e u m n
-  . ( e ~ Text
-    , Monad m)
-  => ParsecT Text u m n
-  -> ParsecT Text u m (Either e (Expr n))
+  :: forall e n
+  . ( e ~ Text)
+  => Parser n
+  -> Parser (Either e (Expr n))
 parseExpr nameParser =
-  buildExpressionParser table term
-  <?> "Expr"
+  comps
  where
-   term :: ParsecT Text u m (Either e (Expr n))
-   term = parens applys
-          <|> (Right . PPipe <$> nameParser)
-          <|> (pure . PVal  <$> parseSomeValue)
-          <?> "Expr.term"
-   applys :: ParsecT Text u m (Either e (Expr n))
+   term
+     =   parens comps
+     <|> (pure . PVal  <$> parseSomeValue)
+     <|> (pure . PPipe <$> nameParser)
    applys = do
-     xss <- some (parseExpr nameParser)
+     xss <- some term
      case xss of
        x : xs -> foldM (\l r -> pure $ PApp <$> l <*> r) x xs
        _ -> error "Invariant failed: 'some' failed us."
-     <?> "Expr.applys"
-   table :: [[Operator Text u m (Either e (Expr n))]]
-   table =
-     [ -- (.) :: (b -> c) -> (a -> b) -> a -> c infixr 9
-       [ binary "." (liftA2 PComp) AssocRight
-       ]
-     ]
-   binary name fun assoc = Infix (fun <$ reservedOp name) assoc
-   reservedOp name = reserve emptyOps name
+   comps = do
+     xs' <- sepBy1 applys (token (string "."))
+     let (errs, xs) = partitionEithers xs'
+     pure $ if null errs
+       then Right $ foldl PComp (head xs) (tail xs)
+       else Left (pack . show $ head errs)
 
 {-------------------------------------------------------------------------------
   Boring.

@@ -11,11 +11,15 @@ category:            System
 extra-source-files:  CHANGELOG.md
 
 library
+  ghc-options:         -j3 +RTS -A128m -n2m -qg -RTS
+
   exposed-modules:
                        Data.Dict
                        Data.Orphanage
+                       Data.Parsing
                        Data.RTTI
                        Data.Some
+                       Debug.TraceErr
 
                        Generics.SOP.Mapping
                        Generics.SOP.Some
@@ -55,16 +59,17 @@ library
                      , cborg
                      , containers
                      , deepseq
+                     , either
                      , extra
                      , fclabels
                      , fingertree
                      , generic-monoid
                      , generics-sop
                      , ghc-prim
-                     -- , megaparsec
+                     , megaparsec
+                     , parsers-megaparsec
                      , monoidal-containers
                      , optparse-applicative
-                     , parsec
                      , parsers
                      , reflection
                      , serialise
