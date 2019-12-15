@@ -234,16 +234,14 @@ link' name (splitTag2 -> (kf, tf)) (splitTag2 -> (kt, tt)) mf
         dyn     = Dynamic typeRep pipeFun
         pipeFun = IOA mf :: IOA c kf tf kt tt
 
-emptyDesc :: Name Pipe -> Desc Ground Point () Point ()
+emptyDesc :: Name Pipe -> Desc Ground [] ()
 emptyDesc name = Desc
   { pdName   = name
   , pdSig    = Gen unitType unitType
   , pdStruct = Struct G.empty
   , pdRep    = SomeTypeRep (typeRep @(IOA Ground Point () Point ()))
-  , pdFromK  = TPoint
-  , pdFrom   = Proxy @()
-  , pdToK    = TPoint
-  , pdTo     = Proxy @()
+  , pdArgs   = Nil
+  , pdOut    = Proxy @()
   }
 
 emptyPipe :: Name Pipe -> p -> Pipe Ground Point () Point () p
@@ -255,7 +253,7 @@ someEmptyPipe = G .: emptyPipe
 
 -- * Guts of the pipe guts.
 --
-data IOA c (ka :: Con) a (kb :: Con) b where
+data IOA c as o where
   IOA :: (Typeable ka, Typeable a, ReifyTag kb, Typeable kb, Typeable b, c b)
       => (Repr ka a -> Result (Repr kb b))
       -> IOA c ka a                 kb b
@@ -264,17 +262,9 @@ pattern App4
   :: TyCon -> TypeRep ka -> TypeRep a -> TypeRep kb -> TypeRep b -> SomeTypeRep
 pattern App4 con ka a kb b <- SomeTypeRep (App (App (App (App (App (Con con) _) ka) a) kb) b)
 
-pattern PGen
-  :: Name Pipe -> Struct -> SomeTypeRep -> p ->         Type -> Pipe c ka a kb b p
-pattern PGen  n st rep p    so <- Pipe (Desc n (Gen  _  so) st rep _ _ _ _) p
-
-pattern PLink
-  :: Name Pipe -> Struct -> SomeTypeRep -> p -> Type -> Type -> Pipe c ka a kb b p
-pattern PLink n st rep p si so <- Pipe (Desc n (Link si so) st rep _ _ _ _) p
-
-pattern PAny
-  :: Name Pipe -> Struct -> SomeTypeRep -> p ->         Type -> Pipe c ka a kb b p
-pattern PAny  n st rep p    so <- Pipe (Desc n (sOut -> so) st rep _ _ _ _) p
+pattern P
+  :: Name Pipe -> Struct -> SomeTypeRep -> p -> [SomeType] -> SomeType -> Pipe c ka a kb b p
+pattern P  n st rep p as o <- Pipe (Desc n (Sig as o) st rep _ _ _ _) p
 
 
 -- * Running
@@ -283,12 +273,12 @@ runPipe :: SomePipe Dynamic -> Result SomeValue
 runPipe (T p) = pure . Left $ "runPipe:  non-Ground pipe: " <> showPipe p
 runPipe (G Pipe{pDesc, p}) = runPipe' pDesc p
 
-runPipe' :: forall c (ka :: Con) (a :: *) (kb :: Con) (b :: *)
-         . (Typeable kb, Ground b)
-         => Desc c ka a kb b
-         -> Dynamic
-         -> Result SomeValue
-runPipe' pd@Desc{pdToK, pdTo} dyn =
+runPipe'
+  :: forall c (as :: [*]) o. PipeConstr c as o
+  => Desc c as o
+  -> Dynamic
+  -> Result SomeValue
+runPipe' pd@Desc{pdArgs, pdOut} dyn =
   case fromDynamic dyn :: Maybe (IOA Ground Point () kb b) of
     Nothing -> pure . Left $ "Incomplete pipe: " <> showDesc pd
     Just (IOA io) ->

@@ -8,6 +8,18 @@ module Pipe.Types
   , somePipeDesc
   , somePipeName
   , somePipeSig
+  , OnArg1
+  , Arg1
+  , Arg1Tag
+  , Arg1Ty
+  , TagOf
+  , TypeOf
+  , ArgConstr
+  , ArgConstrSmall
+  , ArgsConstr
+  , ArgsConstrSmall
+  , PipeConstr
+  , PipeConstrSmall
   , Pipe(..)
   , pipeSig
   , pipeName
@@ -35,10 +47,19 @@ import           Codec.Serialise
 import           Codec.CBOR.Encoding                (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding                (decodeListLen, decodeWord)
 import           Data.Dynamic
+import qualified Data.List.NonEmpty               as NE
+import qualified Data.Text                        as T
 import           Type.Reflection                    ((:~~:)(..), eqTypeRep)
 import qualified Data.Map.Monoidal.Strict         as MMap
 import qualified Data.Set.Monad                   as Set
+import qualified Data.SOP                         as SOP
+import qualified Data.SOP.Constraint              as SOP
+import qualified Generics.SOP                     as SOP
+import qualified Generics.SOP.NP                  as SOP
+import qualified Generics.SOP.NS                  as SOP
 import           GHC.Generics                       (Generic)
+import           GHC.TypeLits
+import qualified GHC.TypeLits                     as Ty
 
 import Basis
 import Type
@@ -105,52 +126,94 @@ type SomePipeScope p = PointScope (SomePipe p)
 data Ops p where
   Ops ::
     { app
-      :: forall c kf tf kt tt
-      . ( Typeable c, Typeable kf, Typeable tf, Typeable kt, Typeable tt
-        , ReifyTag kt
-        , c tt)
-      => Desc c kf tf kt tt -> Value kf tf -> p -> p
+      :: forall c as o. (PipeConstr c as o)
+      => Desc c as o -> Value (Arg1Tag as) (Arg1Ty as) -> p -> p
     , comp
-      :: forall c1 c2   k t kt1 tt1
-             kf2 tf2
-      . ( Typeable c1, Typeable c2
-        , Typeable kf2, Typeable tf2, Typeable k, Typeable t, Typeable kt1, Typeable tt1
-        , ReifyTag k, ReifyTag kt1
-        , c1 (), c1 tt1)
-      => Desc c2 kf2 tf2 k t -> p
-      -> Desc c1         k t kt1 tt1 -> p
+      -- :: forall c1 c2   k t kt1 tt1
+      --        kf2 tf2
+      -- . ( Typeable c1, Typeable c2
+      --   , Typeable kf2, Typeable tf2, Typeable k, Typeable t, Typeable kt1, Typeable tt1
+      --   , ReifyTag k, ReifyTag kt1
+      --   , c1 (), c1 tt1)
+      -- => Desc c2 kf2 tf2 k t -> p
+      -- -> Desc c1         k t kt1 tt1 -> p
+      :: forall c1 c2 as1 as2 o1 o2
+      . ( PipeConstr c1 as1 o1, PipeConstr c2 as2 o2
+        , o2 ~ Arg1 as1
+        )
+      => Desc c2 as2 o2 -> p
+      -> Desc c1 as1 o1 -> p
       -> p
     , trav
-      :: forall c1 c2 t tt1 kf2 tf2 kt2
-          . ( Typeable c1, Typeable c2, c1 (), c1 tt1
-            , Typeable t, Typeable tt1, Typeable kf2, Typeable tf2, Typeable kt2
-            , ReifyTag kf2, ReifyTag kt2)
-          => Desc c1         Point t Point tt1 -> p
-          -> Desc c2 kf2 tf2 kt2   t           -> p
-          -> p
+      -- :: forall c1 c2 t tt1 kf2 tf2 kt2
+      --     . ( Typeable c1, Typeable c2, c1 (), c1 tt1
+      --       , Typeable t, Typeable tt1, Typeable kf2, Typeable tf2, Typeable kt2
+      --       , ReifyTag kf2, ReifyTag kt2)
+      --     => Desc c1         Point t Point tt1 -> p
+      --     -> Desc c2 kf2 tf2 kt2   t           -> p
+      :: forall c1 c2 as1 as2 o1 o2
+      . ( PipeConstr c1 as1 o1, PipeConstr c2 as2 o2
+        , Arg1Tag as1 ~ Point
+        , TagOf o1 ~ Point
+        , Arg1Ty ty1 ~ TypeOf o2
+        )
+      => Desc c1 as1 o1 -> p
+      -> Desc c2 as2 o2 -> p
+      -> p
     } -> Ops p
 
 class PipeOps p where
   pipeOps   :: Ops p
 
 --------------------------------------------------------------------------------
+type family OnArg1 (onarg1f :: Con -> * -> *) (onarg1xs :: [*]) :: * where
+  OnArg1 f (Type k a:_) = f k a
+  OnArg1 _ xs = TypeError (Ty.Text "OnArg1Ty: incompatible signature: " :<>: ShowType xs)
+
+type family Arg1 (arg1 :: [*]) :: * where
+  Arg1 (Type k a:_) = Type k a
+  Arg1 xs = TypeError (Ty.Text "Arg1: no argument: " :<>: ShowType xs)
+
+type family Arg1Ty (arg1ty :: [*]) :: * where
+  Arg1Ty (Type _ a:_) = a
+  Arg1Ty xs = TypeError (Ty.Text "Arg1Ty: no argument: " :<>: ShowType xs)
+
+type family Arg1Tag (arg1tag :: [*]) :: Con where
+  Arg1Tag (Type k _:_) = k
+  Arg1Tag xs = TypeError (Ty.Text "Arg1Tag: no argument: " :<>: ShowType xs)
+
+type family TypeOf (typeof :: *) :: * where
+  TypeOf (Type _ a) = a
+  TypeOf x = TypeError (Ty.Text "TypeOf: invalid argument: " :<>: ShowType x)
+
+type family TagOf (tagof :: *) :: Con where
+  TagOf (Type k _) = k
+  TagOf  x = TypeError (Ty.Text "TagOf: invalid argument: " :<>: ShowType x)
+
+type ArgConstrSmall  a    = (Typeable a, Typeable (TypeOf a), Typeable (TagOf a))
+type ArgConstr     c a    = (ArgConstrSmall  a,  Typeable c,  c (TypeOf a))
+
+type ArgsConstrSmall as   = (All Typeable    as, Typeable as)
+type ArgsConstr    c as   = (ArgsConstrSmall as, Typeable c, All c as)
+
+type PipeConstrSmall as o = (ArgsConstrSmall as, ArgConstrSmall o)
+type PipeConstr    c as o = (ArgsConstr  Top as, ArgConstr    c o)
+
 data SomePipe p
-  = forall c ka a kb b. ( c ~ Ground, c b
-                        , ReifyTag ka, ReifyTag kb
-                        , Typeable ka, Typeable  a, Typeable kb, Typeable  b)
-    => G { unSomePipe :: (Pipe c ka a kb b p) }
-  | forall c ka a kb b. ( c ~ Top
-                        , ReifyTag ka, ReifyTag kb
-                        , Typeable ka, Typeable  a, Typeable kb, Typeable  b)
-    => T { unSomePipe :: (Pipe c ka a kb b p) }
+  = forall as o
+    .    (PipeConstr Ground as o)
+    => G (Pipe       Ground as o p)
+  | forall as o
+    .    (PipeConstr Top    as o)
+    => T (Pipe       Top    as o p)
 
 instance Functor SomePipe where
   fmap f (G x) = G (f <$> x)
   fmap f (T x) = T (f <$> x)
 
-somePipeDesc :: SomePipe p  -> SomeDesc
-somePipeDesc (G Pipe{pDesc}) = SomeDesc pDesc
-somePipeDesc (T Pipe{pDesc}) = SomeDesc pDesc
+somePipeDesc :: forall p. SomePipe p  -> SomeDesc
+somePipeDesc (G (Pipe{pDesc} :: Pipe Ground as o p)) = SomeDesc pDesc
+somePipeDesc (T (Pipe{pDesc} :: Pipe Top    as o p)) = SomeDesc pDesc
 
 somePipeName :: SomePipe p -> Name Pipe
 somePipeName (GPipeD name _ _ _) = coerceName name
@@ -160,19 +223,20 @@ somePipeSig :: SomePipe p -> Sig
 somePipeSig  (GPipeD _ sig _ _) = sig
 somePipeSig  (TPipeD _ sig _ _) = sig
 
+--------------------------------------------------------------------------------
 -- | Pipe: component of a computation
-data Pipe (c :: * -> Constraint) (ka :: Con) (a :: *) (kb :: Con) (b :: *) (p :: *) where
-  Pipe :: (ReifyTag ka, ReifyTag kb, Typeable kb, c b) =>
-    { pDesc :: Desc c ka a kb b
+data Pipe (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) where
+  Pipe :: PipeConstr c as o =>
+    { pDesc :: Desc c as o
     , p     :: p
-    } -> Pipe c ka a kb b p
+    } -> Pipe c as o p
 
 -- XXX: potentially problematic instance
-instance Eq (Pipe c ka a kb b ()) where
+instance Eq (Pipe c as o ()) where
   (==) = (==) `on` pDesc
 
 -- XXX: potentially problematic instance
-instance Ord (Pipe c ka a kb b ()) where
+instance Ord (Pipe c as o ()) where
   compare = compare `on` pDesc
 
 -- XXX: potentially problematic instance
@@ -184,47 +248,40 @@ instance Ord (SomePipe ()) where
   l `compare` r = (compare `on` somePipeDesc) l r
 
 withCompatiblePipes
-  :: forall c1 c2 kf1 tf1 kt1 tt1 kf2 tf2 kt2 tt2 p a
-  .  ( Typeable c1, Typeable c2
-     , Typeable kf1, Typeable tf1, Typeable kt1, Typeable tt1
-     , Typeable kf2, Typeable tf2, Typeable kt2, Typeable tt2)
-  => (forall c kf tf kt tt
-      . Pipe c kf tf kt tt p -> Pipe c kf tf kt tt p -> a)
-  -> Pipe c1 kf1 tf1 kt1 tt1 p
-  -> Pipe c2 kf2 tf2 kt2 tt2 p
+  :: forall c1 c2 as1 as2 o1 o2 p a
+  .  (PipeConstr c1 as1 o1, PipeConstr c2 as2 o2)
+  => (forall c as o. Pipe c as o p -> Pipe c as o p -> a)
+  -> Pipe c1 as1 o1 p
+  -> Pipe c2 as2 o2 p
   -> Maybe a
 withCompatiblePipes f l r
-  | Just HRefl <- typeRep @tf1 `eqTypeRep` typeRep @tf2
-  , Just HRefl <- typeRep @tt1 `eqTypeRep` typeRep @tt2
-  , Just HRefl <- typeRep @kf1 `eqTypeRep` typeRep @kf2
-  , Just HRefl <- typeRep @kt1 `eqTypeRep` typeRep @kt2
+  | Just HRefl <- typeRep @as1 `eqTypeRep` typeRep @as2
+  , Just HRefl <- typeRep @o1  `eqTypeRep` typeRep @o2
   , Just HRefl <- typeRep @c1  `eqTypeRep` typeRep @c2
   = Just $ f l r
   | otherwise = Nothing
 
-instance Functor (Pipe c ka a kb b) where
+instance Functor (Pipe c as o) where
   fmap f (Pipe d x) = Pipe d (f x)
 
-pattern PipeD :: (ReifyTag ka, ReifyTag kb)
+pattern PipeD :: (PipeConstr c as o)
               => Name Pipe -> Sig -> Struct -> SomeTypeRep
-              -> Tag ka -> Proxy a -> Tag kb -> Proxy b -> p
-              -> Pipe c ka a kb b p
-pattern PipeD name sig str rep ka a kb b p
-              <- Pipe (Desc name sig str rep ka a kb b) p
+              -> NP TypePair as
+              -> TypePair o
+              -> p
+              -> Pipe c as o p
+pattern PipeD name sig str rep args out p
+              <- Pipe (Desc name sig str rep args out) p
 
 pattern GPipeD, TPipeD :: Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe p
-pattern GPipeD name sig str rep <- G (PipeD name sig str rep _ _ _ _ _)
-pattern TPipeD name sig str rep <- T (PipeD name sig str rep _ _ _ _ _)
+pattern GPipeD name sig str rep <- G (PipeD name sig str rep _ _ _)
+pattern TPipeD name sig str rep <- T (PipeD name sig str rep _ _ _)
 
+--------------------------------------------------------------------------------
 data SomeDesc where
   SomeDesc
-    :: forall c ka a kb b
-    . ( Typeable c
-      , ReifyTag ka, ReifyTag kb
-      , Typeable ka, Typeable  a, Typeable kb, Typeable  b
-      , c b
-      ) =>
-    { _spdDesc :: Desc c ka a kb b
+    :: forall c as o. PipeConstr c as o =>
+    { _spdDesc :: Desc c as o
     } -> SomeDesc
 
 someDescName :: SomeDesc -> Name Pipe
@@ -256,70 +313,77 @@ instance Read SomeDesc where
 instance Show SomeDesc where
   show (SomeDesc pd) = show pd
 
-data Desc (c :: * -> Constraint) (ka :: Con) (a :: *) (kb :: Con) (b :: *) = Desc
+-- | Everything there is to be said about a pipe, except for its function.
+data Desc (c :: * -> Constraint) (as :: [*]) (o :: *) =
+  Desc
   { pdName   :: !(Name Pipe)
   , pdSig    :: !Sig
   , pdStruct :: !Struct
   , pdRep    :: !SomeTypeRep -- ^ Full type of the pipe, App4-style.
-  , pdFromK  :: !(Tag  ka)
-  , pdFrom   :: !(Proxy a)
-  , pdToK    :: !(Tag  kb)
-  , pdTo     :: !(Proxy b)
-  } deriving (Eq, Generic, Ord)
+  , pdArgs   :: !(NP TypePair as)
+  , pdOut    :: !(TypePair o)
+  }
+  deriving (Generic)
+
+instance Eq (Desc c as o) where
+  -- XXX: slightly opportustic, due to omissions.
+  Desc ln _ lst lrep _ _ == Desc rn _ rst rrep _ _ =
+    ln == rn && lst == rst && lrep == rrep
+
+instance Ord (Desc c as o) where
+  Desc ln _ lst lrep _ _ `compare` Desc rn _ rst rrep _ _ =
+    ln `compare` rn <> lrep `compare` rrep <> lst `compare` rst
 
 instance NFData (Name a)
 instance NFData (QName a)
-instance NFData Type
+instance NFData SomeType
 instance NFData Sig
-instance NFData (Desc c ka a kb b)
+instance NFData (Desc c as o) where
+  rnf (Desc x y z w _ u) = -- XXX: ugh
+    rnf x `seq` rnf y `seq` rnf z `seq` rnf w `seq` rnf u
 instance NFData Struct
 
-instance Show (Desc c ka a kb b) where show = unpack . showDesc
+instance Show (Desc c as o) where show = unpack . showDesc
 
-showDesc, showDescP :: Desc c ka a kb b -> Text
+showDesc, showDescP :: Desc c as o -> Text
 showDesc  p = pack $ show (pdName p) <>" :: "<>show (pdSig p)
 showDescP = ("("<>) . (<>")") . showDesc
 
-pipeName :: (ReifyTag ka, ReifyTag kb)
-         => Pipe c ka a kb b p -> Name Pipe
-pipeName   (PipeD name _ _ _ _ _ _ _ _)   = name
+pipeName :: (PipeConstr c as o)
+         => Pipe c as o p -> Name Pipe
+pipeName   (PipeD name _ _ _ _ _ _)   = name
 
-pipeSig :: (ReifyTag ka, ReifyTag kb)
-        => Pipe c ka a kb b p -> Sig
-pipeSig   (PipeD _ sig _ _ _ _ _ _ _)    = sig
+pipeSig :: (PipeConstr c as o)
+        => Pipe c as o p -> Sig
+pipeSig   (PipeD _ sig _ _ _ _ _)    = sig
 
-pipeStruct :: (ReifyTag ka, ReifyTag kb)
-           => Pipe c ka a kb b p -> Struct
-pipeStruct   (PipeD _ _ struct _ _ _ _ _ _) = struct
+pipeStruct :: (PipeConstr c as o)
+           => Pipe c as o p -> Struct
+pipeStruct   (PipeD _ _ struct _ _ _ _) = struct
 
-pipeRep :: (ReifyTag ka, ReifyTag kb)
-        => Pipe c ka a kb b p -> SomeTypeRep
-pipeRep   (PipeD _ _ _ rep _ _ _ _ _)    = rep
+pipeRep :: (PipeConstr c as o)
+        => Pipe c as o p -> SomeTypeRep
+pipeRep   (PipeD _ _ _ rep _ _ _)    = rep
 
-showPipe, showPipeP :: Pipe c ka a kb b p -> Text
+showPipe, showPipeP :: Pipe c as o p -> Text
 showPipe  Pipe{pDesc} = showDesc  pDesc
 showPipeP Pipe{pDesc} = showDescP pDesc
 
-showSig :: Sig -> Text
-showSig Gen{sOut} = showType sOut
-showSig Link{sIn, sOut} = showType sIn <> " ↦ ↣ → ⇨ ⇒ " <> showType sOut
+showSig :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
+showSig (Sig as o) = T.intercalate " ⇨ " $ showSomeType <$> (as <> [o])
 
 --------------------------------------------------------------------------------
--- | Sig: a structure-oblivious abstraction of a pipe as its endpoints.
-data Sig
-  = Gen    -- ^  Pipe endpoint: IO a
-    { sIn  :: Type
-    , sOut :: Type
-    }
-  | Link   -- ^ Pipe transform: b → IO c
-    { sIn  :: Type
-    , sOut :: Type
-    }
+-- | Sig:  serialisable type signature
+data Sig =
+  Sig
+  { sArgs :: [SomeType]
+  , sOut  :: SomeType
+  }
   deriving (Eq, Generic, Ord)
 
 --------------------------------------------------------------------------------
 -- | Struct: Pipe's internal structure, as a graph of type transformations.
-newtype Struct = Struct (G.Graph Type) deriving (Eq, Generic, Ord, Show)
+newtype Struct = Struct (G.Graph SomeType) deriving (Eq, Generic, Ord, Show)
 
 --------------------------------------------------------------------------------
 -- | Result of running a pipe.
@@ -332,16 +396,15 @@ instance Show (SomePipe p) where
   show (G p) = "GPipe "<>unpack (showPipe p)
   show (T p) = "TPipe "<>unpack (showPipe p)
 
-instance Show (Pipe c ka a kb b p) where
+instance Show (Pipe c as o p) where
   show p = "Pipe "<>unpack (showPipe p)
 
 instance Show Sig where
-  show (Gen  _ o)  =  "(Gen "<>show o<>")"
-  show (Link i o)  = "(Link "<>show i<>" -> "<>show o<>")"
+  show x  =  "("<>T.unpack (showSig x)<>")"
 instance Serialise Sig
 instance Read Sig where readPrec = failRead
 
 instance Serialise Struct
 instance Read Struct where readPrec = failRead
 
-instance (Typeable c, Typeable ka, Typeable a, Typeable kb, Typeable b) => Read (Desc c ka a kb b) where readPrec = failRead
+instance (Typeable c, Typeable as, Typeable o) => Read (Desc c as o) where readPrec = failRead

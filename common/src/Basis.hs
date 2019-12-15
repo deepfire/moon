@@ -12,6 +12,7 @@ module Basis
   , module Data.Functor
   , module Data.Kind
   , module Data.List
+  , module Data.List.NonEmpty
   , module Data.Map.Monoidal.Strict
   , module Data.Map.Strict
   , module Data.Maybe
@@ -19,6 +20,7 @@ module Basis
   , module Data.Proxy
   , module Data.Sequence
   , module Data.Set.Monad
+  , module Data.SOP.Constraint
   , module Data.String
   , module Data.Text
   , module Data.Tuple.Extra
@@ -45,6 +47,7 @@ import Data.Functor               ((<&>))
 import Data.Foldable              (toList)
 import Data.Kind                  (Constraint)
 import Data.List                  (sortBy)
+import Data.List.NonEmpty         (NonEmpty(..), (<|))
 import Data.Map.Strict            (Map)
 import Data.Maybe                 (fromMaybe)
 import Data.Map.Monoidal.Strict   (MonoidalMap)
@@ -52,12 +55,13 @@ import Data.Orphanage
 import Data.Proxy                 (Proxy(..))
 import Data.Sequence              (Seq)
 import Data.Set.Monad             (Set)
+import Data.SOP.Constraint        (Head, Tail)
 import Data.String                (IsString)
 import Data.Text                  (Text, pack, unpack)
 import Data.Tuple.Extra           (fst3, snd3, thd3)
 import Data.Witherable            (catMaybes, mapMaybe, wither)
 import Debug.Trace                (trace)
-import Generics.SOP               (All, All2, Top)
+import Generics.SOP               (All, All2, Compose, NP, NS, Top)
 import Text.Printf                (printf)
 import Text.Read                  (Read(..))
 import Type.Reflection            (TypeRep, SomeTypeRep(..), someTypeRep, typeRep)

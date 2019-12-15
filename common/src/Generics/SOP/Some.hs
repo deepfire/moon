@@ -99,7 +99,6 @@ instance ( Generic u, HasDatatypeInfo u, Typeable u
          , All2 (And Typeable c) (Code u))
   => HasTypeData (c :: * -> Constraint) (u :: *)
 
-
 -- XXX: factor
 mkData
   :: forall (u :: *) c xss. (All2 (And Typeable c) xss, Typeable u)

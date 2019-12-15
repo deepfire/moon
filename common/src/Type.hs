@@ -5,7 +5,6 @@ module Type
   , qname
   , append
   , prepend
-  , (<|), (|>)
   , textQName
   , listQName
   , showQName
@@ -21,10 +20,13 @@ module Type
   , Repr
   , mapRepr
   , Type(..)
-  , proxyType
-  , tagType
-  , unitType
-  , showType
+  , TypePair(..)
+  , someType
+  , SomeType(..)
+  , proxySomeType
+  , tagSomeType
+  , unitSomeType
+  , showSomeType
   , Value(..)
   , mkValue
   , mkValue'
@@ -90,15 +92,11 @@ instance Monoid (QName a) where
 qname :: Name a -> QName a
 qname = QName . Seq.singleton
 
-append, (|>) :: QName a -> Name a -> QName a
+append :: QName a -> Name a -> QName a
 append (QName xs) x = QName $ xs Seq.|> x
 
-(|>) = append
-
-prepend, (<|) :: Name a -> QName a -> QName a
+prepend :: Name a -> QName a -> QName a
 prepend x (QName xs) = QName $ x Seq.<| xs
-
-(<|) = prepend
 
 textQName :: Text -> QName a
 textQName = QName . (Name <$>) . Seq.fromList . split (== '.')
@@ -234,19 +232,46 @@ instance Serialise SomeTag where
       _ -> fail $ "invalid SomeTag encoding: tag="<>show tag
 
 --------------------------------------------------------------------------------
--- | 'Type' is a serialisable form of 'Tag + the typerep.
-data Type =
-  Type
-  { tName :: Name Type      -- ^ Extracted from the typerep
+-- | 'Type' is essentially a Proxy for the tag and the type,
+--   similar to Tag2, but without the RTTI aspect.
+data Type (k :: Con) (a :: *) = Type
+
+someType :: forall k a. (Typeable k, Typeable a) => Type k a -> SomeType
+someType _ =
+  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
+       (R.typeRepTyCon $ R.typeRep @k)
+       tr
+  where tr = R.someTypeRep $ Proxy @a
+
+--------------------------------------------------------------------------------
+-- | 'SomeType' is a serialisable form of 'Type'
+data SomeType =
+  SomeType
+  { tName :: Name SomeType  -- ^ Extracted from the typerep
   , tCon  :: R.TyCon        -- ^ Con
   , tRep  :: R.SomeTypeRep  -- ^ Kind.Type
   } deriving (Eq, Generic, Ord)
 
-unitType :: Type
-unitType = tagType TPoint (Proxy @())
+unitSomeType :: SomeType
+unitSomeType = tagSomeType TPoint (Proxy @())
 
-showType :: Type -> Text
-showType Type{tName=(showName -> n), tCon} =
+proxySomeType  :: forall k a. (Typeable k, Typeable a) => Proxy k -> Proxy a -> SomeType
+proxySomeType _ pa =
+  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
+       (R.typeRepTyCon $ R.typeRep @k)
+       tr
+  where tr = R.someTypeRep pa
+
+tagSomeType :: forall k a. Typeable a => Tag k -> Proxy a -> SomeType
+tagSomeType TPoint a = proxySomeType (Proxy @k) a
+tagSomeType TList  a = proxySomeType (Proxy @k) a
+tagSomeType TSet   a = proxySomeType (Proxy @k) a
+tagSomeType TTree  a = proxySomeType (Proxy @k) a
+tagSomeType TDag   a = proxySomeType (Proxy @k) a
+tagSomeType TGraph a = proxySomeType (Proxy @k) a
+
+showSomeType :: SomeType -> Text
+showSomeType SomeType{tName=(showName -> n), tCon} =
   case R.tyConName tCon of
     "'Point" -> "• "<>n
     "'List"  -> "["<>n<>"]"
@@ -254,6 +279,20 @@ showType Type{tName=(showName -> n), tCon} =
     "'Tree"  -> "♆⇊ "<>n
     "'Dag"   -> "♆⇄ "<>n
     "'Graph" -> "☸ "<>n
+
+--------------------------------------------------------------------------------
+data family TypePair t :: *
+
+data instance TypePair ty where
+  TypePair :: (ty ~ Type k a, ReifyTag k, Typeable k, Typeable a) =>
+    { tpTag  :: Tag k
+    , tpType :: Proxy a
+    } -> TypePair (Type k a)
+
+deriving instance Typeable (TypePair t)
+
+instance NFData (TypePair a) where
+  rnf _ = ()
 
 --------------------------------------------------------------------------------
 data Value (k :: Con) a where
@@ -334,21 +373,6 @@ instance {-# OVERLAPPABLE #-} Representable a where
 --------------------------------------------------------------------------------
 -- * Aux
 --
-proxyType  :: forall k a. (Typeable k, Typeable a) => Proxy k -> Proxy a -> Type
-proxyType _ pa =
-  Type (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
-       (R.typeRepTyCon $ R.typeRep @k)
-       tr
-  where tr = R.someTypeRep pa
-
-tagType :: forall k a. Typeable a => Tag k -> Proxy a -> Type
-tagType TPoint a = proxyType (Proxy @k) a
-tagType TList  a = proxyType (Proxy @k) a
-tagType TSet   a = proxyType (Proxy @k) a
-tagType TTree  a = proxyType (Proxy @k) a
-tagType TDag   a = proxyType (Proxy @k) a
-tagType TGraph a = proxyType (Proxy @k) a
-
 mkValue' :: Proxy a -> Tag k -> Repr k a -> Value k a
 mkValue' = const $ \case
   TPoint -> VPoint
@@ -405,9 +429,9 @@ instance Show (Tag2 k a) where
   show TDag'    = "TDag"
   show TGraph'  = "TGraph"
 
-instance Read Type where readPrec = failRead
-instance Show Type where
-  show (Type _ tycon sometyperep) =
+instance Read SomeType where readPrec = failRead
+instance Show SomeType where
+  show (SomeType _ tycon sometyperep) =
     show tycon<>":"<>unpack
     -- cut out the middle part of a name: we don't care about the kind
     (if Text.isPrefixOf "Name"  shownRep ||
@@ -416,7 +440,7 @@ instance Show Type where
           (Text.reverse . Text.takeWhile (/= ' ') . Text.reverse $ shownRep)
      else shownRep)
     where shownRep = pack $ show sometyperep
-instance Serialise Type
+instance Serialise SomeType
 
 instance (Ord a, Show a) => Show (Value k a) where
   show (VPoint x) = "VPoint " <> show x

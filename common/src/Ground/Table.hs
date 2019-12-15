@@ -13,11 +13,12 @@ module Ground.Table
 where
 
 import           Codec.Serialise
-import           Codec.CBOR.Encoding                (encodeListLen)
+import           Codec.CBOR.Encoding                (Encoding, encodeListLen)
 import           Codec.CBOR.Decoding                (decodeListLen)
-import           Control.Monad                      (unless)
+import           Control.Monad                      (forM, unless)
 import qualified Data.Kind                        as K
-import           Type.Reflection                    ((:~~:)(..), TypeRep, eqTypeRep, typeRepKind, withTypeable)
+import qualified Data.SOP                         as SOP
+import           Type.Reflection                    ((:~~:)(..), TypeRep, eqTypeRep, typeRepKind, withTypeable, typeOf)
 
 import qualified Data.Set.Monad                   as Set
 import Text.Read (Lexeme(..), ReadPrec, lexP)
@@ -145,71 +146,87 @@ instance Read SomeValue where
       Exists tag' -> readValue tag' dict
 
 
+-- | Use the ground type table to reconstruct a possibly Ground-ed SomeDesc.
 mkSomeDesc
-  :: forall (ka :: Con) (a :: *) (kb :: Con) (b :: *)
-  . ( ReifyTag ka, ReifyTag kb
-    , Typeable ka, Typeable a, Typeable kb, Typeable b
-    )
-  => Tag ka -> Proxy a -> Tag kb -> Proxy b
-  -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomeDesc
-mkSomeDesc ta a tb b name sig struct rep =
-  case lookupRep (someTypeRep b) of
-    Nothing ->
-      SomeDesc $
-      (Desc name sig struct rep ta a tb b
-        :: Desc Top ka a kb b)
+  :: forall args out. (PipeConstr Top args out)
+  => TypePair out -> NP TypePair args -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomeDesc
+mkSomeDesc out args name sig struct rep =
+  case lookupRep (someTypeRep $ Proxy @out) of
+    Nothing -> nondescript
     Just (Dict (_ :: Ground b' => Proxy b')) ->
-      case typeRep @b' `eqTypeRep` typeRep @b of
+      case typeRep @b' `eqTypeRep` typeRep @(TypeOf out) of
+        Nothing -> nondescript
         Just HRefl ->
-          SomeDesc $ (Desc name sig struct rep ta a tb b :: Desc Ground ka a kb b)
-        Nothing ->
-          SomeDesc $ (Desc name sig struct rep ta a tb b :: Desc Top    ka a kb b)
+          SomeDesc $ (Desc name sig struct rep args out :: Desc Ground args out)
+ where
+   -- Unknown type, nothing useful we can recapture about it.
+   nondescript = SomeDesc $ (Desc name sig struct rep args out :: Desc Top args out)
 
 instance Serialise SomeDesc where
-  encode (SomeDesc (Desc name sig struct rep _ _ _ _ :: Desc c ka a kb b)) = do
-    encodeListLen 10
-    <> encode (SomeTag . reifyTag $ Proxy @ka)
-    <> encode (typeRep @ka)
-    <> encode (tRep $ sIn  sig)
-    <> encode (SomeTag . reifyTag $ Proxy @kb)
-    <> encode (typeRep @kb)
-    <> encode (tRep $ sOut sig)
+  encode (SomeDesc (Desc name sig struct rep args out :: Desc c args out)) = do
+    let len = fromIntegral . SOP.lengthSList $ Proxy @args
+    encodeListLen ((len + 1) * 3 + 4)
+    <> mconcat (SOP.hcollapse
+                $ SOP.hliftA
+                (\(TypePair (t :: Tag k) (a :: Proxy a))
+                  -> SOP.K
+                  $  encode (SomeTag t)
+                  <> encode (typeRep @k)
+                  <> encode (someTypeRep a))
+                (out SOP.:* args))
     <> encode name
     <> encode sig
     <> encode struct
     <> encode rep
   decode = do
     len <- decodeListLen
-    unless (len == 10)
-      (fail $ "decode SomeDesc: expected list len=8, got: " <> show len)
-    sta    :: SomeTag     <- decode
-    strka  :: SomeTypeRep <- decode
-    stra   :: SomeTypeRep <- decode
-    stb    :: SomeTag     <- decode
-    strkb  :: SomeTypeRep <- decode
-    strb   :: SomeTypeRep <- decode
+    let arity' = len - 4
+        (arity, err) = arity' `divMod` 3
+    unless (err == 0 && arity > 0)
+      (fail $ "decode SomeDesc: expected list len=4+3x && >= 7, got: " <> show len)
+    xs :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
+      <- forM [0..(arity - 1)] $ const $
+         (,,) <$> decode <*> decode <*> decode
     name   :: Name Pipe   <- decode
     sig    :: Sig         <- decode
     struct :: Struct      <- decode
     rep    :: SomeTypeRep <- decode
-    case (,,,,,) sta strka stra stb strkb strb of
-      (,,,,,)
-        (SomeTag (ta :: Tag tka)) (SomeTypeRep (ka :: TypeRep ka)) (SomeTypeRep (a :: TypeRep a))
-        (SomeTag (tb :: Tag tkb)) (SomeTypeRep (kb :: TypeRep kb)) (SomeTypeRep (b :: TypeRep b))
-        -> case (,,,,,)
-                (typeRep @K.Type `eqTypeRep` typeRepKind a)
-                (typeRep @K.Type `eqTypeRep` typeRepKind b)
-                (typeRep @Con    `eqTypeRep` typeRepKind ka)
-                (typeRep @Con    `eqTypeRep` typeRepKind kb)
-                (typeRep @tka    `eqTypeRep` ka)
-                (typeRep @tkb    `eqTypeRep` kb)
-                of
-             (Just HRefl, Just HRefl, Just HRefl, Just HRefl, Just HRefl, Just HRefl) ->
-               withTypeable ka $ withTypeable kb $
-               withTypeable  a $ withTypeable  b $
-               withReifyTag ta $ withReifyTag tb $
-                 pure $ mkSomeDesc ta (Proxy @a) tb (Proxy @b) name sig struct rep
-             _ -> fail $ "decode SomeDesc: something went awry."
+    pure $ withRecoveredTypePair (head xs) $
+      \out _ _ -> go xs $ mkSomeDesc out SOP.Nil name sig struct rep
+   where
+     go :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
+        -> SomeDesc -> SomeDesc
+     go [] sd = sd
+     go (x:xs) (SomeDesc (Desc{..} :: Desc c as o)) =
+       withRecoveredTypePair x $
+         \(tip :: TypePair ty) _ _
+         -> go xs . SomeDesc $
+            (Desc pdName pdSig pdStruct pdRep (tip SOP.:* pdArgs) pdOut
+              :: Desc c (ty:as) o)
+
+     withRecoveredTypePair
+       :: forall b
+       . (SomeTag, SomeTypeRep, SomeTypeRep)
+       -> (forall (k1 :: Con) (a1 :: *) ty
+           . (Typeable (Type k1 a1), Typeable k1, Typeable a1
+             ,ty ~ Type k1 a1)
+           => TypePair ty -> Proxy k1 -> Proxy a1 -> b)
+       -> b
+     withRecoveredTypePair
+       ( SomeTag     (ta :: Tag     k)
+       , SomeTypeRep (ka :: TypeRep ka)
+       , SomeTypeRep  (a :: TypeRep  a)
+       ) f =
+       case (,,)
+            (typeRepKind ka `eqTypeRep` typeRep @Con)
+            (ka             `eqTypeRep` typeRep @k)
+            (typeRepKind a  `eqTypeRep` typeRep @K.Type)
+       of
+         (Just HRefl, Just HRefl, Just HRefl) ->
+           withTypeable ka $ withTypeable  a $ withReifyTag ta $
+             f ((TypePair (reifyTag (Proxy @ka)) (Proxy @a))
+                :: TypePair (Type k a))
+               (Proxy @ka) (Proxy @a)
 
 instance Serialise (SomePipe ()) where
   encode (G (Pipe desc ())) = encode (SomeDesc desc)
@@ -217,7 +234,7 @@ instance Serialise (SomePipe ()) where
   decode = do
     sd <- decode
     case sd of
-      (SomeDesc (d@Desc{} :: Desc c ka a kb b)) ->
+      (SomeDesc (d@Desc{} :: Desc c as o)) ->
         case ( eqTypeRep (typeRep @c) (typeRep @(Ground :: * -> Constraint))
              , eqTypeRep (typeRep @c) (typeRep @(Top    :: * -> Constraint))
              ) of
@@ -243,7 +260,7 @@ groundTypes = Dict.empty
   -- Meta
   -- & Dict.insert "Ground"          # Proxy @(Dict Ground)
   & Dict.insert "Con"             # Proxy @Con
-  & Dict.insert "Type"            # Proxy @Type
+  & Dict.insert "SomeType"        # Proxy @SomeType
   & Dict.insert "Sig"             # Proxy @Sig
   & Dict.insert "Struct"          # Proxy @Struct
   & Dict.insert "PipeDesc"        # Proxy @SomeDesc
