@@ -36,6 +36,9 @@ in {
   serialise             = l "serialise" ../../cborg/serialise "";
   typed-protocols       = io-on "typed-protocols";
   typed-protocols-cbor  = io-on "typed-protocols-cbor";
+  md5                   = dontCheck (overrideCabal old.md5          (old: {}));
+  matrix                = dontCheck (overrideCabal old.matrix       (old: {}));
+  # zippers               = dontCheck (overrideCabal old.zippers  (old: {}));
 
   common          = new.callCabal2nix "common" ../common {};
 }

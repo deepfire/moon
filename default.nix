@@ -2,8 +2,10 @@ let packages = {
     common           = ./common;
     node-editor      = ./node-editor;
   };
-in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
-  name = "luna-derivative";
+in (import ./../reflex-platform {
+     hieSupport = false;
+   }).project ({ pkgs, ... }: {
+  name = "lift";
 
   inherit packages;
 
@@ -65,13 +67,16 @@ in (import ./../reflex-platform {}).project ({ pkgs, ... }: {
     io-sim                = io-on "io-sim";
     io-sim-classes        = io-on "io-sim-classes";
     lifted-async          = dontCheck super.lifted-async;
+    matrix                = dontCheck super.matrix; # test takes too long
+    cryptohash-md5        = dontCheck super.cryptohash-md5; # test does not terminate
     mono-traversable      = dontCheck super.mono-traversable;
     network-mux           = io-on "network-mux";
     # rebase                = doJailbreak (self.callHackage "rebase" "1.1.1" {});
-    reflex-vty            = c "reflex-frp" "reflex-vty" "594a35918ff93df68952d86b5aceaa9feecef13a" "1ngya1vyb7b0912my6qhk6l95y4mgq8iwj3qlwsmdhdc1xkcsd6i" "";
+    reflex-vty            = c "reflex-frp" "reflex-vty" "28ca647a54991dae2768019fccf0f5fd258e6422" "1dn2liiahzkrch74yfrzzr6hn1ccqvhbzwyyayp28avy38g1z0ls" "";
     serialise             = l "serialise" ../cborg/serialise "";
     shelly                = dontCheck super.shelly;
     temporary             = dontCheck super.temporary;
+    # type-list             = overrideCabal super.type-list (old: { broken = false; jailbreak = true; });
     typed-protocols       = io-on "typed-protocols";
     typed-protocols-cbor  = io-on "typed-protocols-cbor";
     unliftio              = dontCheck super.unliftio;  # test failure

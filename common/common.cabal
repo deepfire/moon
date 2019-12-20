@@ -77,8 +77,9 @@ library
                      , set-monad
                      , sop-core
                      , text
+                     -- , type-list
                      , witherable
-                     , zippers
+                     -- , zippers
 
                      , contra-tracer
                      , io-sim-classes

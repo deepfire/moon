@@ -8,18 +8,15 @@ module Pipe.Types
   , somePipeDesc
   , somePipeName
   , somePipeSig
-  , OnArg1
-  , Arg1
-  , Arg1Tag
-  , Arg1Ty
-  , TagOf
-  , TypeOf
   , ArgConstr
   , ArgConstrSmall
   , ArgsConstr
   , ArgsConstrSmall
   , PipeConstr
   , PipeConstrSmall
+  , PipeFunTy
+  -- , PipePairFunTy
+  , Result
   , Pipe(..)
   , pipeSig
   , pipeName
@@ -36,7 +33,6 @@ module Pipe.Types
   , Sig(..)
   , showSig
   , Struct(..)
-  , Result
   , Value(..)
   , withCompatiblePipes
   )
@@ -62,11 +58,98 @@ import           GHC.TypeLits
 import qualified GHC.TypeLits                     as Ty
 
 import Basis
+import Data.Type.List
 import Type
 import Namespace (Space, PointScope, spaceEntries)
 
 
 --------------------------------------------------------------------------------
+-- * Key types
+--
+
+-- | Pipe: component of a computation.  Characterised by:
+--   - 'c'  -- either 'Ground' (wire-transportable) or 'Top' (not so)
+--   - 'as' -- a type-level list of its argument specs, (TypeSpec (Type k a))
+--   - 'o'  -- output type, a single 'TypeSpec' type.
+data Pipe (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) where
+  Pipe :: PipeConstr c as o =>
+    { pDesc :: Desc c as o
+    , p     :: p
+    } -> Pipe c as o p
+
+-- | Wrap 'Pipe's -- those with wire-transportable types (constrained 'Ground'),
+--   as well as the rest (constrained (), aka 'Top').
+data SomePipe p
+  = forall as o
+    -- k a ass
+    .    ( PipeConstr Ground as o
+         -- XXX: NONEMPTY-TLL
+         -- , as ~ (TypePair (Type k a):ass)
+         )
+    => G (Pipe       Ground as o p)
+  | forall as o
+    -- k a ass
+    .    (PipeConstr Top    as o
+         -- XXX: NONEMPTY-TLL
+         -- , as ~ (TypePair (Type k a):ass)
+         )
+    => T (Pipe       Top    as o p)
+
+type ArgConstrSmall  a    = (Typeable a, Typeable (TypeOf a), Typeable (TagOf a))
+type ArgConstr     c a    = (ArgConstrSmall  a,  Typeable c,  c (TypeOf a))
+
+type ArgsConstrSmall as   = (All Typeable    as, Typeable as)
+type ArgsConstr    c as   = (ArgsConstrSmall as, Typeable c, All c as)
+
+type PipeConstrSmall as o = (ArgsConstrSmall as, ArgConstrSmall o)
+type PipeConstr    c as o = (ArgsConstr  Top as, ArgConstr    c o)
+
+-- | Result of running a pipe.
+type Result a = IO (Either Text a)
+
+type family PipeFunTy (as :: [*]) (o :: *) :: * where
+  PipeFunTy '[]    o = Result (ReprOf o)
+  PipeFunTy (x:xs) o = ReprOf x -> PipeFunTy xs o
+
+-- | Everything there is to be said about a pipe, except for its function.
+data Desc (c :: * -> Constraint) (as :: [*]) (o :: *) =
+  Desc
+  { pdName   :: !(Name Pipe)
+  , pdSig    :: !Sig
+  , pdStruct :: !Struct
+  , pdRep    :: !SomeTypeRep -- ^ Full type of the pipe, App4-style.
+  , pdArgs   :: !(NP TypePair as)
+  , pdOut    :: !(TypePair o)
+  }
+  deriving (Generic)
+
+-- | Wrap Desc
+data SomeDesc where
+  SomeDesc
+    :: forall c as o
+    -- k a ass
+    . ( PipeConstr c as o
+      -- XXX: NONEMPTY-TLL
+      -- , as ~ (TypePair (Type k a):ass)
+      )
+    =>
+    { _spdDesc :: Desc c as o
+    } -> SomeDesc
+
+-- | Sig:  serialisable type signature
+data Sig =
+  Sig
+  { sArgs :: [SomeType]
+  , sOut  :: SomeType
+  }
+  deriving (Eq, Generic, Ord)
+
+-- | Struct: Pipe's internal structure, as a graph of type transformations.
+newtype Struct = Struct (G.Graph SomeType) deriving (Eq, Generic, Ord, Show)
+
+--------------------------------------------------------------------------------
+-- * PipeSpace -- move to Pipe.Space?
+--
 type SomePipeSpace p = PipeSpace (SomePipe p)
 
 data PipeSpace a = PipeSpace
@@ -166,47 +249,10 @@ class PipeOps p where
   pipeOps   :: Ops p
 
 --------------------------------------------------------------------------------
-type family OnArg1 (onarg1f :: Con -> * -> *) (onarg1xs :: [*]) :: * where
-  OnArg1 f (Type k a:_) = f k a
-  OnArg1 _ xs = TypeError (Ty.Text "OnArg1Ty: incompatible signature: " :<>: ShowType xs)
 
-type family Arg1 (arg1 :: [*]) :: * where
-  Arg1 (Type k a:_) = Type k a
-  Arg1 xs = TypeError (Ty.Text "Arg1: no argument: " :<>: ShowType xs)
-
-type family Arg1Ty (arg1ty :: [*]) :: * where
-  Arg1Ty (Type _ a:_) = a
-  Arg1Ty xs = TypeError (Ty.Text "Arg1Ty: no argument: " :<>: ShowType xs)
-
-type family Arg1Tag (arg1tag :: [*]) :: Con where
-  Arg1Tag (Type k _:_) = k
-  Arg1Tag xs = TypeError (Ty.Text "Arg1Tag: no argument: " :<>: ShowType xs)
-
-type family TypeOf (typeof :: *) :: * where
-  TypeOf (Type _ a) = a
-  TypeOf x = TypeError (Ty.Text "TypeOf: invalid argument: " :<>: ShowType x)
-
-type family TagOf (tagof :: *) :: Con where
-  TagOf (Type k _) = k
-  TagOf  x = TypeError (Ty.Text "TagOf: invalid argument: " :<>: ShowType x)
-
-type ArgConstrSmall  a    = (Typeable a, Typeable (TypeOf a), Typeable (TagOf a))
-type ArgConstr     c a    = (ArgConstrSmall  a,  Typeable c,  c (TypeOf a))
-
-type ArgsConstrSmall as   = (All Typeable    as, Typeable as)
-type ArgsConstr    c as   = (ArgsConstrSmall as, Typeable c, All c as)
-
-type PipeConstrSmall as o = (ArgsConstrSmall as, ArgConstrSmall o)
-type PipeConstr    c as o = (ArgsConstr  Top as, ArgConstr    c o)
-
-data SomePipe p
-  = forall as o
-    .    (PipeConstr Ground as o)
-    => G (Pipe       Ground as o p)
-  | forall as o
-    .    (PipeConstr Top    as o)
-    => T (Pipe       Top    as o p)
-
+--------------------------------------------------------------------------------
+-- * SomePipe
+--
 instance Functor SomePipe where
   fmap f (G x) = G (f <$> x)
   fmap f (T x) = T (f <$> x)
@@ -224,13 +270,8 @@ somePipeSig  (GPipeD _ sig _ _) = sig
 somePipeSig  (TPipeD _ sig _ _) = sig
 
 --------------------------------------------------------------------------------
--- | Pipe: component of a computation
-data Pipe (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) where
-  Pipe :: PipeConstr c as o =>
-    { pDesc :: Desc c as o
-    , p     :: p
-    } -> Pipe c as o p
-
+-- * Pipe
+--
 -- XXX: potentially problematic instance
 instance Eq (Pipe c as o ()) where
   (==) = (==) `on` pDesc
@@ -277,13 +318,9 @@ pattern GPipeD, TPipeD :: Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe 
 pattern GPipeD name sig str rep <- G (PipeD name sig str rep _ _ _)
 pattern TPipeD name sig str rep <- T (PipeD name sig str rep _ _ _)
 
---------------------------------------------------------------------------------
-data SomeDesc where
-  SomeDesc
-    :: forall c as o. PipeConstr c as o =>
-    { _spdDesc :: Desc c as o
-    } -> SomeDesc
-
+
+-- * SomeDesc
+--
 someDescName :: SomeDesc -> Name Pipe
 someDescName (SomeDesc pd) = pdName pd
 
@@ -313,18 +350,9 @@ instance Read SomeDesc where
 instance Show SomeDesc where
   show (SomeDesc pd) = show pd
 
--- | Everything there is to be said about a pipe, except for its function.
-data Desc (c :: * -> Constraint) (as :: [*]) (o :: *) =
-  Desc
-  { pdName   :: !(Name Pipe)
-  , pdSig    :: !Sig
-  , pdStruct :: !Struct
-  , pdRep    :: !SomeTypeRep -- ^ Full type of the pipe, App4-style.
-  , pdArgs   :: !(NP TypePair as)
-  , pdOut    :: !(TypePair o)
-  }
-  deriving (Generic)
-
+
+-- * Desc
+--
 instance Eq (Desc c as o) where
   -- XXX: slightly opportustic, due to omissions.
   Desc ln _ lst lrep _ _ == Desc rn _ rst rrep _ _ =
@@ -369,26 +397,13 @@ showPipe, showPipeP :: Pipe c as o p -> Text
 showPipe  Pipe{pDesc} = showDesc  pDesc
 showPipeP Pipe{pDesc} = showDescP pDesc
 
+
+-- * Sig
+--
 showSig :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
 showSig (Sig as o) = T.intercalate " ⇨ " $ showSomeType <$> (as <> [o])
 
 --------------------------------------------------------------------------------
--- | Sig:  serialisable type signature
-data Sig =
-  Sig
-  { sArgs :: [SomeType]
-  , sOut  :: SomeType
-  }
-  deriving (Eq, Generic, Ord)
-
---------------------------------------------------------------------------------
--- | Struct: Pipe's internal structure, as a graph of type transformations.
-newtype Struct = Struct (G.Graph SomeType) deriving (Eq, Generic, Ord, Show)
-
---------------------------------------------------------------------------------
--- | Result of running a pipe.
-type Result a = IO (Either Text a)
-
 {-------------------------------------------------------------------------------
   Boring.
 -------------------------------------------------------------------------------}

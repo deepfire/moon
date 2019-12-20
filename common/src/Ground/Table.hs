@@ -13,12 +13,12 @@ module Ground.Table
 where
 
 import           Codec.Serialise
-import           Codec.CBOR.Encoding                (Encoding, encodeListLen)
+import           Codec.CBOR.Encoding                (encodeListLen)
 import           Codec.CBOR.Decoding                (decodeListLen)
 import           Control.Monad                      (forM, unless)
 import qualified Data.Kind                        as K
 import qualified Data.SOP                         as SOP
-import           Type.Reflection                    ((:~~:)(..), TypeRep, eqTypeRep, typeRepKind, withTypeable, typeOf)
+import           Type.Reflection                    ((:~~:)(..), TypeRep, eqTypeRep, typeRepKind, withTypeable)
 
 import qualified Data.Set.Monad                   as Set
 import Text.Read (Lexeme(..), ReadPrec, lexP)
@@ -51,6 +51,7 @@ lookupNameRep (Name n) = Dict.lookupNameRep groundTypes n
 
 withRepGroundType :: SomeTypeRep -> (Dict Ground -> b) -> Maybe b
 withRepGroundType  str f = f <$> lookupRep str
+
 
 withNameGroundType :: Text -> (Dict Ground -> b) -> Maybe b
 withNameGroundType str f = f <$> lookupName str
@@ -150,6 +151,9 @@ instance Read SomeValue where
 mkSomeDesc
   :: forall args out. (PipeConstr Top args out)
   => TypePair out -> NP TypePair args -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomeDesc
+-- args has to be a nonempty type level list
+-- • Could not deduce: args ~ (TypePair (Type k1 a1) : ass1)
+--     arising from a use of ‘SomeDesc’
 mkSomeDesc out args name sig struct rep =
   case lookupRep (someTypeRep $ Proxy @out) of
     Nothing -> nondescript
@@ -199,10 +203,11 @@ instance Serialise SomeDesc where
      go [] sd = sd
      go (x:xs) (SomeDesc (Desc{..} :: Desc c as o)) =
        withRecoveredTypePair x $
-         \(tip :: TypePair ty) _ _
+         \(tip :: TypePair (Type k a))
+          (_ :: Proxy k) (_ :: Proxy a)
          -> go xs . SomeDesc $
             (Desc pdName pdSig pdStruct pdRep (tip SOP.:* pdArgs) pdOut
-              :: Desc c (ty:as) o)
+              :: Desc c ((Type k a):as) o)
 
      withRecoveredTypePair
        :: forall b
@@ -254,6 +259,7 @@ infixr 2 #
 
 deriving instance Typeable Pipe
 deriving instance Typeable Scope
+deriving instance Typeable Type
 
 groundTypes :: Dicts Ground
 groundTypes = Dict.empty

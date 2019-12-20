@@ -15,12 +15,18 @@ module Type
   , withReifyTag
   , SomeTag(..)
   , ReifyTag(..)
-  , Tag2(..)
-  , splitTag2
+  , Type(..)
   , Repr
   , mapRepr
-  , Type(..)
   , TypePair(..)
+  , OnArg1
+  , Arg1
+  , Arg1Tag
+  , Arg1Ty
+  , WithPair
+  , TagOf
+  , TypeOf
+  , ReprOf
   , someType
   , SomeType(..)
   , proxySomeType
@@ -57,6 +63,8 @@ import qualified Data.Text                        as Text
 import           Data.Text                          (split)
 import           Data.String                        (IsString(..))
 import           GHC.Generics                       (Generic)
+import           GHC.TypeLits
+import qualified GHC.TypeLits                     as Ty
 import           Text.Parser.Token                  (TokenParsing)
 import           Text.Read                          (Read(..), Lexeme(..), lexP)
 import qualified Type.Reflection                  as R
@@ -134,6 +142,16 @@ data Tag (k :: Con) where
   TGraph :: Tag Graph
   deriving (Typeable)
 
+class ReifyTag (k :: Con) where
+  reifyTag :: Proxy k -> Tag k
+
+instance ReifyTag Point where reifyTag = const TPoint
+instance ReifyTag List  where reifyTag = const TList
+instance ReifyTag 'Set  where reifyTag = const TSet
+instance ReifyTag Tree  where reifyTag = const TTree
+instance ReifyTag Dag   where reifyTag = const TDag
+instance ReifyTag Graph where reifyTag = const TGraph
+
 instance NFData (Tag k) where
   rnf TPoint = ()
   rnf _      = ()
@@ -154,27 +172,43 @@ instance Ord (Tag k) where
   compare TDag   TDag   = EQ
   compare TGraph TGraph = EQ
 
-data Tag2   (k :: Con) a where
-  TPoint'  :: Tag2 Point a
-  TList'   :: Tag2 List  a
-  TSet'    :: Tag2 'Set  a
-  TTree'   :: Tag2 Tree  a
-  TDag'    :: Tag2 Dag   a
-  TGraph'  :: Tag2 Graph a
+--------------------------------------------------------------------------------
+data SomeTag where
+  SomeTag
+    :: (ReifyTag k, Typeable k)
+    => Tag (k :: Con) -> SomeTag
+
+instance Serialise SomeTag where
+  encode = CBOR.encodeWord . \(SomeTag tag) -> case tag of
+    TPoint -> 1
+    TList  -> 2
+    TSet   -> 3
+    TTree  -> 4
+    TDag   -> 5
+    TGraph -> 6
+  decode = do
+    tag <- CBOR.decodeWord
+    case tag of
+      1 -> pure $ SomeTag TPoint
+      2 -> pure $ SomeTag TList
+      3 -> pure $ SomeTag TSet
+      4 -> pure $ SomeTag TTree
+      5 -> pure $ SomeTag TDag
+      6 -> pure $ SomeTag TGraph
+      _ -> fail $ "invalid SomeTag encoding: tag="<>show tag
+
+--------------------------------------------------------------------------------
+data Type (k :: Con) (a :: *) where
+  TPoint'  :: Type Point a
+  TList'   :: Type List  a
+  TSet'    :: Type 'Set  a
+  TTree'   :: Type Tree  a
+  TDag'    :: Type Dag   a
+  TGraph'  :: Type Graph a
   deriving (Typeable)
 
-class ReifyTag (k :: Con) where
-  reifyTag :: Proxy k -> Tag k
-
-instance ReifyTag Point where reifyTag = const TPoint
-instance ReifyTag List  where reifyTag = const TList
-instance ReifyTag 'Set  where reifyTag = const TSet
-instance ReifyTag Tree  where reifyTag = const TTree
-instance ReifyTag Dag   where reifyTag = const TDag
-instance ReifyTag Graph where reifyTag = const TGraph
-
-splitTag2 :: forall k a. ReifyTag k => Tag2 k a -> (Tag k, Proxy a)
-splitTag2 _ = (,) (reifyTag $ Proxy @k) (Proxy @a)
+splitType :: forall k a. ReifyTag k => Type k a -> (Tag k, Proxy a)
+splitType _ = (,) (reifyTag $ Proxy @k) (Proxy @a)
 
 --------------------------------------------------------------------------------
 type family Repr (k :: Con) (a :: *) :: * where
@@ -209,39 +243,50 @@ withReifyTag = \case
   TDag   -> id
   TGraph -> id
 
-data SomeTag where
-  SomeTag :: (ReifyTag k, Typeable k) => Tag (k :: Con) -> SomeTag
-
-instance Serialise SomeTag where
-  encode = CBOR.encodeWord . \(SomeTag tag) -> case tag of
-    TPoint -> 1
-    TList  -> 2
-    TSet   -> 3
-    TTree  -> 4
-    TDag   -> 5
-    TGraph -> 6
-  decode = do
-    tag <- CBOR.decodeWord
-    case tag of
-      1 -> pure $ SomeTag TPoint
-      2 -> pure $ SomeTag TList
-      3 -> pure $ SomeTag TSet
-      4 -> pure $ SomeTag TTree
-      5 -> pure $ SomeTag TDag
-      6 -> pure $ SomeTag TGraph
-      _ -> fail $ "invalid SomeTag encoding: tag="<>show tag
-
 --------------------------------------------------------------------------------
--- | 'Type' is essentially a Proxy for the tag and the type,
---   similar to Tag2, but without the RTTI aspect.
-data Type (k :: Con) (a :: *) = Type
+data family TypePair t :: *
 
-someType :: forall k a. (Typeable k, Typeable a) => Type k a -> SomeType
-someType _ =
-  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
-       (R.typeRepTyCon $ R.typeRep @k)
-       tr
-  where tr = R.someTypeRep $ Proxy @a
+data instance TypePair ty where
+  TypePair :: (ty ~ Type k a, ReifyTag k, Typeable k, Typeable a) =>
+    { tpTag  :: Tag k
+    , tpType :: Proxy a
+    } -> TypePair (Type k a)
+
+deriving instance Typeable (TypePair t)
+
+instance NFData (TypePair a) where
+  rnf _ = ()
+
+type family OnArg1 (onarg1f :: Con -> * -> *) (onarg1xs :: [*]) :: * where
+  OnArg1 f (Type k a:_) = f k a
+  OnArg1 _ xs = TypeError (Ty.Text "OnArg1Ty: incompatible signature: " :<>: ShowType xs)
+
+type family Arg1 (arg1 :: [*]) :: * where
+  Arg1 (Type k a:_) = Type k a
+  Arg1 xs = TypeError (Ty.Text "Arg1: no argument: " :<>: ShowType xs)
+
+type family Arg1Ty (arg1ty :: [*]) :: * where
+  Arg1Ty (Type _ a:_) = a
+  Arg1Ty xs = TypeError (Ty.Text "Arg1Ty: no argument: " :<>: ShowType xs)
+
+type family Arg1Tag (arg1tag :: [*]) :: Con where
+  Arg1Tag (Type k _:_) = k
+  Arg1Tag xs = TypeError (Ty.Text "Arg1Tag: no argument: " :<>: ShowType xs)
+
+type family TypeOf (typeof :: *) :: * where
+  TypeOf (Type _ a) = a
+  TypeOf x = TypeError (Ty.Text "TypeOf: invalid argument: " :<>: ShowType x)
+
+type family TagOf (tagof :: *) :: Con where
+  TagOf (Type k _) = k
+  TagOf  x = TypeError (Ty.Text "TagOf: invalid argument: " :<>: ShowType x)
+
+type WithPair (ty :: *) (k :: Con) (a :: *)
+  = (TagOf ty ~ k, TypeOf ty ~ a)
+
+type family ReprOf (reprof :: *) :: * where
+  ReprOf (TypePair (Type k a)) = Repr k a
+  ReprOf x = TypeError (Ty.Text "ReprOf: invalid argument: " :<>: ShowType x)
 
 --------------------------------------------------------------------------------
 -- | 'SomeType' is a serialisable form of 'Type'
@@ -251,6 +296,13 @@ data SomeType =
   , tCon  :: R.TyCon        -- ^ Con
   , tRep  :: R.SomeTypeRep  -- ^ Kind.Type
   } deriving (Eq, Generic, Ord)
+
+someType :: forall k a. (Typeable k, Typeable a) => Type k a -> SomeType
+someType _ =
+  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
+       (R.typeRepTyCon $ R.typeRep @k)
+       tr
+  where tr = R.someTypeRep $ Proxy @a
 
 unitSomeType :: SomeType
 unitSomeType = tagSomeType TPoint (Proxy @())
@@ -281,20 +333,6 @@ showSomeType SomeType{tName=(showName -> n), tCon} =
     "'Graph" -> "☸ "<>n
 
 --------------------------------------------------------------------------------
-data family TypePair t :: *
-
-data instance TypePair ty where
-  TypePair :: (ty ~ Type k a, ReifyTag k, Typeable k, Typeable a) =>
-    { tpTag  :: Tag k
-    , tpType :: Proxy a
-    } -> TypePair (Type k a)
-
-deriving instance Typeable (TypePair t)
-
-instance NFData (TypePair a) where
-  rnf _ = ()
-
---------------------------------------------------------------------------------
 data Value (k :: Con) a where
   VPoint  :: Repr Point a -> Value Point a
   VList   :: Repr List  a -> Value List  a
@@ -304,18 +342,23 @@ data Value (k :: Con) a where
   VGraph  :: Repr Graph a -> Value Graph a
   deriving (Typeable)
 
-
--- * Generic parser
---
-class Parse a where
-  -- parser :: (MonadParsec Text Text m, TokenParsing m) => m a
-  parser :: Parser a
+mkValue' :: Proxy a -> Tag k -> Repr k a -> Value k a
+mkValue' = const $ \case
+  TPoint -> VPoint
+  TList  -> VList
+  TSet   -> VSet
+  TTree  -> VTree
+  TDag   -> VDag
+  TGraph -> VGraph
 
-instance {-# OVERLAPPABLE #-} Typeable a => Parse a where
-  parser = failParser
-    where
-      failParser :: (Monad m, TokenParsing m) => m a
-      failParser = fail ("No parser for " <> show (someTypeRep $ Proxy @a) <> ".")
+mkValue :: Proxy a -> Tag k -> Repr k a -> Value k a
+mkValue = const $ \case
+  TPoint -> VPoint
+  TList  -> VList
+  TSet   -> VSet
+  TTree  -> VTree
+  TDag   -> VDag
+  TGraph -> VGraph
 
 --------------------------------------------------------------------------------
 -- * Ground
@@ -359,6 +402,22 @@ withSomeValue _ _ (SomeValue (SomeKindValue (_ :: Tag k') r :: SomeKindValue a')
     _ -> Left . pack $ printf "withSomeValue: expected %s/%s, got %s/%s"
                 (show exptr) (show expk) (show svtr) (show svk)
 
+someValueSomeTypeRep :: SomeValue -> R.SomeTypeRep
+someValueSomeTypeRep (SomeValue (_ :: SomeKindValue a)) = R.someTypeRep $ Proxy @a
+
+--------------------------------------------------------------------------------
+-- * Generic parser
+--
+class Parse a where
+  -- parser :: (MonadParsec Text Text m, TokenParsing m) => m a
+  parser :: Parser a
+
+instance {-# OVERLAPPABLE #-} Typeable a => Parse a where
+  parser = failParser
+    where
+      failParser :: (Monad m, TokenParsing m) => m a
+      failParser = fail ("No parser for " <> show (someTypeRep $ Proxy @a) <> ".")
+
 --------------------------------------------------------------------------------
 -- * Representable
 --
@@ -369,30 +428,6 @@ class Representable (a :: *) where
 instance {-# OVERLAPPABLE #-} Representable a where
   type instance Present a = a
   repr = id
-
---------------------------------------------------------------------------------
--- * Aux
---
-mkValue' :: Proxy a -> Tag k -> Repr k a -> Value k a
-mkValue' = const $ \case
-  TPoint -> VPoint
-  TList  -> VList
-  TSet   -> VSet
-  TTree  -> VTree
-  TDag   -> VDag
-  TGraph -> VGraph
-
-mkValue :: Proxy a -> Tag k -> Repr k a -> Value k a
-mkValue = const $ \case
-  TPoint -> VPoint
-  TList  -> VList
-  TSet   -> VSet
-  TTree  -> VTree
-  TDag   -> VDag
-  TGraph -> VGraph
-
-someValueSomeTypeRep :: SomeValue -> R.SomeTypeRep
-someValueSomeTypeRep (SomeValue (_ :: SomeKindValue a)) = R.someTypeRep $ Proxy @a
 
 {-------------------------------------------------------------------------------
   Boring.
@@ -421,7 +456,7 @@ instance Show (Tag k) where
   show TDag   = "TDag"
   show TGraph = "TGraph"
 
-instance Show (Tag2 k a) where
+instance Show (Type k a) where
   show TPoint'  = "TPoint"
   show TList'   = "TList"
   show TSet'    = "TSet"

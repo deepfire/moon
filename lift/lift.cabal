@@ -48,8 +48,9 @@ library
                      , text
                      , time
                      , tuple
+                     -- , type-list
                      , witherable
-                     , zippers
+                     -- , zippers
 
                      , algebraic-graphs
                      , cborg
@@ -164,4 +165,4 @@ executable cli
                      , typed-protocols
                      , vty
                      , websockets
-                     , zippers
+                     -- , zippers

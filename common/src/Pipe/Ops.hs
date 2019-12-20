@@ -157,7 +157,7 @@ genG
   :: forall kt tt
   .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Ground tt)
   => Name Pipe
-  -> Tag2 kt tt
+  -> Type kt tt
   -> Result (Repr kt tt)
   -> SomePipe Dynamic
 genG n to pf = G $ gen' n to pf
@@ -166,7 +166,7 @@ gen
   :: forall kt tt
   .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt)
   => Name Pipe
-  -> Tag2 kt tt
+  -> Type kt tt
   -> Result (Repr kt tt)
   -> SomePipe Dynamic
 gen n to pf = T $ gen' n to pf
@@ -177,8 +177,8 @@ linkG
     , Typeable kf, Typeable tf, Typeable kt
     , Ground tt)
   => Name Pipe
-  -> Tag2 kf tf
-  -> Tag2 kt tt
+  -> Type kf tf
+  -> Type kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> SomePipe Dynamic
 linkG n from to pf = G $ link' n from to pf
@@ -189,8 +189,8 @@ link
     , Typeable kf, Typeable tf, Typeable kt
     , Typeable tt)
   => Name Pipe
-  -> Tag2 kf tf
-  -> Tag2 kt tt
+  -> Type kf tf
+  -> Type kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> SomePipe Dynamic
 link n from to pf = T $ link' n from to pf
@@ -201,10 +201,10 @@ gen'
      , ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt, Typeable c
      , c tt)
   => Name Pipe
-  -> Tag2 kt tt
+  -> Type kt tt
   -> Result (Repr kt tt)
   -> Pipe c kf tf kt tt Dynamic
-gen' name (splitTag2 -> (tagTo, pTo)) mv
+gen' name (splitType -> (tagTo, pTo)) mv
   -- TODO: validate types agains the typerep/dynamic
                 = Pipe desc dyn
   where ty      = tagType tagTo pTo
@@ -213,7 +213,7 @@ gen' name (splitTag2 -> (tagTo, pTo)) mv
         struct  = Struct graph
         graph   = G.vertex ty
         dyn     = Dynamic typeRep pipeFun
-        pipeFun = IOA (const mv) :: IOA c Point () kt tt
+        pipeFun = IOA' (const mv) :: IOA' c Point () kt tt
 
 link'
   :: forall kf tf kt tt c
@@ -221,25 +221,25 @@ link'
     , Typeable kf, Typeable tf, Typeable kt, Typeable tt, Typeable c
     , c tt)
   => Name Pipe
-  -> Tag2 kf tf
-  -> Tag2 kt tt
+  -> Type kf tf
+  -> Type kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> Pipe c kf tf kt tt Dynamic
-link' name (splitTag2 -> (kf, tf)) (splitTag2 -> (kt, tt)) mf
+link' name (splitType -> (kf, tf)) (splitType -> (kt, tt)) mf
                 = Pipe desc dyn
   where desc    = Desc name sig struct (dynRep dyn) kf tf kt tt
         sig     = Link (tagType kf tf) (tagType kt tt)
         struct  = Struct $ G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
         ---------
         dyn     = Dynamic typeRep pipeFun
-        pipeFun = IOA mf :: IOA c kf tf kt tt
+        pipeFun = IOA' mf :: IOA' c kf tf kt tt
 
 emptyDesc :: Name Pipe -> Desc Ground [] ()
 emptyDesc name = Desc
   { pdName   = name
   , pdSig    = Gen unitType unitType
   , pdStruct = Struct G.empty
-  , pdRep    = SomeTypeRep (typeRep @(IOA Ground Point () Point ()))
+  , pdRep    = SomeTypeRep (typeRep @(IOA' Ground Point () Point ()))
   , pdArgs   = Nil
   , pdOut    = Proxy @()
   }
@@ -249,22 +249,6 @@ emptyPipe = Pipe . emptyDesc
 
 someEmptyPipe :: Name Pipe -> p -> SomePipe p
 someEmptyPipe = G .: emptyPipe
-
-
--- * Guts of the pipe guts.
---
-data IOA c as o where
-  IOA :: (Typeable ka, Typeable a, ReifyTag kb, Typeable kb, Typeable b, c b)
-      => (Repr ka a -> Result (Repr kb b))
-      -> IOA c ka a                 kb b
-
-pattern App4
-  :: TyCon -> TypeRep ka -> TypeRep a -> TypeRep kb -> TypeRep b -> SomeTypeRep
-pattern App4 con ka a kb b <- SomeTypeRep (App (App (App (App (App (Con con) _) ka) a) kb) b)
-
-pattern P
-  :: Name Pipe -> Struct -> SomeTypeRep -> p -> [SomeType] -> SomeType -> Pipe c ka a kb b p
-pattern P  n st rep p as o <- Pipe (Desc n (Sig as o) st rep _ _ _ _) p
 
 
 -- * Running
@@ -279,9 +263,9 @@ runPipe'
   -> Dynamic
   -> Result SomeValue
 runPipe' pd@Desc{pdArgs, pdOut} dyn =
-  case fromDynamic dyn :: Maybe (IOA Ground Point () kb b) of
+  case fromDynamic dyn :: Maybe (IOA' Ground Point () kb b) of
     Nothing -> pure . Left $ "Incomplete pipe: " <> showDesc pd
-    Just (IOA io) ->
+    Just (IOA' io) ->
       (SomeValue . SomeKindValue pdToK . mkValue pdTo pdToK <$>) <$> io ()
 
 
@@ -340,13 +324,13 @@ traverseP'
   -> Pipe c1         Point t Point tt1 p
   -> Pipe c2 kf2 tf2 kt2   t p
   -> Either Text (Pipe (TraverseC c1 c2) kf2 tf2 kt2 tt1 p)
-traverseP' _ p@PGen{} _
-  =   Left $ "'traverse': left fully saturated: " <> showPipe p
+-- traverseP' _ p@PGen{} _
+--   =   Left $ "'traverse': left fully saturated: " <> showPipe p
 traverseP' pf
-  l@(PLink _ _ (App4 ltc   kpb b' _ _) _ _ _)
-  r@(PAny  _ _ (App4 rtc _ _ _ b)        _ _)
-  | ltc /= typeRepTyCon (typeRep @IOA) = err $ "INTERNAL: left not a PipeFun"
-  | rtc /= typeRepTyCon (typeRep @IOA) = err $ "INTERNAL: right not a PipeFun"
+  l@(P _ _ (App4 ltc   kpb b' _ _) _ _ _)
+  r@(P  _ _ (App4 rtc _ _ _ b)        _ _)
+  | ltc /= typeRepTyCon (typeRep @IOA') = err $ "INTERNAL: left not a PipeFun"
+  | rtc /= typeRepTyCon (typeRep @IOA') = err $ "INTERNAL: right not a PipeFun"
   | Nothing <-
     typeRep @Point `eqTypeRep` typeRepKind kpb  = err $ "left a non-traversing Point-wise: " <> showPipe l
   --  | Just _  <-
@@ -434,15 +418,15 @@ compose'
   -> Pipe c1 kf1 tf1 kt1 tt1 p
   -> Pipe c2 kf2 tf2 kt2 tt2 p
   -> Either Text (Pipe (BindGround c1 c2) kf2 tf2 kt1 tt1 p)
-compose' _ p@PGen{} _
-  = Left $ "'compose': left fully saturated: " <> showPipe p
+-- compose' _ p@P{} _
+--   = Left $ "'compose': left fully saturated: " <> showPipe p
 compose' pf
-  f@(PLink _ _ (App4 tc'     _ _ _ _) _ lfrom _)
-  v@(PAny  _ _ (App4 tc _ _ kb b)         _ rto)
+  f@(P _ _ (App4 tc'     _ _ _ _) _ lfrom _)
+  v@(P _ _ (App4 tc _ _ kb b)         _ rto)
   | lfrom /= rto =
     Left $ "'compose': mismatch: f="<>pack (show f)<>" v="<>pack (show v)
   -- Only doing primitive composition
-  | tc == typeRepTyCon (typeRep @IOA)
+  | tc == typeRepTyCon (typeRep @IOA')
   , tc == tc'
   , Just HRefl <- typeRep @K.Type `eqTypeRep` typeRepKind kb
   , Just HRefl <- typeRep @K.Type `eqTypeRep` typeRepKind  b
@@ -451,51 +435,6 @@ compose' pf
   = Left $ "compose: mismatch: f="<>pack (show f)<>" v="<>pack (show v)
 compose' _ f v
   = Left $ "compose: incompatible: f="<>pack (show f)<>" v="<>pack (show v)
-
-apply
-  :: (forall c kf tf kt tt
-      . ( Typeable c, Typeable kf, Typeable tf, Typeable kt, Typeable tt
-        , ReifyTag kt
-        , c tt)
-      => Desc c kf tf kt tt -> Value kf tf -> p -> p)
-  -> SomePipe p
-  -> SomeValue
-  -> Either Text (SomePipe p)
-apply pf (G p) x = G <$> apply' pf p x
-apply pf (T p) x = T <$> apply' pf p x
-
-apply' :: forall c kf tf kt tt p
-  . ( c (), c tt, Typeable c
-    , Typeable kf, Typeable tf, Typeable kt, Typeable tt
-    , ReifyTag kt)
-  => (Desc c kf tf kt tt -> Value kf tf -> p -> p)
-  -> Pipe c kf tf kt tt p
-  -> SomeValue
-  -> Either Text (Pipe c Point () kt tt p)
-apply' _ p@PGen{} _
-  =   Left $ "'apply': left fully saturated: " <> showPipe p
-apply' pf
-  f@(PLink _ _ (App4 _ kb' b' _ _) _ _ _)
-    (SomeValue (SomeKindValue _ (v :: Value ka a) :: SomeKindValue a))
-  | Nothing <- typeRep @ka `eqTypeRep` kb'
-  = Left $ "Apply: Con mismatch: "   <> show2 "ka" (typeRep @ka) "kb'" kb'
-
-  | Nothing <- typeRep  @a `eqTypeRep`  b'
-  = Left $ "Apply: Value mismatch: " <> show2  "a" (typeRep  @a)  "b'"  b'
-
-  | Just HRefl <- typeRep @ka `eqTypeRep` kb'
-  , Just HRefl <- typeRep @ka `eqTypeRep` typeRep @kf
-  , Just HRefl <- typeRep  @a `eqTypeRep`  b'
-  , Just HRefl <- typeRep  @a `eqTypeRep` typeRep @tf
-  = doApply pf f v
-  | otherwise
-  = Left "Fall through."
-  where
-    show2 :: Text -> TypeRep l -> Text -> TypeRep r -> Text
-    show2 ln l rn r = ln<>"="<>pack (show l)<>", "<>rn<>"="<>pack (show r)
-
-apply' _ (PLink _ _ tr _ _ _) _ =
-  Left $ "Typerep structure mismatch: " <> pack (show tr)
 
 
 -- * Ops: wrapping IR
@@ -526,7 +465,7 @@ doTraverse pf
         name    = Name $ "("<>ln<>")-<trav>-("<>rn<>")"
         sig     = Link (tagType ka a) (tagType kb c) -- XXX: Link
         struct  = Struct (lg `G.overlay` rg) -- XXX: structure!
-        rep     = typeRep :: TypeRep (IOA (TraverseC c1 c2) ka a kb c)
+        rep     = typeRep :: TypeRep (IOA' (TraverseC c1 c2) ka a kb c)
 -- XXX: where is the best place for this check now?
 -- doTraverse l _ _ r _ _
 --   = Left $ "doBind: PipeFuns, but "<>showLR (pack $ show l) (pack $ show r)
@@ -555,37 +494,60 @@ doBind pf
         name    = Name $ ln<>">>="<>rn
         sig     = Gen unitType (tagType kc c)
         struct  = Struct $ G.overlay lg rg
-        rep     = typeRep :: TypeRep (IOA resC ka a kc c)
+        rep     = typeRep :: TypeRep (IOA' resC ka a kc c)
 -- XXX: where is the best place for this check now?
 -- doBind l _ _ r _ _
 --   = Left $ "doBind: PipeFuns, but "<>showLR (pack $ show l) (pack $ show r)
-
--- | 'doApply': approximate 'apply':
--- ($) :: (a -> b) -> a -> b
-doApply
-  :: forall c ka a kb b ra rb p
-   . ( ra ~ Repr ka a
-     , rb ~ Repr kb b
-     , c ()
-     , Typeable ka, Typeable a, Typeable b, Typeable c)
-  => (Desc c ka a kb b -> Value ka a -> p -> p)
-  -> Pipe  c ka a kb b p
-  -> Value   ka a
-  -> Either Text (Pipe c Point () kb b p)
-doApply pf
-        (Pipe desc@(Desc (Name rn) _ (Struct rg) _ _ _ kb b) f)
-        v
-  = Right $ Pipe desc' (pf desc v f)
-  where desc'   = Desc name sig struct (SomeTypeRep rep) TPoint (Proxy @()) kb b
-        name    = Name $ "app-"<>rn
-        sig     = Gen unitType (tagType kb b)
-        struct  = Struct rg -- XXX ???
-        rep     = typeRep :: TypeRep (IOA c Point () kb b)
 
 
 -- * Ops:  actual core
 --
 -- XXX: ExceptT
+
+compDyn
+  :: forall c1 c2 resC ka a kb b kc c
+   . ( Typeable c1, Typeable c2
+     , Typeable a, Typeable ka, Typeable kb, Typeable b, Typeable kc, Typeable c
+     , ReifyTag kb, ReifyTag kc
+     , resC ~ (BindGround c1 c2)
+     , resC c)
+  => Desc c2 ka a kb b      -> Dynamic
+  -> Desc c1      kb b kc c -> Dynamic
+  -> Dynamic
+compDyn _descv v _descf f = Dynamic typeRep pipeFun -- XXX: re-creation of typerep
+  where
+    IOA' f'  = fromJust $ fromDynamic f :: IOA' c1 kb b kc c
+    IOA' v'  = fromJust $ fromDynamic v :: IOA' c2 ka a kb b
+    pipeFun = IOA' (bindPipes v' f') :: IOA' resC ka a kc c
+
+travDyn
+  :: forall c1 c2 resC ka a kb b c
+   . ( resC ~ TraverseC c1 c2
+     , resC (), Typeable resC, resC c
+     , Typeable c1, Typeable c2
+     , Typeable a, Typeable ka, Typeable kb, Typeable b, Typeable c
+     , ReifyTag ka, ReifyTag kb)
+  => Desc c1      Point b Point c -> Dynamic
+  -> Desc c2 ka a kb    b         -> Dynamic
+  -> Dynamic
+travDyn df f dt t = Dynamic typeRep pipeFun -- XXX: re-creation of typerep
+  where
+    IOA' f'  = fromJust $ fromDynamic f :: IOA' c1      Point b Point c
+    IOA' t'  = fromJust $ fromDynamic t :: IOA' c2 ka a kb    b
+    pipeFun = IOA' ioa :: IOA' resC ka a kb c
+    ioa     = traversePipes (pdFromK dt) (pdFrom dt) (pdToK dt) (pdTo dt) (pdTo df) f' t'
+
+-- | 'bindPipes': approximate 'bind':
+-- (>>=) :: forall a b. m a -> (a -> m b) -> m b
+bindPipes
+  :: (a -> Result b)
+  -> (b -> Result c)
+  -> (a -> Result c)
+bindPipes v f = \ra -> do
+  r <- v ra
+  case r of
+    Left e  -> pure $ Left e
+    Right x -> f x
 
 -- | 'traversePipes': approximate 'traverse':
 -- traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
@@ -610,82 +572,10 @@ traversePipes _ _ kb _ _ f t = \ra -> do
         TDag   -> pure $ Left "traverse: Dag unsupported"
         TGraph -> pure $ Left "traverse: Graph unsupported"
 
-appDyn
-  :: forall c ka a kb b
-   . ( Typeable c, Typeable a, Typeable ka, Typeable kb, Typeable b
-     , c b
-     , ReifyTag kb)
-  => Desc c ka a kb b -> Value ka a -> Dynamic -> Dynamic
-appDyn Desc{} v ioaDyn = Dynamic typeRep pipeFun -- XXX: re-creation of typerep
-  where
-    IOA f'  = fromJust $ fromDynamic ioaDyn :: IOA c ka a kb b
-    pipeFun = IOA (applyPipe f' v) :: IOA c Point () kb b
-
-compDyn
-  :: forall c1 c2 resC ka a kb b kc c
-   . ( Typeable c1, Typeable c2
-     , Typeable a, Typeable ka, Typeable kb, Typeable b, Typeable kc, Typeable c
-     , ReifyTag kb, ReifyTag kc
-     , resC ~ (BindGround c1 c2)
-     , resC c)
-  => Desc c2 ka a kb b      -> Dynamic
-  -> Desc c1      kb b kc c -> Dynamic
-  -> Dynamic
-compDyn _descv v _descf f = Dynamic typeRep pipeFun -- XXX: re-creation of typerep
-  where
-    IOA f'  = fromJust $ fromDynamic f :: IOA c1 kb b kc c
-    IOA v'  = fromJust $ fromDynamic v :: IOA c2 ka a kb b
-    pipeFun = IOA (bindPipes v' f') :: IOA resC ka a kc c
-
-travDyn
-  :: forall c1 c2 resC ka a kb b c
-   . ( resC ~ TraverseC c1 c2
-     , resC (), Typeable resC, resC c
-     , Typeable c1, Typeable c2
-     , Typeable a, Typeable ka, Typeable kb, Typeable b, Typeable c
-     , ReifyTag ka, ReifyTag kb)
-  => Desc c1      Point b Point c -> Dynamic
-  -> Desc c2 ka a kb    b         -> Dynamic
-  -> Dynamic
-travDyn df f dt t = Dynamic typeRep pipeFun -- XXX: re-creation of typerep
-  where
-    IOA f'  = fromJust $ fromDynamic f :: IOA c1      Point b Point c
-    IOA t'  = fromJust $ fromDynamic t :: IOA c2 ka a kb    b
-    pipeFun = IOA ioa :: IOA resC ka a kb c
-    ioa     = traversePipes (pdFromK dt) (pdFrom dt) (pdToK dt) (pdTo dt) (pdTo df) f' t'
-
--- | 'applyPipe': approximate 'apply':
--- ($) :: (a -> b) -> a -> b
-applyPipe
-  :: forall k a ra rb
-  . ( ra ~ Repr k a)
-  => (ra -> Result rb)
-  -> Value k a
-  -> (() -> Result rb)
-applyPipe f = const . \case
-  VPoint x -> f x
-  VList  x -> f x
-  VSet   x -> f x
-  VTree  x -> f x
-  VDag   x -> f x
-  VGraph x -> f x
-
--- | 'bindPipes': approximate 'bind':
--- (>>=) :: forall a b. m a -> (a -> m b) -> m b infixl 1 Source #
-bindPipes
-  :: (a -> Result b)
-  -> (b -> Result c)
-  -> (a -> Result c)
-bindPipes v f = \ra -> do
-  r <- v ra
-  case r of
-    Left e  -> pure $ Left e
-    Right x -> f x
-
 {-------------------------------------------------------------------------------
   Boring.
 -------------------------------------------------------------------------------}
-instance Show (IOA c ka a kb b) where
-  show IOA{} =
+instance Show (IOA' c ka a kb b) where
+  show IOA'{} =
     "Fun "<>show (typeRep @ka)<>":"<>show (typeRep @a)<>
     " -> "<>show (typeRep @kb)<>":"<>show (typeRep @b)
