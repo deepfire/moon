@@ -5,9 +5,9 @@ module Pipe.Types
   , Ops(..)
   , PipeOps(..)
   , SomePipe(..)
-  , somePipeDesc
   , somePipeName
   , somePipeSig
+  , withSomePipe
   , ArgConstr
   , ArgConstrSmall
   , ArgsConstr
@@ -24,9 +24,6 @@ module Pipe.Types
   , pipeRep
   , showPipe
   , showPipeP
-  , SomeDesc(..)
-  , someDescName
-  , someDescSig
   , Desc(..)
   , showDesc
   , pattern PipeD
@@ -86,14 +83,18 @@ data SomePipe p
          -- XXX: NONEMPTY-TLL
          -- , as ~ (TypePair (Type k a):ass)
          )
-    => G (Pipe       Ground as o p)
+    => G (Pipe        Ground as o p)
   | forall as o
     -- k a ass
-    .    (PipeConstr Top    as o
+    .    (PipeConstr  Top    as o
          -- XXX: NONEMPTY-TLL
          -- , as ~ (TypePair (Type k a):ass)
          )
-    => T (Pipe       Top    as o p)
+    => T (Pipe        Top    as o p)
+
+withSomePipe :: SomePipe p -> (forall c as o. Pipe c as o p -> a) -> a
+withSomePipe (G x) f = f x
+withSomePipe (T x) f = f x
 
 type ArgConstrSmall  a    = (Typeable a, Typeable (TypeOf a), Typeable (TagOf a))
 type ArgConstr     c a    = (ArgConstrSmall  a,  Typeable c,  c (TypeOf a))
@@ -122,19 +123,6 @@ data Desc (c :: * -> Constraint) (as :: [*]) (o :: *) =
   , pdOut    :: !(TypePair o)
   }
   deriving (Generic)
-
--- | Wrap Desc
-data SomeDesc where
-  SomeDesc
-    :: forall c as o
-    -- k a ass
-    . ( PipeConstr c as o
-      -- XXX: NONEMPTY-TLL
-      -- , as ~ (TypePair (Type k a):ass)
-      )
-    =>
-    { _spdDesc :: Desc c as o
-    } -> SomeDesc
 
 -- | Sig:  serialisable type signature
 data Sig =
@@ -257,10 +245,6 @@ instance Functor SomePipe where
   fmap f (G x) = G (f <$> x)
   fmap f (T x) = T (f <$> x)
 
-somePipeDesc :: forall p. SomePipe p  -> SomeDesc
-somePipeDesc (G (Pipe{pDesc} :: Pipe Ground as o p)) = SomeDesc pDesc
-somePipeDesc (T (Pipe{pDesc} :: Pipe Top    as o p)) = SomeDesc pDesc
-
 somePipeName :: SomePipe p -> Name Pipe
 somePipeName (GPipeD name _ _ _) = coerceName name
 somePipeName (TPipeD name _ _ _) = coerceName name
@@ -268,6 +252,9 @@ somePipeName (TPipeD name _ _ _) = coerceName name
 somePipeSig :: SomePipe p -> Sig
 somePipeSig  (GPipeD _ sig _ _) = sig
 somePipeSig  (TPipeD _ sig _ _) = sig
+
+instance Read (SomePipe ()) where
+  readPrec = failRead
 
 --------------------------------------------------------------------------------
 -- * Pipe
@@ -282,12 +269,23 @@ instance Ord (Pipe c as o ()) where
 
 -- XXX: potentially problematic instance
 instance Eq (SomePipe ()) where
-  l == r = ((==) `on` somePipeDesc) l r
+  l' == r' =
+    withSomePipe l' $ \(pDesc -> l) ->
+    withSomePipe r' $ \(pDesc -> r) ->
+      (pdRep    l  == pdRep      r) &&
+      (pdName   l  == pdName     r) &&
+      (pdStruct l  == pdStruct   r)
 
 -- XXX: potentially problematic instance
 instance Ord (SomePipe ()) where
-  l `compare` r = (compare `on` somePipeDesc) l r
+  l' `compare` r' =
+    withSomePipe l' $ \(pDesc -> l) ->
+    withSomePipe r' $ \(pDesc -> r) ->
+      (pdRep l `compare` pdRep    r)
 
+
+-- * SomePipe ()
+--
 withCompatiblePipes
   :: forall c1 c2 as1 as2 o1 o2 p a
   .  (PipeConstr c1 as1 o1, PipeConstr c2 as2 o2)
@@ -317,38 +315,6 @@ pattern PipeD name sig str rep args out p
 pattern GPipeD, TPipeD :: Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe p
 pattern GPipeD name sig str rep <- G (PipeD name sig str rep _ _ _)
 pattern TPipeD name sig str rep <- T (PipeD name sig str rep _ _ _)
-
-
--- * SomeDesc
---
-someDescName :: SomeDesc -> Name Pipe
-someDescName (SomeDesc pd) = pdName pd
-
-someDescSig :: SomeDesc -> Sig
-someDescSig (SomeDesc pd) = pdSig pd
-
-instance Eq SomeDesc where
-  -- Note, that this is sligtly weak:
-  -- we can still have effectively different pipes with the same:
-  -- 1. same name (but e.g. in different namespaces)
-  -- 2. structure & types
-  SomeDesc l == SomeDesc r =
-    (pdRep    l == pdRep    r) &&
-    (pdName   l == pdName   r) &&
-    (pdStruct l == pdStruct r)
-
-instance NFData SomeDesc where
-  rnf (SomeDesc x) = rnf x
-
-instance Ord SomeDesc where
-  SomeDesc l `compare` SomeDesc r =
-    (pdRep l `compare` pdRep    r)
-
-instance Read SomeDesc where
-  readPrec = failRead
-
-instance Show SomeDesc where
-  show (SomeDesc pd) = show pd
 
 
 -- * Desc

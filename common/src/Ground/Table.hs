@@ -147,27 +147,26 @@ instance Read SomeValue where
       Exists tag' -> readValue tag' dict
 
 
--- | Use the ground type table to reconstruct a possibly Ground-ed SomeDesc.
-mkSomeDesc
+-- | Use the ground type table to reconstruct a possibly Ground-ed SomePipe.
+mkSomePipe
   :: forall args out. (PipeConstr Top args out)
-  => TypePair out -> NP TypePair args -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomeDesc
--- args has to be a nonempty type level list
--- • Could not deduce: args ~ (TypePair (Type k1 a1) : ass1)
---     arising from a use of ‘SomeDesc’
-mkSomeDesc out args name sig struct rep =
+  => TypePair out -> NP TypePair args -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe ()
+mkSomePipe out args name sig struct rep =
   case lookupRep (someTypeRep $ Proxy @out) of
     Nothing -> nondescript
     Just (Dict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @(TypeOf out) of
         Nothing -> nondescript
         Just HRefl ->
-          SomeDesc $ (Desc name sig struct rep args out :: Desc Ground args out)
+          G $ Pipe (Desc name sig struct rep args out :: Desc Ground args out) ()
  where
    -- Unknown type, nothing useful we can recapture about it.
-   nondescript = SomeDesc $ (Desc name sig struct rep args out :: Desc Top args out)
+   nondescript =
+     T $ Pipe (Desc name sig struct rep args out :: Desc Top args out) ()
 
-instance Serialise SomeDesc where
-  encode (SomeDesc (Desc name sig struct rep args out :: Desc c args out)) = do
+instance Serialise (SomePipe ()) where
+  encode p = withSomePipe p $ \(Pipe (Desc name sig struct rep args out
+                                      :: Desc c args out) _) -> do
     let len = fromIntegral . SOP.lengthSList $ Proxy @args
     encodeListLen ((len + 1) * 3 + 4)
     <> mconcat (SOP.hcollapse
@@ -187,7 +186,7 @@ instance Serialise SomeDesc where
     let arity' = len - 4
         (arity, err) = arity' `divMod` 3
     unless (err == 0 && arity > 0)
-      (fail $ "decode SomeDesc: expected list len=4+3x && >= 7, got: " <> show len)
+      (fail $ "decode SomePipe: expected list len=4+3x && >= 7, got: " <> show len)
     xs :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
       <- forM [0..(arity - 1)] $ const $
          (,,) <$> decode <*> decode <*> decode
@@ -196,18 +195,19 @@ instance Serialise SomeDesc where
     struct :: Struct      <- decode
     rep    :: SomeTypeRep <- decode
     pure $ withRecoveredTypePair (head xs) $
-      \out _ _ -> go xs $ mkSomeDesc out SOP.Nil name sig struct rep
+      \out _ _ -> go xs $ mkSomePipe out SOP.Nil name sig struct rep
    where
      go :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
-        -> SomeDesc -> SomeDesc
+        -> SomePipe () -> SomePipe ()
      go [] sd = sd
-     go (x:xs) (SomeDesc (Desc{..} :: Desc c as o)) =
+     go (x:xs) p =
+       withSomePipe p $ \(Pipe (Desc{..} :: Desc c as o) _) ->
        withRecoveredTypePair x $
          \(tip :: TypePair (Type k a))
           (_ :: Proxy k) (_ :: Proxy a)
-         -> go xs . SomeDesc $
+         -> go xs . T $ Pipe
             (Desc pdName pdSig pdStruct pdRep (tip SOP.:* pdArgs) pdOut
-              :: Desc c ((Type k a):as) o)
+              :: Desc Top ((Type k a):as) o) ()
 
      withRecoveredTypePair
        :: forall b
@@ -233,22 +233,20 @@ instance Serialise SomeDesc where
                 :: TypePair (Type k a))
                (Proxy @ka) (Proxy @a)
 
-instance Serialise (SomePipe ()) where
-  encode (G (Pipe desc ())) = encode (SomeDesc desc)
-  encode (T (Pipe desc ())) = encode (SomeDesc desc)
-  decode = do
-    sd <- decode
-    case sd of
-      (SomeDesc (d@Desc{} :: Desc c as o)) ->
-        case ( eqTypeRep (typeRep @c) (typeRep @(Ground :: * -> Constraint))
-             , eqTypeRep (typeRep @c) (typeRep @(Top    :: * -> Constraint))
-             ) of
-          (Just HRefl, Nothing)    -> pure . G $ Pipe d ()
-          (Nothing,    Just HRefl) -> pure . T $ Pipe d ()
-          (eg,         et) -> fail $ "SomeDesc failed decode: "
-            <>" eqTypeRep @c @Ground="<>show eg
-            <>" eqTypeRep @c @Top="<>show et
-            <>" rep:\n"<>unpack (showDesc d)
+-- instance Serialise (SomePipe ()) where
+--   decode = do
+--     sd <- decode
+--     case sd of
+--       (SomeDes (d@Desc{} :: Desc c as o)) ->
+--         case ( eqTypeRep (typeRep @c) (typeRep @(Ground :: * -> Constraint))
+--              , eqTypeRep (typeRep @c) (typeRep @(Top    :: * -> Constraint))
+--              ) of
+--           (Just HRefl, Nothing)    -> pure . G $ Pipe d ()
+--           (Nothing,    Just HRefl) -> pure . T $ Pipe d ()
+--           (eg,         et) -> fail $ "SomeDes failed decode: "
+--             <>" eqTypeRep @c @Ground="<>show eg
+--             <>" eqTypeRep @c @Top="<>show et
+--             <>" rep:\n"<>unpack (showDesc d)
 
 
 -- * Tables
@@ -269,7 +267,7 @@ groundTypes = Dict.empty
   & Dict.insert "SomeType"        # Proxy @SomeType
   & Dict.insert "Sig"             # Proxy @Sig
   & Dict.insert "Struct"          # Proxy @Struct
-  & Dict.insert "PipeDesc"        # Proxy @SomeDesc
+  & Dict.insert "Pipe"            # Proxy @(SomePipe ())
   & Dict.insert "TypeRep"         # Proxy @SomeTypeRep
   & Dict.insert "TypeRep2"        # Proxy @(SomeTypeRep, SomeTypeRep)
   & Dict.insert "NameType"        # Proxy @(Name Type)

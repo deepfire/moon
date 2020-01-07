@@ -123,7 +123,7 @@ interact' space = mdo
   descsD     <- pure $ pipesFromD <&>
                        ((somePipeDesc <$>)
                         >>>
-                        sortBy (compare `on` someDescName))
+                        sortBy (compare `on` somePipeName))
 
   inputD <- holdDyn (Nothing, 0, "") retE
 
@@ -131,20 +131,20 @@ interact' space = mdo
     <- pure $ (zipDynWith lcons descsD $ snd . luncons <$> inputD) <&>
        \(descs, col, input) ->
          case parseLocated input of
-           Left e  -> ([], someDescSelectable (3, 3), e)
+           Left e  -> ([], somePipeSelectable (3, 3), e)
            Right exp@(indexLocated -> index) ->
              let name = case lookupLocatedQName col index of
                           Nothing -> ""
                           Just qn -> showQName qn
                  xs = infixNameFilter name `Prelude.filter` descs
              in ( xs
-                , someDescSelectable (presentCtx xs)
+                , somePipeSelectable (presentCtx xs)
                 , T.pack $ printf "col=%s n=%s exp=%s" (show col) name (show exp))
-  retE :: Event t (Maybe SomeDesc, Int, Text) <-
+  retE :: Event t (Maybe (SomePipe ()), Int, Text) <-
     menuSelector
       (DynRegion 0 0 w (h - 6))
       (rpop <$> visD)
-      (showName . someDescName)
+      (showName . somePipeName)
 
   pane (DynRegion 0 (h - 6) w 5) (pure False) $
     richTextStatic (foregro V.red) (thd3 <$> current visD)
@@ -157,25 +157,26 @@ interact' space = mdo
     V.EvKey (V.KChar 'c') [V.MCtrl] -> Just ()
     _ -> Nothing
  where
-   presentCtx = (((showName . someDescName <$>)
+   presentCtx = (((showName . somePipeName <$>)
                    &&&
-                  (showSig  . someDescSig  <$>))
+                  (showSig  . somePipeSig  <$>))
                   >>>
                  (join (***) (Prelude.maximum . (T.length <$>))))
-   infixNameFilter text = isInfixOf text . showName . someDescName
+   infixNameFilter text = isInfixOf text . showName . somePipeName
    escapable w = do
      void w
      i <- input
      return $ fforMaybe i $ \case
        V.EvKey V.KEsc [] -> Just $ Nothing
        _ -> Nothing
-   someDescSelectable
+   somePipeSelectable
      :: (MonadFix m, MonadHold t m, PostBuild t m, MonadNodeId m, Reflex t)
      => (Int, Int)
-     -> SomeDesc
+     -> SomePipe ()
      -> Behavior t Bool
-     -> VtyWidget t m SomeDesc
-   someDescSelectable (nameWi, sigWi) sd@(SomeDesc pd) focusB = row $ do
+     -> VtyWidget t m (SomePipe ())
+   somePipeSelectable (nameWi, sigWi) sp focusB =
+    row $ withSomePipe sp $ \(Pipe pd _) -> do
      fixed (pure nameWi) $
        richText (textFocusStyle (foregro V.green) focusB)
          (pure $ justifyRight nameWi ' ' . showName $ pdName pd)

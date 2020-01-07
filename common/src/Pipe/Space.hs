@@ -41,9 +41,6 @@ emptyPipeSpace n = PipeSpace
   , psTo    = mempty
   }
 
--- pipeDescs :: PipeSpace a -> Set a
--- pipeDescs = Set.fromList . (someDesc <$>) . Namespace.spaceEntries . psSpace
-
 pipesFrom :: SomeTypeRep -> PipeSpace a -> [a]
 pipesFrom str spc = setToList (pipeNamesFrom str spc) &
   mapMaybe (flip lookupSpace spc . coerceQName)

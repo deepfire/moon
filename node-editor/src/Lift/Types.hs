@@ -12,7 +12,7 @@ import Type
 
 
 data Hint
-  = HintPipe (QName Pipe) SomeDesc
+  = HintPipe (QName Pipe) (SomePipe ())
   deriving (Eq, Generic, Show)
 
 instance NFData Hint
@@ -21,7 +21,7 @@ instance SearcherData Hint where
   text = to $ \case
     HintPipe pn _ -> showQName pn
   typeOf = to $ \case
-    HintPipe _ (SomeDesc pd) -> showSig $ pdSig pd
+    HintPipe _ sp -> showSig $ somePipeSig sp
 
 instance SearcherHint Hint where
   prefix = to $ \case

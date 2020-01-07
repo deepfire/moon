@@ -80,15 +80,15 @@ checkAndInfer
   :: forall m e p
   .  (Monad m, e ~ Text)
   => Expr (Either (QName Pipe) (SomePipe p))
-  -> Either e (Expr (Either SomeDesc (SomePipe p)))
+  -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))
 checkAndInfer expr = go True $ fromExpr expr
  where
-   toSig :: Either SomeDesc (SomePipe p) -> SomeDesc
+   toSig :: Either (SomePipe ()) (SomePipe p) -> (SomePipe ())
    toSig (Left x)  = x
    toSig (Right p) = somePipeDesc p
    go :: Bool
       -> ZExpr (Either (QName Pipe) (SomePipe p))
-      -> Either e (Expr (Either SomeDesc (SomePipe p)))
+      -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))
    go _ (_, PVal x)          = Right (PVal x)
    go known z@(parents, PPipe p) = case p of
      Right x   -> Right . PPipe $ Right x
@@ -102,11 +102,11 @@ checkAndInfer expr = go True $ fromExpr expr
    inferFnApp
      :: QName Pipe
      -> ZExpr (Either (QName Pipe) (SomePipe p))
-     -> Either e SomeDesc
+     -> Either e (SomePipe ())
    inferFnApp n = goIFA [] where
-     goIFA :: [SomeDesc]
+     goIFA :: [SomePipe ()]
            -> ZExpr (Either (QName Pipe) (SomePipe p))
-           -> Either e SomeDesc
+           -> Either e (SomePipe ())
      goIFA xs z@(Right (PApp f x):ps, self) = join $
        goIFA <$> ((:)
                   <$> undefined (go False (fromExpr x))
