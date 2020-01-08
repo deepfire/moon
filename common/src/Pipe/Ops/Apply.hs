@@ -21,27 +21,39 @@ import Pipe.Ops.Internal
 import Type
 
 apply
-  :: (forall c as ass o k a
-      . ( PipeConstr c as o
-        , as ~ (TypePair (Type k a):ass)
+  :: (forall c kas kas' o k a
+      . ( PipeConstr c kas o
+        , kas ~ (Type k a : kas')
         )
-      => Desc c as o -> Value k a -> p -> p)
+      => Desc c kas o -> Value k a -> p -> p)
   -> SomePipe p
   -> SomeValue
   -> Either Text (SomePipe p)
-apply pf (G p) x = G <$> apply' pf p x
-apply pf (T p) x = T <$> apply' pf p x
+apply pf (G p) x = mkG <$> apply' pf p x
+apply pf (T p) x = mkT <$> apply' pf p x
+
+class MkGoT kas where
+  mkG :: PipeConstr Ground kas o => Pipe Ground kas o p -> SomePipe p
+  mkT :: PipeConstr Top    kas o => Pipe Top    kas o p -> SomePipe p
+
+instance MkGoT '[] where
+  mkG = GS
+  mkT = TS
+
+instance kas ~ (Type k a : kas') => MkGoT kas where
+  mkG = G
+  mkT = T
 
 apply'
-  :: forall c (a1k :: Con) (a1 :: *) (as :: [*]) (ass :: [*]) o p
-  . ( PipeConstr c as o
-    , as ~ (TypePair (Type a1k a1):ass)
-    , Typeable ass, Typeable a1k, Typeable a1
+  :: forall c (a1k :: Con) (a1 :: *) (kas :: [*]) (kas' :: [*]) o p
+  . ( PipeConstr c kas o
+    , kas ~ (Type a1k a1:kas')
+    , Typeable kas', Typeable a1k, Typeable a1
     )
-  => (Desc c as o -> Value a1k a1 -> p -> p)
-  -> Pipe c as o p
+  => (Desc c kas o -> Value a1k a1 -> p -> p)
+  -> Pipe c kas o p
   -> SomeValue
-  -> Either Text (Pipe c (Tail as) o p)
+  -> Either Text (Pipe c kas' o p)
 apply' pf
   f@(P _ _ (App4 _ kb' b' _ _) _ _ _)
     (SomeValue (SomeKindValue _ (v :: Value k a) :: SomeKindValue a))

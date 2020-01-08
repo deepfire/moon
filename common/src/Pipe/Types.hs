@@ -9,11 +9,8 @@ module Pipe.Types
   , somePipeSig
   , withSomePipe
   , ArgConstr
-  , ArgConstrSmall
   , ArgsConstr
-  , ArgsConstrSmall
   , PipeConstr
-  , PipeConstrSmall
   , PipeFunTy
   -- , PipePairFunTy
   , Result
@@ -40,22 +37,13 @@ import           Codec.Serialise
 import           Codec.CBOR.Encoding                (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding                (decodeListLen, decodeWord)
 import           Data.Dynamic
-import qualified Data.List.NonEmpty               as NE
 import qualified Data.Text                        as T
 import           Type.Reflection                    ((:~~:)(..), eqTypeRep)
 import qualified Data.Map.Monoidal.Strict         as MMap
 import qualified Data.Set.Monad                   as Set
-import qualified Data.SOP                         as SOP
-import qualified Data.SOP.Constraint              as SOP
-import qualified Generics.SOP                     as SOP
-import qualified Generics.SOP.NP                  as SOP
-import qualified Generics.SOP.NS                  as SOP
 import           GHC.Generics                       (Generic)
-import           GHC.TypeLits
-import qualified GHC.TypeLits                     as Ty
 
 import Basis
-import Data.Type.List
 import Type
 import Namespace (Space, PointScope, spaceEntries)
 
@@ -68,42 +56,46 @@ import Namespace (Space, PointScope, spaceEntries)
 --   - 'c'  -- either 'Ground' (wire-transportable) or 'Top' (not so)
 --   - 'as' -- a type-level list of its argument specs, (TypeSpec (Type k a))
 --   - 'o'  -- output type, a single 'TypeSpec' type.
-data Pipe (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) where
-  Pipe :: PipeConstr c as o =>
-    { pDesc :: Desc c as o
+data Pipe (c :: * -> Constraint) (kas :: [*]) (o :: *) (p :: *) where
+  Pipe :: PipeConstr c kas o =>
+    { pDesc :: Desc c kas o
     , p     :: p
-    } -> Pipe c as o p
+    } -> Pipe c kas o p
 
--- | Wrap 'Pipe's -- those with wire-transportable types (constrained 'Ground'),
---   as well as the rest (constrained (), aka 'Top').
+-- | A wrapped cartesian product of all possible kinds of 'Pipe's:
+--   - wire-transportable types (constrained 'Ground') vs. 'Top'-(un-)constrained
+--   - saturated vs. unsaturated.
 data SomePipe p
-  = forall as o
-    -- k a ass
-    .    ( PipeConstr Ground as o
-         -- XXX: NONEMPTY-TLL
-         -- , as ~ (TypePair (Type k a):ass)
-         )
-    => G (Pipe        Ground as o p)
-  | forall as o
-    -- k a ass
-    .    (PipeConstr  Top    as o
-         -- XXX: NONEMPTY-TLL
-         -- , as ~ (TypePair (Type k a):ass)
-         )
-    => T (Pipe        Top    as o p)
+  = forall o
+    .     (PipeConstr  Ground '[] o)
+    => GS (Pipe        Ground '[] o p)
+  | forall o
+    .     (PipeConstr  Top    '[] o)
+    => TS (Pipe        Top    '[] o p)
+  | forall kas o k a kas'
+    .     (PipeConstr  Ground kas o
+          , kas ~ (Type k a : kas')
+          )
+    => G  (Pipe        Ground kas o p)
+  | forall kas o k a kas'
+    .     (PipeConstr  Top    kas o
+          , kas ~ (Type k a : kas')
+          )
+    => T  (Pipe        Top    kas o p)
 
-withSomePipe :: SomePipe p -> (forall c as o. Pipe c as o p -> a) -> a
-withSomePipe (G x) f = f x
-withSomePipe (T x) f = f x
+withSomePipe :: SomePipe p -> (forall c kas o. Pipe c kas o p -> a) -> a
+withSomePipe (GS x) f = f x
+withSomePipe (TS x) f = f x
+withSomePipe (G  x) f = f x
+withSomePipe (T  x) f = f x
 
-type ArgConstrSmall  a    = (Typeable a, Typeable (TypeOf a), Typeable (TagOf a))
-type ArgConstr     c a    = (ArgConstrSmall  a,  Typeable c,  c (TypeOf a))
+type ArgConstrNC   ka    = (Typeable ka, Typeable (TagOf ka), Typeable (TypeOf ka))
+type ArgConstr   c ka    = (ArgConstrNC ka,  Typeable c, c (TypeOf ka))
 
-type ArgsConstrSmall as   = (All Typeable    as, Typeable as)
-type ArgsConstr    c as   = (ArgsConstrSmall as, Typeable c, All c as)
+type ArgsConstrNC  kas   = (All Typeable kas, Typeable kas)
+type ArgsConstr  c kas   = (ArgsConstrNC kas, Typeable c, All c (kas :: [*]))
 
-type PipeConstrSmall as o = (ArgsConstrSmall as, ArgConstrSmall o)
-type PipeConstr    c as o = (ArgsConstr  Top as, ArgConstr    c o)
+type PipeConstr  c kas o = (ArgsConstr Top kas, ArgConstr c o)
 
 -- | Result of running a pipe.
 type Result a = IO (Either Text a)
@@ -113,13 +105,13 @@ type family PipeFunTy (as :: [*]) (o :: *) :: * where
   PipeFunTy (x:xs) o = ReprOf x -> PipeFunTy xs o
 
 -- | Everything there is to be said about a pipe, except for its function.
-data Desc (c :: * -> Constraint) (as :: [*]) (o :: *) =
+data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
   Desc
   { pdName   :: !(Name Pipe)
   , pdSig    :: !Sig
   , pdStruct :: !Struct
   , pdRep    :: !SomeTypeRep -- ^ Full type of the pipe, App4-style.
-  , pdArgs   :: !(NP TypePair as)
+  , pdArgs   :: !(NP TypePair kas)
   , pdOut    :: !(TypePair o)
   }
   deriving (Generic)
@@ -242,8 +234,10 @@ class PipeOps p where
 -- * SomePipe
 --
 instance Functor SomePipe where
-  fmap f (G x) = G (f <$> x)
-  fmap f (T x) = T (f <$> x)
+  fmap f (GS x) = GS (f <$> x)
+  fmap f (TS x) = TS (f <$> x)
+  fmap f (G  x) = G  (f <$> x)
+  fmap f (T  x) = T  (f <$> x)
 
 somePipeName :: SomePipe p -> Name Pipe
 somePipeName (GPipeD name _ _ _) = coerceName name

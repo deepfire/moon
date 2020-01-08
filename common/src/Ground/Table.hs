@@ -147,22 +147,23 @@ instance Read SomeValue where
       Exists tag' -> readValue tag' dict
 
 
--- | Use the ground type table to reconstruct a possibly Ground-ed SomePipe.
-mkSomePipe
-  :: forall args out. (PipeConstr Top args out)
+-- | Use the ground type table to reconstruct a saturated,
+--   and possibly Ground-ed SomePipe.
+mkSaturatedPipe
+  :: forall args out. (PipeConstr Top args out, args ~ '[])
   => TypePair out -> NP TypePair args -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe ()
-mkSomePipe out args name sig struct rep =
+mkSaturatedPipe out args name sig struct rep =
   case lookupRep (someTypeRep $ Proxy @out) of
     Nothing -> nondescript
     Just (Dict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @(TypeOf out) of
         Nothing -> nondescript
         Just HRefl ->
-          G $ Pipe (Desc name sig struct rep args out :: Desc Ground args out) ()
+          GS $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Ground args out) ()
  where
    -- Unknown type, nothing useful we can recapture about it.
    nondescript =
-     T $ Pipe (Desc name sig struct rep args out :: Desc Top args out) ()
+     TS $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top    args out) ()
 
 instance Serialise (SomePipe ()) where
   encode p = withSomePipe p $ \(Pipe (Desc name sig struct rep args out
@@ -195,11 +196,12 @@ instance Serialise (SomePipe ()) where
     struct :: Struct      <- decode
     rep    :: SomeTypeRep <- decode
     pure $ withRecoveredTypePair (head xs) $
-      \out _ _ -> go xs $ mkSomePipe out SOP.Nil name sig struct rep
+      -- Start with a saturated pipe, and then build it up with arguments.
+      \out _ _ -> go xs $ mkSaturatedPipe out SOP.Nil name sig struct rep
    where
      go :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
         -> SomePipe () -> SomePipe ()
-     go [] sd = sd
+     go []     p = p
      go (x:xs) p =
        withSomePipe p $ \(Pipe (Desc{..} :: Desc c as o) _) ->
        withRecoveredTypePair x $
@@ -207,7 +209,7 @@ instance Serialise (SomePipe ()) where
           (_ :: Proxy k) (_ :: Proxy a)
          -> go xs . T $ Pipe
             (Desc pdName pdSig pdStruct pdRep (tip SOP.:* pdArgs) pdOut
-              :: Desc Top ((Type k a):as) o) ()
+             :: Desc Top (Type k a:as) o) ()
 
      withRecoveredTypePair
        :: forall b
