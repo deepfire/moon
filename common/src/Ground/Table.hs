@@ -147,6 +147,21 @@ instance Read SomeValue where
       Exists tag' -> readValue tag' dict
 
 
+withGroundTop
+  :: forall out b
+  .  Typeable out
+  => out
+  -> (forall a. Ground a => a -> b)
+  -> (forall a. Top    a => a -> b)
+  -> b
+withGroundTop out ground top =
+  case lookupRep (someTypeRep $ Proxy @out) of
+    Nothing -> top out
+    Just (Dict (_ :: Ground b' => Proxy b')) ->
+      case typeRep @b' `eqTypeRep` typeRep @out of
+        Nothing -> top out
+        Just HRefl -> ground out
+
 -- | Use the ground type table to reconstruct a saturated,
 --   and possibly Ground-ed SomePipe.
 mkSaturatedPipe

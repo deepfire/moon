@@ -25,30 +25,38 @@ apply
       . ( PipeConstr c kas o
         , kas ~ (Type k a : kas')
         )
+       -- how do we prove the tail is typeable?
+       -- why do we need the tail to be typeable?
+       -- ISTR there was something unavoidable, buy maybe
+       -- some discovery is in order once more?
       => Desc c kas o -> Value k a -> p -> p)
   -> SomePipe p
   -> SomeValue
   -> Either Text (SomePipe p)
-apply pf (G p) x = mkG <$> apply' pf p x
-apply pf (T p) x = mkT <$> apply' pf p x
+apply pf (G p) x = apply' pf p x <&> mkSomeGroundPipe
+apply pf (T p) x = apply' pf p x <&> mkSomeTopPipe
 
-class MkGoT kas where
-  mkG :: PipeConstr Ground kas o => Pipe Ground kas o p -> SomePipe p
-  mkT :: PipeConstr Top    kas o => Pipe Top    kas o p -> SomePipe p
+mkSomeGroundPipe
+  :: forall kas o p. (PipeConstr Ground kas o)
+  => Pipe Ground kas o p -> SomePipe p
+mkSomeGroundPipe p@(pdArgs . pDesc -> SOP.Nil) = GS p
+-- mkSomeGroundPipe out args@(_ SOP.:* _) name sig struct rep =
+--   G  $ Pipe (Desc name sig struct rep args    out :: Desc Ground args out) ()
 
-instance MkGoT '[] where
-  mkG = GS
-  mkT = TS
-
-instance kas ~ (Type k a : kas') => MkGoT kas where
-  mkG = G
-  mkT = T
+mkSomeTopPipe
+  :: forall kas o p. (PipeConstr Top kas o)
+  => Pipe Top kas o p -> SomePipe p
+mkSomeTopPipe p@(pdArgs . pDesc -> SOP.Nil) = TS p
+--   TS $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top    args out) ()
+-- mkSomeTopPipe out args@(_ SOP.:* _) name sig struct rep =
+--   T  $ Pipe (Desc name sig struct rep args    out :: Desc Top    args out) ()
 
 apply'
   :: forall c (a1k :: Con) (a1 :: *) (kas :: [*]) (kas' :: [*]) o p
   . ( PipeConstr c kas o
     , kas ~ (Type a1k a1:kas')
-    , Typeable kas', Typeable a1k, Typeable a1
+    -- , Typeable kas'
+    -- , Typeable a1k, Typeable a1
     )
   => (Desc c kas o -> Value a1k a1 -> p -> p)
   -> Pipe c kas o p
