@@ -4,8 +4,8 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeInType                 #-}
 module Data.Dict
-  ( Dict(..)
-  , Dicts
+  ( TyDict(..)
+  , TyDicts
   , lookupRep
   , lookupName
   , lookupNameRep
@@ -24,44 +24,48 @@ import           Data.Text                          (Text)
 import           Type.Reflection                    (SomeTypeRep, Typeable, someTypeRep)
 
 
-data Dict  (c :: Type -> Constraint) =
-  forall a. (c a, Typeable a) =>
-  Dict (Proxy a)
+--- In contrast, Data.SOP.Dict is:
+--
+-- data Dict  (c :: k -> Constraint) (a :: k) where
+--    Dict :: c a => Dict c a
 
-data Dicts (c :: Type -> Constraint) =
-  Dicts
-  { _byRep  :: (Map.Map SomeTypeRep (Dict c))
-  , _byName :: (Map.Map Text        (Dict c))
+data TyDict (c :: Type -> Constraint) where
+  TyDict :: (c a, Typeable a) => Proxy a -> TyDict c
+
+data TyDicts (c :: Type -> Constraint) =
+  TyDicts
+  { _byRep  :: (Map.Map SomeTypeRep (TyDict c))
+  , _byName :: (Map.Map Text        (TyDict c))
   }
 
-lookupRep :: forall (c :: Type -> Constraint). Dicts c -> SomeTypeRep -> Maybe (Dict c)
-lookupRep  (Dicts rep _name) = flip Map.lookup rep
+lookupRep :: forall (c :: Type -> Constraint). TyDicts c -> SomeTypeRep -> Maybe (TyDict c)
+lookupRep  (TyDicts rep _name) = flip Map.lookup rep
 
-lookupName :: forall (c :: Type -> Constraint). Dicts c -> Text -> Maybe (Dict c)
-lookupName (Dicts _rep name) = flip Map.lookup name
+lookupName :: forall (c :: Type -> Constraint). TyDicts c -> Text -> Maybe (TyDict c)
+lookupName (TyDicts _rep name) = flip Map.lookup name
 
-lookupNameRep :: forall (c :: Type -> Constraint). Dicts c -> Text -> Maybe SomeTypeRep
-lookupNameRep (Dicts _rep name) n =
-  (\case Dict (a :: Proxy a) -> someTypeRep a) <$> Map.lookup n name
+lookupNameRep :: forall (c :: Type -> Constraint). TyDicts c -> Text -> Maybe SomeTypeRep
+lookupNameRep (TyDicts _rep name) n =
+  (\case TyDict (a :: Proxy a) -> someTypeRep a) <$> Map.lookup n name
 
-empty :: Dicts c
-empty = Dicts mempty mempty
+empty :: TyDicts c
+empty = TyDicts mempty mempty
 
 insert
   :: forall c a. (c a, Typeable a)
   => Text
   -> Proxy a
-  -> Dicts c
-  -> Dicts c
-insert name a (Dicts repM nameM) = Dicts
-  (Map.insert (someTypeRep a) (Dict a)  repM)
-  (Map.insert name            (Dict a) nameM)
+  -> TyDicts c
+  -> TyDicts c
+insert name a (TyDicts repM nameM) = TyDicts
+  (Map.insert (someTypeRep a) (TyDict a)  repM)
+  (Map.insert name            (TyDict a) nameM)
 
-link :: forall c a. (c a, Typeable a) => Proxy a -> (SomeTypeRep, Dict c)
-link p = (someTypeRep p, Dict p)
+link :: forall c a. (c a, Typeable a) => Proxy a -> (SomeTypeRep, TyDict c)
+link p = (someTypeRep p, TyDict p)
 
-reps :: Dicts c -> [SomeTypeRep]
-reps (Dicts reps _) = Map.keys reps
+reps :: TyDicts c -> [SomeTypeRep]
+reps (TyDicts reps _) = Map.keys reps
 
-names :: Dicts c -> [Text]
-names (Dicts _ names) = Map.keys names
+names :: TyDicts c -> [Text]
+names (TyDicts _ names) = Map.keys names

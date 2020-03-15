@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableSuperClasses #-}
+{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
 module Pipe.Types
   ( SomePipeSpace
   , PipeSpace(..)
@@ -8,6 +10,8 @@ module Pipe.Types
   , somePipeName
   , somePipeSig
   , withSomePipe
+  , mapSomePipe
+  , pipeArityCase
   , ArgConstr
   , ArgsConstr
   , PipeConstr
@@ -37,6 +41,7 @@ import           Codec.Serialise
 import           Codec.CBOR.Encoding                (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding                (decodeListLen, decodeWord)
 import           Data.Dynamic
+import qualified Data.SOP                         as SOP
 import qualified Data.Text                        as T
 import           Type.Reflection                    ((:~~:)(..), eqTypeRep)
 import qualified Data.Map.Monoidal.Strict         as MMap
@@ -65,37 +70,70 @@ data Pipe (c :: * -> Constraint) (kas :: [*]) (o :: *) (p :: *) where
 -- | A wrapped cartesian product of all possible kinds of 'Pipe's:
 --   - wire-transportable types (constrained 'Ground') vs. 'Top'-(un-)constrained
 --   - saturated vs. unsaturated.
-data SomePipe p
-  = forall o
-    .     (PipeConstr  Ground '[] o)
-    => GS (Pipe        Ground '[] o p)
-  | forall o
-    .     (PipeConstr  Top    '[] o)
-    => TS (Pipe        Top    '[] o p)
-  | forall kas o k a kas'
-    .     (PipeConstr  Ground kas o
-          , kas ~ (Type k a : kas')
-          )
-    => G  (Pipe        Ground kas o p)
-  | forall kas o k a kas'
-    .     (PipeConstr  Top    kas o
-          , kas ~ (Type k a : kas')
-          )
-    => T  (Pipe        Top    kas o p)
+data SomePipe (p :: *)
+  = forall (kas :: [*]) (o :: *)
+    .     (PipeConstr  Ground kas o)
+    => G  (Pipe        Ground (kas :: [*]) (o :: *) (p :: *))
+  | forall (kas :: [*]) (o :: *)
+    .     (PipeConstr  Top    kas o)
+    => T  (Pipe        Top    (kas :: [*]) (o :: *) (p :: *))
 
-withSomePipe :: SomePipe p -> (forall c kas o. Pipe c kas o p -> a) -> a
-withSomePipe (GS x) f = f x
-withSomePipe (TS x) f = f x
-withSomePipe (G  x) f = f x
-withSomePipe (T  x) f = f x
+withSomePipe
+  :: forall (p :: *) (a :: *)
+  .  SomePipe p
+  -> (forall (c :: * -> Constraint) (kas :: [*]) (o :: *)
+      . (PipeConstr c kas o)
+      => Pipe c kas o p -> a)
+  -> a
+withSomePipe (G x) = ($ x)
+withSomePipe (T x) = ($ x)
 
-type ArgConstrNC   ka    = (Typeable ka, Typeable (TagOf ka), Typeable (TypeOf ka))
-type ArgConstr   c ka    = (ArgConstrNC ka,  Typeable c, c (TypeOf ka))
+mapSomePipe
+  :: forall (kas' :: [*]) (p :: *)
+  .  (All Typeable kas', All PairTypeable kas')
+  => (forall (c :: * -> Constraint) (kas :: [*]) (o :: *)
+      . (PipeConstr c kas o, PipeConstr c kas' o)
+      => Pipe c kas o p -> Pipe c kas' o p)
+  -> SomePipe p
+  -> SomePipe p
+mapSomePipe f (G x) = G (f x)
+mapSomePipe f (T x) = T (f x)
 
-type ArgsConstrNC  kas   = (All Typeable kas, Typeable kas)
-type ArgsConstr  c kas   = (ArgsConstrNC kas, Typeable c, All c (kas :: [*]))
+pipeArityCase
+  :: forall (c :: * -> Constraint) (kas :: [*]) (o :: *) (p :: *) (a :: *)
+  . (PipeConstr c kas o)
+  => Pipe c kas o p
+  -> (forall (kas :: [*])
+      . (PipeConstr c kas o, kas ~ '[])
+      => Pipe c '[] o p -> a)
+  -> (forall (ka :: *) (kas' :: [*])
+      . (PipeConstr c kas o, kas ~ (ka:kas'))
+      => Pipe c kas o p -> a)
+  -> a
+pipeArityCase p@(Pipe (Desc { pdArgs = SOP.Nil      }) _) nil _  = nil  p
+pipeArityCase p@(Pipe (Desc { pdArgs = (_ SOP.:* _) }) _) _ cons = cons p
 
-type PipeConstr  c kas o = (ArgsConstr Top kas, ArgConstr c o)
+class    (Typeable (TagOf ka), Typeable (TypeOf ka)) => PairTypeable (ka :: *)
+instance (Typeable (TagOf ka), Typeable (TypeOf ka)) => PairTypeable (ka :: *)
+
+type ArgConstrNC
+  (ka :: *)
+ = (Typeable ka, Typeable (TagOf ka), Typeable (TypeOf ka))
+
+type ArgConstr
+  (c :: * -> Constraint)
+  (ka :: *)
+ = (ArgConstrNC ka, Typeable c, c (TypeOf ka))
+
+type ArgsConstr
+  (kas :: [*])
+ = (All Typeable kas, All PairTypeable kas, All Top (kas :: [*]))
+
+type PipeConstr
+  (c :: * -> Constraint)
+  (kas :: [*])
+  (o :: *)
+ = (ArgsConstr kas, ArgConstr c o)
 
 -- | Result of running a pipe.
 type Result a = IO (Either Text a)
@@ -234,8 +272,6 @@ class PipeOps p where
 -- * SomePipe
 --
 instance Functor SomePipe where
-  fmap f (GS x) = GS (f <$> x)
-  fmap f (TS x) = TS (f <$> x)
   fmap f (G  x) = G  (f <$> x)
   fmap f (T  x) = T  (f <$> x)
 
@@ -282,7 +318,9 @@ instance Ord (SomePipe ()) where
 --
 withCompatiblePipes
   :: forall c1 c2 as1 as2 o1 o2 p a
-  .  (PipeConstr c1 as1 o1, PipeConstr c2 as2 o2)
+  .  ( Typeable as1, Typeable as2
+     , Typeable o1, Typeable o2
+     , Typeable c1, Typeable c2)
   => (forall c as o. Pipe c as o p -> Pipe c as o p -> a)
   -> Pipe c1 as1 o1 p
   -> Pipe c2 as2 o2 p
@@ -297,12 +335,18 @@ withCompatiblePipes f l r
 instance Functor (Pipe c as o) where
   fmap f (Pipe d x) = Pipe d (f x)
 
-pattern PipeD :: (PipeConstr c as o)
+pattern PipeD ::
+                 ( ArgConstr c o
+                 , All Typeable kas
+                 , All PairTypeable kas
+                 , All Top (kas :: [*])
+                 )
+                 -- (PipeConstr c as o)
               => Name Pipe -> Sig -> Struct -> SomeTypeRep
-              -> NP TypePair as
+              -> NP TypePair kas
               -> TypePair o
               -> p
-              -> Pipe c as o p
+              -> Pipe c kas o p
 pattern PipeD name sig str rep args out p
               <- Pipe (Desc name sig str rep args out) p
 

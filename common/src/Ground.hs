@@ -1,5 +1,5 @@
 module Ground
-  ( Dict(..)
+  ( TyDict(..)
   , Some(..)
   , module Data.Some
   , module Type

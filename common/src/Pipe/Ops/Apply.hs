@@ -33,32 +33,34 @@ apply
   -> SomePipe p
   -> SomeValue
   -> Either Text (SomePipe p)
-apply pf (G p) x = apply' pf p x <&> mkSomeGroundPipe
-apply pf (T p) x = apply' pf p x <&> mkSomeTopPipe
+-- apply pf (G p) x = apply' pf p x <&> G
+-- apply pf (T p) x = apply' pf p x <&> T
+apply pf sp x = withSomePipe sp $ \p -> pipeArityCase p
+  (const $ Left "Cannot apply value to a saturated pipe.")
+  $ \unsat -> SomePipe <$> apply' pf unsat x
 
-mkSomeGroundPipe
-  :: forall kas o p. (PipeConstr Ground kas o)
-  => Pipe Ground kas o p -> SomePipe p
-mkSomeGroundPipe p@(pdArgs . pDesc -> SOP.Nil) = GS p
+
+-- mkSomeGroundPipe
+--   :: forall kas o p. (PipeConstr Ground kas o)
+--   => Pipe Ground kas o p -> SomePipe p
+-- mkSomeGroundPipe p@(pdArgs . pDesc -> SOP.Nil) = G p
 -- mkSomeGroundPipe out args@(_ SOP.:* _) name sig struct rep =
 --   G  $ Pipe (Desc name sig struct rep args    out :: Desc Ground args out) ()
 
-mkSomeTopPipe
-  :: forall kas o p. (PipeConstr Top kas o)
-  => Pipe Top kas o p -> SomePipe p
-mkSomeTopPipe p@(pdArgs . pDesc -> SOP.Nil) = TS p
+-- mkSomeTopPipe
+--   :: forall kas o p. (PipeConstr Top kas o)
+--   => Pipe Top kas o p -> SomePipe p
+-- mkSomeTopPipe p@(pdArgs . pDesc -> SOP.Nil) = T p
 --   TS $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top    args out) ()
 -- mkSomeTopPipe out args@(_ SOP.:* _) name sig struct rep =
 --   T  $ Pipe (Desc name sig struct rep args    out :: Desc Top    args out) ()
 
 apply'
-  :: forall c (a1k :: Con) (a1 :: *) (kas :: [*]) (kas' :: [*]) o p
+  :: forall c (k1 :: Con) (a1 :: *) (kas :: [*]) (kas' :: [*]) o p
   . ( PipeConstr c kas o
-    , kas ~ (Type a1k a1:kas')
-    -- , Typeable kas'
-    -- , Typeable a1k, Typeable a1
+    , kas ~ (Type k1 a1:kas')
     )
-  => (Desc c kas o -> Value a1k a1 -> p -> p)
+  => (Desc c kas o -> Value k1 a1 -> p -> p)
   -> Pipe c kas o p
   -> SomeValue
   -> Either Text (Pipe c kas' o p)
@@ -68,14 +70,15 @@ apply' pf
   | Nothing <- typeRep @k `eqTypeRep` kb'
   = Left $ "Apply: Con mismatch: "   <> show2 "ka" (typeRep @k) "kb'" kb'
 
-  | Nothing <- typeRep  @a `eqTypeRep`  b'
-  = Left $ "Apply: Value mismatch: " <> show2  "a" (typeRep  @a)  "b'"  b'
+  | Nothing <- typeRep @a `eqTypeRep`  b'
+  = Left $ "Apply: Value mismatch: " <> show2  "a" (typeRep @a)  "b'"  b'
 
   | Just HRefl <- typeRep @k `eqTypeRep` kb'
-  , Just HRefl <- typeRep @k `eqTypeRep` typeRep @a1k
+  , Just HRefl <- typeRep @k `eqTypeRep` typeRep @k1
   , Just HRefl <- typeRep @a `eqTypeRep`  b'
   , Just HRefl <- typeRep @a `eqTypeRep` typeRep @a1
-  = doApply pf f v
+  = case spineConstraint of
+      (Dict :: Dict Typeable kas') -> doApply pf f v
   | otherwise
   = Left "Apply: fall through."
   where

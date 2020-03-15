@@ -1,8 +1,14 @@
 module Data.Type.List
   ( Append
+  , Dict(..)
   , Reverse
+  , spineConstraint
   )
 where
+
+import Data.SOP (All(..), NP)
+import Data.SOP.Dict (Dict(..))
+import Data.Typeable
 
 -- Stolen from: type-list-0.5.0.0
 -- |Helper type family for 'Reverse'.
@@ -17,3 +23,6 @@ type family Reverse xs where
 
 type family Append x xs where
     Append x xs = Reverse (x : Reverse xs)
+
+spineConstraint :: forall k (xs :: [k]) . (Typeable k, All Typeable xs) => Dict Typeable xs
+spineConstraint = cpara_SList (Proxy @Typeable) Dict (\ Dict -> Dict)

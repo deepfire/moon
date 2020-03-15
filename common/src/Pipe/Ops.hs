@@ -27,6 +27,7 @@ import           Type.Reflection
 
 import Basis
 import Pipe.Expr
+import Pipe.Ops.Apply
 import Pipe.Types
 import Pipe.Zipper
 import Type
