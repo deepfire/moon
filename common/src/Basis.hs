@@ -5,6 +5,7 @@ module Basis
   , module Control.Monad
   , module Data.Bifunctor
   -- , module Data.Coerce
+  , module Data.Dict
   , module Data.Dynamic
   , module Data.Either.Extra
   , module Data.Foldable
@@ -20,10 +21,13 @@ module Basis
   , module Data.Proxy
   , module Data.Sequence
   , module Data.Set.Monad
+  , module Data.SOP.Dict
   , module Data.SOP.Constraint
   , module Data.String
   , module Data.Text
   , module Data.Tuple.Extra
+  , module Data.Type.List
+  , module Data.TypeRep
   , module Data.Witherable
   , module Debug.Trace
   , module Generics.SOP
@@ -40,6 +44,7 @@ import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, firs
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (join, void)
 import Data.Bifunctor             (bimap)
+import Data.Dict                  (TyDict(..), TyDicts(..))
 import Data.Dynamic               (Dynamic(..), Typeable)
 import Data.Either.Extra          (mapLeft, mapRight, fromLeft, fromRight, eitherToMaybe, maybeToEither)
 import Data.Function              ((&), on)
@@ -55,13 +60,16 @@ import Data.Orphanage
 import Data.Proxy                 (Proxy(..))
 import Data.Sequence              (Seq)
 import Data.Set.Monad             (Set)
+import Data.SOP.Dict              (Dict(..))
 import Data.SOP.Constraint        (Head, Tail)
 import Data.String                (IsString)
 import Data.Text                  (Text, pack, unpack)
 import Data.Tuple.Extra           (fst3, snd3, thd3)
+import Data.Type.List             (spineConstraint)
+import Data.TypeRep               (showSomeTypeRep, showTypeRep)
 import Data.Witherable            (catMaybes, mapMaybe, wither)
 import Debug.Trace                (trace)
-import Generics.SOP               (All, All2, Compose, NP, NS, Top)
+import Generics.SOP               (All, All2, Compose, NP(..), NS, Top)
 import Text.Printf                (printf)
 import Text.Read                  (Read(..))
 import Type.Reflection            (TypeRep, SomeTypeRep(..), someTypeRep, typeRep)

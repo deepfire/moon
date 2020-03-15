@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableSuperClasses #-}
+{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
 module Pipe.Types
   ( SomePipeSpace
   , PipeSpace(..)
@@ -8,8 +10,8 @@ module Pipe.Types
   , somePipeName
   , somePipeSig
   , withSomePipe
+  , somePipeUncons
   , ArgConstr
-  , ArgsConstr
   , PipeConstr
   , PipeFunTy
   -- , PipePairFunTy
@@ -19,8 +21,11 @@ module Pipe.Types
   , pipeName
   , pipeStruct
   , pipeRep
+  , somePipeRep
   , showPipe
   , showPipeP
+  , showLR
+  , showLRP
   , Desc(..)
   , showDesc
   , pattern PipeD
@@ -37,6 +42,7 @@ import           Codec.Serialise
 import           Codec.CBOR.Encoding                (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding                (decodeListLen, decodeWord)
 import           Data.Dynamic
+import qualified Data.SOP                         as SOP
 import qualified Data.Text                        as T
 import           Type.Reflection                    ((:~~:)(..), eqTypeRep)
 import qualified Data.Map.Monoidal.Strict         as MMap
@@ -62,40 +68,104 @@ data Pipe (c :: * -> Constraint) (kas :: [*]) (o :: *) (p :: *) where
     , p     :: p
     } -> Pipe c kas o p
 
+pipeName :: (PipeConstr c as o) => Pipe c as o p -> Name Pipe
+pipeName   (PipeD name _ _ _ _ _ _)   = name
+
+pipeSig :: (PipeConstr c as o) => Pipe c as o p -> Sig
+pipeSig   (PipeD _ sig _ _ _ _ _)    = sig
+
+pipeStruct :: (PipeConstr c as o) => Pipe c as o p -> Struct
+pipeStruct   (PipeD _ _ struct _ _ _ _) = struct
+
+pipeRep :: (PipeConstr c as o) => Pipe c as o p -> SomeTypeRep
+pipeRep   (PipeD _ _ _ rep _ _ _)    = rep
+
+showPipe, showPipeP :: Pipe c as o p -> Text
+showPipe  Pipe{pDesc} = showDesc  pDesc
+showPipeP Pipe{pDesc} = showDescP pDesc
+
+showLR :: Text -> Text -> Text
+showLR l r = "left "<>l<>", right "<>r
+
+showLRP :: Pipe c1 as1 o1 Dynamic -> Pipe c2 as2 o2 Dynamic -> Text
+showLRP l r = showLR (showPipe l) (showPipe r)
+
+
 -- | A wrapped cartesian product of all possible kinds of 'Pipe's:
 --   - wire-transportable types (constrained 'Ground') vs. 'Top'-(un-)constrained
 --   - saturated vs. unsaturated.
-data SomePipe p
-  = forall o
-    .     (PipeConstr  Ground '[] o)
-    => GS (Pipe        Ground '[] o p)
-  | forall o
-    .     (PipeConstr  Top    '[] o)
-    => TS (Pipe        Top    '[] o p)
-  | forall kas o k a kas'
-    .     (PipeConstr  Ground kas o
-          , kas ~ (Type k a : kas')
-          )
-    => G  (Pipe        Ground kas o p)
-  | forall kas o k a kas'
-    .     (PipeConstr  Top    kas o
-          , kas ~ (Type k a : kas')
-          )
-    => T  (Pipe        Top    kas o p)
+data SomePipe (p :: *)
+  = forall (kas :: [*]) (o :: *)
+    .     (PipeConstr  Ground kas o)
+    => G  (Pipe        Ground (kas :: [*]) (o :: *) (p :: *))
+  | forall (kas :: [*]) (o :: *)
+    .     (PipeConstr  Top    kas o)
+    => T  (Pipe        Top    (kas :: [*]) (o :: *) (p :: *))
 
-withSomePipe :: SomePipe p -> (forall c kas o. Pipe c kas o p -> a) -> a
-withSomePipe (GS x) f = f x
-withSomePipe (TS x) f = f x
-withSomePipe (G  x) f = f x
-withSomePipe (T  x) f = f x
+somePipeName :: SomePipe p -> Name Pipe
+somePipeName (GPipeD name _ _ _) = coerceName name
+somePipeName (TPipeD name _ _ _) = coerceName name
 
-type ArgConstrNC   ka    = (Typeable ka, Typeable (TagOf ka), Typeable (TypeOf ka))
-type ArgConstr   c ka    = (ArgConstrNC ka,  Typeable c, c (TypeOf ka))
+somePipeSig :: SomePipe p -> Sig
+somePipeSig  (GPipeD _ sig _ _) = sig
+somePipeSig  (TPipeD _ sig _ _) = sig
 
-type ArgsConstrNC  kas   = (All Typeable kas, Typeable kas)
-type ArgsConstr  c kas   = (ArgsConstrNC kas, Typeable c, All c (kas :: [*]))
+somePipeRep :: SomePipe p -> SomeTypeRep
+somePipeRep p = withSomePipe p pipeRep
 
-type PipeConstr  c kas o = (ArgsConstr Top kas, ArgConstr c o)
+withSomePipe
+  :: forall (p :: *) (a :: *)
+  .  SomePipe p
+  -> (forall (c :: * -> Constraint) (kas :: [*]) (o :: *)
+      . (PipeConstr c kas o)
+      => Pipe c kas o p -> a)
+  -> a
+withSomePipe (G x) = ($ x)
+withSomePipe (T x) = ($ x)
+
+withCompatiblePipes
+  :: forall c1 c2 as1 as2 o1 o2 p a
+  .  ( Typeable as1, Typeable as2
+     , Typeable o1, Typeable o2
+     , Typeable c1, Typeable c2)
+  => (forall c as o. Pipe c as o p -> Pipe c as o p -> a)
+  -> Pipe c1 as1 o1 p
+  -> Pipe c2 as2 o2 p
+  -> Maybe a
+withCompatiblePipes f l r
+  | Just HRefl <- typeRep @as1 `eqTypeRep` typeRep @as2
+  , Just HRefl <- typeRep @o1  `eqTypeRep` typeRep @o2
+  , Just HRefl <- typeRep @c1  `eqTypeRep` typeRep @c2
+  = Just $ f l r
+  | otherwise = Nothing
+
+somePipeUncons
+  :: forall (p :: *) (a :: *) (e :: *)
+  . ()
+  => SomePipe p
+  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
+      . (PipeConstr c kas o, kas ~ '[])
+      => Pipe c '[] o p -> e)
+  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
+             (k :: Con) (a :: *) (kas' :: [*])
+      . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (Type k a:kas'))
+      => Pipe c kas o p -> Either e (Pipe c kas' o p))
+  -> Either e (SomePipe p)
+somePipeUncons (G p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _  = Left $ nil p
+somePipeUncons (G p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons = G <$> cons p
+somePipeUncons (T p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _  = Left $ nil p
+somePipeUncons (T p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons = T <$> cons p
+
+class    (ka ~ (Type (TagOf ka) (TypeOf ka)), Typeable (TagOf ka), Typeable (TypeOf ka), Typeable ka, Top ka) => IsType (ka :: *)
+instance (ka ~ (Type (TagOf ka) (TypeOf ka)), Typeable (TagOf ka), Typeable (TypeOf ka), Typeable ka, Top ka) => IsType (ka :: *)
+
+type ArgConstr (c :: * -> Constraint) (ka :: *)
+  = (IsType ka, Typeable c, c (TypeOf ka))
+
+type PipeConstr (c :: * -> Constraint) (kas :: [*]) (o :: *)
+  = ( All IsType kas, ArgConstr c o
+    , All Typeable kas -- why do we need this, when we have IsType?
+    )
 
 -- | Result of running a pipe.
 type Result a = IO (Either Text a)
@@ -116,6 +186,10 @@ data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
   }
   deriving (Generic)
 
+showDesc, showDescP :: Desc c as o -> Text
+showDesc  p = pack $ show (pdName p) <>" :: "<>show (pdSig p)
+showDescP = ("("<>) . (<>")") . showDesc
+
 -- | Sig:  serialisable type signature
 data Sig =
   Sig
@@ -123,6 +197,9 @@ data Sig =
   , sOut  :: SomeType
   }
   deriving (Eq, Generic, Ord)
+
+showSig :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
+showSig (Sig as o) = T.intercalate " ⇨ " $ showSomeType <$> (as <> [o])
 
 -- | Struct: Pipe's internal structure, as a graph of type transformations.
 newtype Struct = Struct (G.Graph SomeType) deriving (Eq, Generic, Ord, Show)
@@ -139,12 +216,7 @@ data PipeSpace a = PipeSpace
   , psTo    :: !(MonoidalMap SomeTypeRep (Set (QName Pipe)))
   } deriving (Eq, Ord)
 
-instance Functor PipeSpace where
-  fmap f ps@PipeSpace{psSpace} =
-    ps { psSpace = f <$> psSpace }
-
-instance (Ord a, Serialise a, Typeable a)
-       => Serialise (PipeSpace a) where
+instance (Ord a, Serialise a, Typeable a) => Serialise (PipeSpace a) where
   encode PipeSpace{psName, psSpace, psFrom, psTo} =
     encodeListLen 5
     <> encodeWord 2177
@@ -166,12 +238,6 @@ instance (Ord a, Serialise a, Typeable a)
            <>" len="<> show len
            <>" tag="<> show tag
            <>" rep="<> show (typeRep @(PipeSpace a))
-
-instance Typeable a => Read (PipeSpace a) where readPrec = failRead
-
-instance Show (PipeSpace a) where
-  show PipeSpace{psName, psSpace} =
-    "(PipeSpace "<>show psName<>" "<>show (length $ spaceEntries psSpace)<>" entries)"
 
 instance Semigroup (PipeSpace a) where
   l <> r = PipeSpace
@@ -225,44 +291,27 @@ data Ops p where
       -> p
     } -> Ops p
 
+-- This allows pipe operations (apply, compose, traverse) to be
+-- performed over the HKDT.
 class PipeOps p where
   pipeOps   :: Ops p
 
 --------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- * SomePipe
+-- * Important instances
 --
-instance Functor SomePipe where
-  fmap f (GS x) = GS (f <$> x)
-  fmap f (TS x) = TS (f <$> x)
-  fmap f (G  x) = G  (f <$> x)
-  fmap f (T  x) = T  (f <$> x)
-
-somePipeName :: SomePipe p -> Name Pipe
-somePipeName (GPipeD name _ _ _) = coerceName name
-somePipeName (TPipeD name _ _ _) = coerceName name
-
-somePipeSig :: SomePipe p -> Sig
-somePipeSig  (GPipeD _ sig _ _) = sig
-somePipeSig  (TPipeD _ sig _ _) = sig
-
-instance Read (SomePipe ()) where
-  readPrec = failRead
-
---------------------------------------------------------------------------------
--- * Pipe
---
--- XXX: potentially problematic instance
 instance Eq (Pipe c as o ()) where
+  -- XXX: potentially problematic instance
   (==) = (==) `on` pDesc
 
--- XXX: potentially problematic instance
 instance Ord (Pipe c as o ()) where
+  -- XXX: potentially problematic instance
   compare = compare `on` pDesc
 
--- XXX: potentially problematic instance
+instance Functor (Pipe c as o) where
+  fmap f (Pipe d x) = Pipe d (f x)
+
 instance Eq (SomePipe ()) where
+  -- XXX: potentially problematic instance
   l' == r' =
     withSomePipe l' $ \(pDesc -> l) ->
     withSomePipe r' $ \(pDesc -> r) ->
@@ -270,39 +319,40 @@ instance Eq (SomePipe ()) where
       (pdName   l  == pdName     r) &&
       (pdStruct l  == pdStruct   r)
 
--- XXX: potentially problematic instance
 instance Ord (SomePipe ()) where
+  -- XXX: potentially problematic instance
   l' `compare` r' =
     withSomePipe l' $ \(pDesc -> l) ->
     withSomePipe r' $ \(pDesc -> r) ->
       (pdRep l `compare` pdRep    r)
 
-
--- * SomePipe ()
+instance Functor SomePipe where
+  fmap f (G x) = G (f <$> x)
+  fmap f (T x) = T (f <$> x)
+
+instance Functor PipeSpace where
+  fmap f ps@PipeSpace{psSpace} =
+    ps { psSpace = f <$> psSpace }
+
+--------------------------------------------------------------------------------
+-- * SomePipe
 --
-withCompatiblePipes
-  :: forall c1 c2 as1 as2 o1 o2 p a
-  .  (PipeConstr c1 as1 o1, PipeConstr c2 as2 o2)
-  => (forall c as o. Pipe c as o p -> Pipe c as o p -> a)
-  -> Pipe c1 as1 o1 p
-  -> Pipe c2 as2 o2 p
-  -> Maybe a
-withCompatiblePipes f l r
-  | Just HRefl <- typeRep @as1 `eqTypeRep` typeRep @as2
-  , Just HRefl <- typeRep @o1  `eqTypeRep` typeRep @o2
-  , Just HRefl <- typeRep @c1  `eqTypeRep` typeRep @c2
-  = Just $ f l r
-  | otherwise = Nothing
+instance Read (SomePipe ()) where
+  readPrec = failRead
 
-instance Functor (Pipe c as o) where
-  fmap f (Pipe d x) = Pipe d (f x)
-
-pattern PipeD :: (PipeConstr c as o)
+pattern PipeD ::
+                 ( ArgConstr c o
+                 , All Typeable kas
+                 , All IsType kas
+                 , All Top (kas :: [*])
+                 )
+                 -- (PipeConstr c as o)
               => Name Pipe -> Sig -> Struct -> SomeTypeRep
-              -> NP TypePair as
+              -> NP TypePair kas
               -> TypePair o
               -> p
-              -> Pipe c as o p
+              -> Pipe c kas o p
+-- TODO:  get rid of this, the added benefit is too small.
 pattern PipeD name sig str rep args out p
               <- Pipe (Desc name sig str rep args out) p
 
@@ -331,48 +381,23 @@ instance NFData (Desc c as o) where
     rnf x `seq` rnf y `seq` rnf z `seq` rnf w `seq` rnf u
 instance NFData Struct
 
-instance Show (Desc c as o) where show = unpack . showDesc
-
-showDesc, showDescP :: Desc c as o -> Text
-showDesc  p = pack $ show (pdName p) <>" :: "<>show (pdSig p)
-showDescP = ("("<>) . (<>")") . showDesc
-
-pipeName :: (PipeConstr c as o)
-         => Pipe c as o p -> Name Pipe
-pipeName   (PipeD name _ _ _ _ _ _)   = name
-
-pipeSig :: (PipeConstr c as o)
-        => Pipe c as o p -> Sig
-pipeSig   (PipeD _ sig _ _ _ _ _)    = sig
-
-pipeStruct :: (PipeConstr c as o)
-           => Pipe c as o p -> Struct
-pipeStruct   (PipeD _ _ struct _ _ _ _) = struct
-
-pipeRep :: (PipeConstr c as o)
-        => Pipe c as o p -> SomeTypeRep
-pipeRep   (PipeD _ _ _ rep _ _ _)    = rep
-
-showPipe, showPipeP :: Pipe c as o p -> Text
-showPipe  Pipe{pDesc} = showDesc  pDesc
-showPipeP Pipe{pDesc} = showDescP pDesc
-
-
--- * Sig
---
-showSig :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSig (Sig as o) = T.intercalate " ⇨ " $ showSomeType <$> (as <> [o])
-
---------------------------------------------------------------------------------
 {-------------------------------------------------------------------------------
-  Boring.
+  Really boring.
 -------------------------------------------------------------------------------}
+instance Typeable a => Read (PipeSpace a) where readPrec = failRead
+
+instance Show (PipeSpace a) where
+  show PipeSpace{psName, psSpace} =
+    "(PipeSpace "<>show psName<>" "<>show (length $ spaceEntries psSpace)<>" entries)"
+
 instance Show (SomePipe p) where
   show (G p) = "GPipe "<>unpack (showPipe p)
   show (T p) = "TPipe "<>unpack (showPipe p)
 
 instance Show (Pipe c as o p) where
   show p = "Pipe "<>unpack (showPipe p)
+
+instance Show (Desc c as o) where show = unpack . showDesc
 
 instance Show Sig where
   show x  =  "("<>T.unpack (showSig x)<>")"
@@ -383,3 +408,21 @@ instance Serialise Struct
 instance Read Struct where readPrec = failRead
 
 instance (Typeable c, Typeable as, Typeable o) => Read (Desc c as o) where readPrec = failRead
+
+--- A useless function : -/
+-- mapSomePipeEither
+--   :: forall (e :: *) (p :: *) -- (kas' :: [*])
+--   .  --(All Typeable kas', All PairTypeable kas')
+--      ()
+--   => SomePipe p
+--   -> (forall (c :: * -> Constraint) (kas :: [*]) (kas' :: [*]) (o :: *)
+--       . (PipeConstr c kas o, PipeConstr c kas' o)
+--       => (Proxy c -> NP (SOP.K ()) kas -> Proxy o -> NP (SOP.K ()) kas')
+--       -> Pipe c kas o p
+--       -> Either e (Pipe c kas' o p))
+--   -> Either e (SomePipe p)
+-- mapSomePipeEither (G x) f = G <$> f tf x
+--   where
+--     tf :: Proxy c -> NP (SOP.K ()) kas -> Proxy o -> NP (SOP.K ()) kas'
+--     tf c (_ SOP.:* xs) o = xs
+-- mapSomePipeEither (T x) f = T <$> f Proxy x

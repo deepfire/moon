@@ -1,5 +1,6 @@
 module Pipe.Ops.Apply
-  (apply
+  ( apply
+  , demo_apply
   )
 where
 
@@ -17,65 +18,67 @@ import Basis
 import Pipe.Expr
 import Pipe.Types
 import Pipe.Zipper
+import Pipe.Ops.Base
 import Pipe.Ops.Internal
 import Type
 
+demo_apply :: IO ()
+demo_apply = case apply appDyn pipe val of
+  Left e -> putStrLn . unpack $ "apply error: " <> e
+  Right p -> runPipe p >>= \case
+    Left e -> putStrLn . unpack $ "runtime error: " <> e
+    Right r -> pure ()
+ where
+   pipe :: SomePipe Dynamic
+   pipe = linkG "demo pipe" TPoint' TPoint'
+     ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
+
+   val :: SomeValue
+   val = SomeValue $ SomeKindValue TPoint $ VPoint ("demo!" :: String)
+
 apply
   :: (forall c kas kas' o k a
-      . ( PipeConstr c kas o
-        , kas ~ (Type k a : kas')
-        )
-       -- how do we prove the tail is typeable?
-       -- why do we need the tail to be typeable?
-       -- ISTR there was something unavoidable, buy maybe
-       -- some discovery is in order once more?
-      => Desc c kas o -> Value k a -> p -> p)
+      . ( PipeConstr c kas  o
+        , PipeConstr c kas' o
+        , kas ~ (Type k a : kas'))
+      => Desc c kas o -> Value k a -> p -> Either Text p)
   -> SomePipe p
   -> SomeValue
   -> Either Text (SomePipe p)
-apply pf (G p) x = apply' pf p x <&> mkSomeGroundPipe
-apply pf (T p) x = apply' pf p x <&> mkSomeTopPipe
-
-mkSomeGroundPipe
-  :: forall kas o p. (PipeConstr Ground kas o)
-  => Pipe Ground kas o p -> SomePipe p
-mkSomeGroundPipe p@(pdArgs . pDesc -> SOP.Nil) = GS p
--- mkSomeGroundPipe out args@(_ SOP.:* _) name sig struct rep =
---   G  $ Pipe (Desc name sig struct rep args    out :: Desc Ground args out) ()
-
-mkSomeTopPipe
-  :: forall kas o p. (PipeConstr Top kas o)
-  => Pipe Top kas o p -> SomePipe p
-mkSomeTopPipe p@(pdArgs . pDesc -> SOP.Nil) = TS p
---   TS $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top    args out) ()
--- mkSomeTopPipe out args@(_ SOP.:* _) name sig struct rep =
---   T  $ Pipe (Desc name sig struct rep args    out :: Desc Top    args out) ()
+apply pf sp x = somePipeUncons sp
+  (const "Cannot apply value to a saturated pipe.")
+  $ \unsat -> apply' pf unsat x
+              & mapLeft (\e -> e
+                          <> ".  Pipe rep: " <> showSomeTypeRep (somePipeRep sp)
+                          <> ", Value rep: " <> showSomeTypeRep (someValueSomeTypeRep x)
+                          <> ".")
 
 apply'
-  :: forall c (a1k :: Con) (a1 :: *) (kas :: [*]) (kas' :: [*]) o p
+  :: forall c (k :: Con) (a :: *) (kas :: [*]) (kas' :: [*]) o p
   . ( PipeConstr c kas o
-    , kas ~ (Type a1k a1:kas')
-    -- , Typeable kas'
-    -- , Typeable a1k, Typeable a1
+    , kas ~ (Type k a:kas')
     )
-  => (Desc c kas o -> Value a1k a1 -> p -> p)
+  => (Desc c kas o -> Value k a -> p -> Either Text p)
   -> Pipe c kas o p
   -> SomeValue
   -> Either Text (Pipe c kas' o p)
 apply' pf
-  f@(P _ _ (App4 _ kb' b' _ _) _ _ _)
-    (SomeValue (SomeKindValue _ (v :: Value k a) :: SomeKindValue a))
-  | Nothing <- typeRep @k `eqTypeRep` kb'
-  = Left $ "Apply: Con mismatch: "   <> show2 "ka" (typeRep @k) "kb'" kb'
+  f@(P _ _ ioa@(IOATyCons _ _ _ ka a _ _ _) _ _ _)
+    (SomeValue (SomeKindValue _ (v :: Value kv v) :: SomeKindValue v))
+  | Just e <- ioaTyConsInvalidity ioa
+  = Left $ "Apply: " <> e
 
-  | Nothing <- typeRep  @a `eqTypeRep`  b'
-  = Left $ "Apply: Value mismatch: " <> show2  "a" (typeRep  @a)  "b'"  b'
+  | Nothing <- typeRep @kv `eqTypeRep`  ka
+  = Left $ "Apply: Value mismatch: " <> show2 "kv" (typeRep @kv) "ka" ka
+  | Nothing <- typeRep @v  `eqTypeRep`  a
+  = Left $ "Apply: Con mismatch: "   <> show2  "v" (typeRep @v)   "a"  a
 
-  | Just HRefl <- typeRep @k `eqTypeRep` kb'
-  , Just HRefl <- typeRep @k `eqTypeRep` typeRep @a1k
-  , Just HRefl <- typeRep @a `eqTypeRep`  b'
-  , Just HRefl <- typeRep @a `eqTypeRep` typeRep @a1
-  = doApply pf f v
+  | Just HRefl <- typeRep @kv `eqTypeRep` ka
+  , Just HRefl <- typeRep @kv `eqTypeRep` typeRep @k
+  , Just HRefl <- typeRep @v  `eqTypeRep`  a
+  , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @a
+  = case spineConstraint of
+      (Dict :: Dict Typeable kas') -> doApply pf f v
   | otherwise
   = Left "Apply: fall through."
   where
@@ -88,65 +91,67 @@ apply' _ (P _ _ tr _ _ _) _ =
 -- | 'doApply': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 doApply
-  :: forall c as o ka a ra rb p
-   . ( PipeConstr c as o
-     , Typeable (Tail as))
-  => (Desc c as o -> Value ka a -> p -> p)
-  -> Pipe  c as o p
-  -> Value   ka a
-  -> Either Text (Pipe c (Tail as) o p)
+  :: forall c kas o k a ra rb p ka kass
+   . ( PipeConstr c kas o
+     , kas ~ (ka : kass))
+  => (Desc c kas o -> Value k a -> p -> Either Text p)
+  -> Pipe  c kas o p
+  -> Value   k a
+  -> Either Text (Pipe c (Tail kas) o p)
 doApply pf
-        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (a SOP.:* ass) o) f)
+        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (ka SOP.:* kass) o) f)
         v
-  = Right $ Pipe desc' (pf desc v f)
-  where desc'   = Desc name sig struct (SomeTypeRep rep) ass o
-        name    = Name $ "app-"<>rn
-        sig     = Sig (tail ras) ro
-        struct  = Struct rg -- XXX ???
-        rep     = typeRep :: TypeRep (IOA c (Tail as) o)
+  = case spineConstraint of
+      (Dict :: Dict Typeable kass) ->
+        let desc'   = Desc name sig struct (SomeTypeRep rep) kass o
+            name    = Name $ "app-"<>rn
+            sig     = Sig (tail ras) ro
+            struct  = Struct rg -- XXX ???
+            rep     = typeRep :: TypeRep (IOA c kass o)
+        in Pipe desc' <$> pf desc v f
 
 appDyn
-  :: forall c as ass (o :: *) f k a f'
-   . ( PipeConstr c as o
-     , as ~ (TypePair (Type k a):ass)
-     , Typeable ass
+  :: forall c kas kass (o :: *) f k a f'
+   . ( PipeConstr c kas o
+     , kas ~ (Type k a:kass)
      )
-  => Proxy o -> Desc c as o -> Value k a -> Dynamic
-  -> Dynamic
-appDyn _
-  Desc {pdArgs = (TypePair _ _-- (t :: Tag k) (a :: Proxy a)
-                 ) SOP.:* _}
-  v ioaDyn = Dynamic typeRep pipeFun
- where
-   -- We've already checked the dynamic:
-   pipeFun = case fromDynamic ioaDyn of
-     Just (ioa :: IOA c as o) -> applyIOA ioa v
+  => Desc c kas o -> Value k a -> Dynamic
+  -> Either Text Dynamic
+appDyn
+  Desc {pdArgs = (TypePair _ _) SOP.:* _}
+  v ioaDyn = case spineConstraint of
+      (Dict :: Dict Typeable kass) ->
+        Dynamic typeRep <$> case fromDynamic ioaDyn of
+          Just (ioa :: IOA c kas o) -> Right $ applyIOA ioa v
+          Nothing -> Left . pack $ printf
+            "appDyn: invariant failure: as %s, o %s, dyn %s"
+            (show $ typeRep @kas) (show $ typeRep @o) (show $ dynRep ioaDyn)
 
 applyIOA
-  :: forall c as ass o k a
-  .  ( PipeConstr c as o
-     , as ~ (TypePair (Type k a) : ass)
-     , Typeable ass -- IOA's PipeConstr wants it
+  :: forall c kas kass o k a
+  .  ( PipeConstr c kas o
+     , kas ~ (Type k a : kass)
      )
-  => IOA c as  o
+  => IOA c kas  o
   -> Value k a
-  -> IOA c ass o
+  -> IOA c kass o
 applyIOA
-  (IOA (f :: PipeFunTy (TypePair (Type k a):ass) o)
+  (IOA (f :: PipeFunTy (Type k a:ass) o)
     c as o
-  ) v =
-  (IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
-    c (Proxy @ass) (Proxy @o))
+  ) v = case spineConstraint of
+  (Dict :: Dict Typeable kas) ->
+    (IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
+     c (Proxy @ass) (Proxy @o))
 
 -- | 'applyPipeFun': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 applyPipeFun'
-  :: forall (as :: [*]) (o :: *) (k :: Con) (a :: *)
-  .  PipeFunTy (TypePair (Type k a):as) o
-  -> Proxy as
+  :: forall (kas :: [*]) (o :: *) (k :: Con) (a :: *)
+  .  PipeFunTy (Type k a:kas) o
+  -> Proxy kas
   -> Proxy o
   -> Value k a
-  -> PipeFunTy as o
+  -> PipeFunTy kas o
 applyPipeFun' f _ _ = \case
   VPoint x -> f x
   VList  x -> f x

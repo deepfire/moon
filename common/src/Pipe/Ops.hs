@@ -27,6 +27,7 @@ import           Type.Reflection
 
 import Basis
 import Pipe.Expr
+import Pipe.Ops.Apply
 import Pipe.Types
 import Pipe.Zipper
 import Type
@@ -149,124 +150,6 @@ assemble Ops{app, comp, trav} = go
     go (PComp l         r)          = join $ compose comp <$> (go l) <*> (go r)
 
     go PVal{} = Left "Processing a value should never happen."
-
-
--- * Constructors
---
-genG
-  :: forall kt tt
-  .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Ground tt)
-  => Name Pipe
-  -> Type kt tt
-  -> Result (Repr kt tt)
-  -> SomePipe Dynamic
-genG n to pf = G $ gen' n to pf
-
-gen
-  :: forall kt tt
-  .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt)
-  => Name Pipe
-  -> Type kt tt
-  -> Result (Repr kt tt)
-  -> SomePipe Dynamic
-gen n to pf = T $ gen' n to pf
-
-linkG
-  :: forall kf tf kt tt
-  . ( ReifyTag kf,ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
-    , Typeable kf, Typeable tf, Typeable kt
-    , Ground tt)
-  => Name Pipe
-  -> Type kf tf
-  -> Type kt tt
-  -> (Repr kf tf -> Result (Repr kt tt))
-  -> SomePipe Dynamic
-linkG n from to pf = G $ link' n from to pf
-
-link
-  :: forall kf tf kt tt
-  . ( ReifyTag kf, ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
-    , Typeable kf, Typeable tf, Typeable kt
-    , Typeable tt)
-  => Name Pipe
-  -> Type kf tf
-  -> Type kt tt
-  -> (Repr kf tf -> Result (Repr kt tt))
-  -> SomePipe Dynamic
-link n from to pf = T $ link' n from to pf
-
-gen'
-  :: forall kf tf kt tt c
-  .  ( kf ~ Point, tf ~ ()
-     , ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt, Typeable c
-     , c tt)
-  => Name Pipe
-  -> Type kt tt
-  -> Result (Repr kt tt)
-  -> Pipe c kf tf kt tt Dynamic
-gen' name (splitType -> (tagTo, pTo)) mv
-  -- TODO: validate types agains the typerep/dynamic
-                = Pipe desc dyn
-  where ty      = tagType tagTo pTo
-        desc    = Desc name sig struct (dynRep dyn) TPoint (Proxy @()) tagTo pTo
-        sig     = Gen unitType ty
-        struct  = Struct graph
-        graph   = G.vertex ty
-        dyn     = Dynamic typeRep pipeFun
-        pipeFun = IOA' (const mv) :: IOA' c Point () kt tt
-
-link'
-  :: forall kf tf kt tt c
-  . ( ReifyTag kf, ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
-    , Typeable kf, Typeable tf, Typeable kt, Typeable tt, Typeable c
-    , c tt)
-  => Name Pipe
-  -> Type kf tf
-  -> Type kt tt
-  -> (Repr kf tf -> Result (Repr kt tt))
-  -> Pipe c kf tf kt tt Dynamic
-link' name (splitType -> (kf, tf)) (splitType -> (kt, tt)) mf
-                = Pipe desc dyn
-  where desc    = Desc name sig struct (dynRep dyn) kf tf kt tt
-        sig     = Link (tagType kf tf) (tagType kt tt)
-        struct  = Struct $ G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
-        ---------
-        dyn     = Dynamic typeRep pipeFun
-        pipeFun = IOA' mf :: IOA' c kf tf kt tt
-
-emptyDesc :: Name Pipe -> Desc Ground [] ()
-emptyDesc name = Desc
-  { pdName   = name
-  , pdSig    = Gen unitType unitType
-  , pdStruct = Struct G.empty
-  , pdRep    = SomeTypeRep (typeRep @(IOA' Ground Point () Point ()))
-  , pdArgs   = Nil
-  , pdOut    = Proxy @()
-  }
-
-emptyPipe :: Name Pipe -> p -> Pipe Ground Point () Point () p
-emptyPipe = Pipe . emptyDesc
-
-someEmptyPipe :: Name Pipe -> p -> SomePipe p
-someEmptyPipe = G .: emptyPipe
-
-
--- * Running
---
-runPipe :: SomePipe Dynamic -> Result SomeValue
-runPipe (T p) = pure . Left $ "runPipe:  non-Ground pipe: " <> showPipe p
-runPipe (G Pipe{pDesc, p}) = runPipe' pDesc p
-
-runPipe'
-  :: forall c (as :: [*]) o. PipeConstr c as o
-  => Desc c as o
-  -> Dynamic
-  -> Result SomeValue
-runPipe' pd@Desc{pdArgs, pdOut} dyn =
-  case fromDynamic dyn :: Maybe (IOA' Ground Point () kb b) of
-    Nothing -> pure . Left $ "Incomplete pipe: " <> showDesc pd
-    Just (IOA' io) ->
-      (SomeValue . SomeKindValue pdToK . mkValue pdTo pdToK <$>) <$> io ()
 
 
 -- * Basic ops:  unwrapping Dynamics

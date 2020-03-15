@@ -16,6 +16,7 @@ module Type
   , SomeTag(..)
   , ReifyTag(..)
   , Type(..)
+  , splitType
   , Repr
   , mapRepr
   , TypePair(..)
@@ -285,7 +286,7 @@ type WithPair (ty :: *) (k :: Con) (a :: *)
   = (TagOf ty ~ k, TypeOf ty ~ a)
 
 type family ReprOf (reprof :: *) :: * where
-  ReprOf (TypePair (Type k a)) = Repr k a
+  ReprOf (Type k a) = Repr k a
   ReprOf x = TypeError (Ty.Text "ReprOf: invalid argument: " :<>: ShowType x)
 
 --------------------------------------------------------------------------------

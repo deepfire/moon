@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
+
 module Ground.Table
   ( lookupRep
   , lookupName
@@ -13,7 +15,7 @@ module Ground.Table
 where
 
 import           Codec.Serialise
-import           Codec.CBOR.Encoding                (encodeListLen)
+import           Codec.CBOR.Encoding                (Encoding, encodeListLen)
 import           Codec.CBOR.Decoding                (decodeListLen)
 import           Control.Monad                      (forM, unless)
 import qualified Data.Kind                        as K
@@ -28,7 +30,6 @@ import Text.Parser.Token.Highlight
 
 import Basis
 import qualified Data.Dict as Dict
-import Data.Dict (Dict(..), Dicts)
 import Type
 
 import Data.Parsing
@@ -40,20 +41,20 @@ import Pipe.Types
 
 -- * Ground API
 --
-lookupRep :: SomeTypeRep -> Maybe (Dict Ground)
+lookupRep :: SomeTypeRep -> Maybe (TyDict Ground)
 lookupRep = Dict.lookupRep groundTypes
 
-lookupName :: Text       -> Maybe (Dict Ground)
+lookupName :: Text       -> Maybe (TyDict Ground)
 lookupName = Dict.lookupName groundTypes
 
 lookupNameRep :: Name Type -> Maybe SomeTypeRep
 lookupNameRep (Name n) = Dict.lookupNameRep groundTypes n
 
-withRepGroundType :: SomeTypeRep -> (Dict Ground -> b) -> Maybe b
+withRepGroundType :: SomeTypeRep -> (TyDict Ground -> b) -> Maybe b
 withRepGroundType  str f = f <$> lookupRep str
 
 
-withNameGroundType :: Text -> (Dict Ground -> b) -> Maybe b
+withNameGroundType :: Text -> (TyDict Ground -> b) -> Maybe b
 withNameGroundType str f = f <$> lookupName str
 
 groundTypeReps :: [SomeTypeRep]
@@ -65,10 +66,10 @@ groundTypeNames = Dict.names groundTypes
 
 -- * Dict Ground
 --
-instance Parse (Dict Ground) where
+instance Parse (TyDict Ground) where
   parser = parseDict
 
-parseDict :: (Monad m, TokenParsing m) => m (Dict Ground)
+parseDict :: (Monad m, TokenParsing m) => m (TyDict Ground)
 parseDict = do
   i <- identifier
   case Ground.Table.lookupName i of
@@ -86,7 +87,7 @@ parseDict = do
      , _styleReservedHighlight = ReservedIdentifier
      }
 
-instance Read (Dict Ground) where
+instance Read (TyDict Ground) where
   readPrec = do
     ty <- lexP
     case ty of
@@ -110,7 +111,7 @@ parseSomeValue =
  where
   parseSV :: Tag k -> Parser SomeValue
   parseSV tag = do
-    Dict a :: Dict Ground <- parser
+    TyDict a :: TyDict Ground <- parser
     case tag of
       TPoint -> do
         v :: a <- parser
@@ -124,8 +125,8 @@ parseSomeValue =
       _ -> trace (printf "No parser for structures outside of Point/List/Set.")
                  (fail "")
 
-readValue :: forall (k :: Con). Tag k -> Dict Ground -> ReadPrec SomeValue
-readValue tag (Dict (a :: Proxy a)) = do
+readValue :: forall (k :: Con). Tag k -> TyDict Ground -> ReadPrec SomeValue
+readValue tag (TyDict (a :: Proxy a)) = do
   case tag of
     TPoint -> do
       v :: a <- readPrec
@@ -142,7 +143,7 @@ readValue tag (Dict (a :: Proxy a)) = do
 instance Read SomeValue where
   readPrec = do
     tag :: Some Tag <- readPrec
-    dict :: Dict Ground <- readPrec
+    dict :: TyDict Ground <- readPrec
     case tag of
       Exists tag' -> readValue tag' dict
 
@@ -157,7 +158,7 @@ withGroundTop
 withGroundTop out ground top =
   case lookupRep (someTypeRep $ Proxy @out) of
     Nothing -> top out
-    Just (Dict (_ :: Ground b' => Proxy b')) ->
+    Just (TyDict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @out of
         Nothing -> top out
         Just HRefl -> ground out
@@ -165,38 +166,38 @@ withGroundTop out ground top =
 -- | Use the ground type table to reconstruct a saturated,
 --   and possibly Ground-ed SomePipe.
 mkSaturatedPipe
-  :: forall args out. (PipeConstr Top args out, args ~ '[])
-  => TypePair out -> NP TypePair args -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe ()
-mkSaturatedPipe out args name sig struct rep =
+  :: forall c out. (ArgConstr c out)
+  => Proxy c -> TypePair out -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe ()
+mkSaturatedPipe _c out name sig struct rep =
   case lookupRep (someTypeRep $ Proxy @out) of
     Nothing -> nondescript
-    Just (Dict (_ :: Ground b' => Proxy b')) ->
+    Just (TyDict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @(TypeOf out) of
         Nothing -> nondescript
         Just HRefl ->
-          GS $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Ground args out) ()
+          G (Pipe (Desc name sig struct rep SOP.Nil out :: Desc Ground '[] out) () :: Pipe Ground '[] out ())
  where
-   -- Unknown type, nothing useful we can recapture about it.
+   -- Non-ground (unknown) type, nothing useful we can recapture about it.
    nondescript =
-     TS $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top    args out) ()
+     T $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top '[] out) ()
 
 instance Serialise (SomePipe ()) where
-  encode p = withSomePipe p $ \(Pipe (Desc name sig struct rep args out
-                                      :: Desc c args out) _) -> do
-    let len = fromIntegral . SOP.lengthSList $ Proxy @args
-    encodeListLen ((len + 1) * 3 + 4)
-    <> mconcat (SOP.hcollapse
-                $ SOP.hliftA
-                (\(TypePair (t :: Tag k) (a :: Proxy a))
-                  -> SOP.K
-                  $  encode (SomeTag t)
+  encode p = withSomePipe p $
+    \(Pipe (Desc name sig struct rep args out :: Desc c args out) _) ->
+      let nArgs = fromIntegral . SOP.lengthSList $ Proxy @args
+      in encodeListLen ((1 + nArgs) * 3 + 4)
+         <> mconcat (encodeTypePairs $ out SOP.:* args)
+         <> encode name
+         <> encode sig
+         <> encode struct
+         <> encode rep
+   where
+     encodeTypePairs :: All Top xs => NP TypePair xs -> [Encoding]
+     encodeTypePairs = SOP.hcollapse . SOP.hliftA
+       (\(TypePair (t :: Tag k) (a :: Proxy a))
+         -> SOP.K $  encode (SomeTag t)
                   <> encode (typeRep @k)
                   <> encode (someTypeRep a))
-                (out SOP.:* args))
-    <> encode name
-    <> encode sig
-    <> encode struct
-    <> encode rep
   decode = do
     len <- decodeListLen
     let arity' = len - 4
@@ -212,19 +213,20 @@ instance Serialise (SomePipe ()) where
     rep    :: SomeTypeRep <- decode
     pure $ withRecoveredTypePair (head xs) $
       -- Start with a saturated pipe, and then build it up with arguments.
-      \out _ _ -> go xs $ mkSaturatedPipe out SOP.Nil name sig struct rep
+      \out _ _ -> go xs $
+        mkSaturatedPipe (Proxy @Top) out name sig struct rep
    where
      go :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
         -> SomePipe () -> SomePipe ()
      go []     p = p
      go (x:xs) p =
-       withSomePipe p $ \(Pipe (Desc{..} :: Desc c as o) _) ->
+       withSomePipe p $ \(Pipe (Desc{..} :: Desc c kas o) _) ->
        withRecoveredTypePair x $
-         \(tip :: TypePair (Type k a))
-          (_ :: Proxy k) (_ :: Proxy a)
-         -> go xs . T $ Pipe
+         \(tip :: TypePair ka)
+          (_ :: Proxy (TagOf ka)) (_ :: Proxy (TypeOf ka))
+         -> go xs $ T $ Pipe
             (Desc pdName pdSig pdStruct pdRep (tip SOP.:* pdArgs) pdOut
-             :: Desc Top (Type k a:as) o) ()
+             :: Desc Top (ka:kas) o) ()
 
      withRecoveredTypePair
        :: forall b
@@ -254,7 +256,7 @@ instance Serialise (SomePipe ()) where
 --   decode = do
 --     sd <- decode
 --     case sd of
---       (SomeDes (d@Desc{} :: Desc c as o)) ->
+--       (SomeDesc (d@Desc{} :: Desc c as o)) ->
 --         case ( eqTypeRep (typeRep @c) (typeRep @(Ground :: * -> Constraint))
 --              , eqTypeRep (typeRep @c) (typeRep @(Top    :: * -> Constraint))
 --              ) of
@@ -276,7 +278,7 @@ deriving instance Typeable Pipe
 deriving instance Typeable Scope
 deriving instance Typeable Type
 
-groundTypes :: Dicts Ground
+groundTypes :: TyDicts Ground
 groundTypes = Dict.empty
   -- Meta
   -- & Dict.insert "Ground"          # Proxy @(Dict Ground)

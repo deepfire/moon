@@ -10,14 +10,20 @@ Private structure of 'Pipe':  types and patterns.
 module Pipe.Ops.Internal
   ( IOA(..)
   , IOA'(..)
-  , pattern App4
+  , pattern IOATyCons
+  , pattern IOATyNil
   , pattern P
+  , ioaTyInvalidity
+  , ioaTyConsInvalidity
+  , ioaTyNilInvalidity
   )
 where
 
 import Type.Reflection ( pattern App
                        , pattern Con
-                       , TyCon)
+                       , TyCon
+                       , typeRepTyCon
+                       )
 import Pipe.Types
 import Type
 
@@ -36,9 +42,55 @@ data IOA' c ka a kb b where
       => (Repr ka a -> Result (Repr kb b))
       -> IOA' c ka a                 kb b
 
-pattern App4
-  :: TyCon -> TypeRep ka -> TypeRep a -> TypeRep kb -> TypeRep b -> SomeTypeRep
-pattern App4 con ka a kb b <- SomeTypeRep (App (App (App (App (App (Con con) _) ka) a) kb) b)
+pattern IOATyCons
+  :: TyCon -> TyCon
+  -> TyCon -> TypeRep ka -> TypeRep a
+  -> TyCon -> TypeRep ko -> TypeRep o
+  -> SomeTypeRep
+pattern IOATyCons con lcon acon ka a ocon ko o
+  <- SomeTypeRep (App
+                  (App (App (Con con) (Con _cstr))
+                       (App (App (Con lcon)
+                                 (App (App (Con acon) ka)
+                                      a))
+                            _rest))
+                  (App (App (Con ocon) ko)
+                       o))
+
+pattern IOATyNil
+  :: TyCon -> TyCon -> TyCon -> TypeRep ko -> TypeRep o -> SomeTypeRep
+pattern IOATyNil con nilcon ocon ko o
+  <- SomeTypeRep (App
+                  (App (App (Con con) (Con _cstr))
+                       (Con nilcon))
+                  (App (App (Con ocon) ko)
+                       o))
+
+ioaTyInvalidity :: SomeTypeRep -> Maybe Text
+ioaTyInvalidity (IOATyNil con lcon ocon _ko _o)
+  |  con /= typeRepTyCon (typeRep @IOA) = Just "not an IOA"
+  | lcon /= typeRepTyCon (typeRep @([])) &&
+    lcon /= typeRepTyCon (typeRep @(() : '[])) = Just "arglist type not a list"
+  | ocon /= typeRepTyCon (typeRep @Type) = Just "output not a Type"
+  | otherwise = Nothing
+ioaTyInvalidity _ = Just "no match with an IOA"
+
+ioaTyConsInvalidity :: SomeTypeRep -> Maybe Text
+ioaTyConsInvalidity (IOATyCons con lcon acon _ka _a ocon _ko _o)
+  |  con /= typeRepTyCon (typeRep @IOA) = Just "not an IOA"
+  | lcon /= typeRepTyCon (typeRep @(() : '[])) = Just "arglist type not a nonempty list"
+  | acon /= typeRepTyCon (typeRep @Type) = Just "first arg not a Type"
+  | ocon /= typeRepTyCon (typeRep @Type) = Just "output not a Type"
+  | otherwise = Nothing
+ioaTyConsInvalidity _ = Just "no match with IOATyCons"
+
+ioaTyNilInvalidity :: SomeTypeRep -> Maybe Text
+ioaTyNilInvalidity (IOATyNil con lcon ocon _ko _o)
+  |  con /= typeRepTyCon (typeRep @IOA) = Just "not an IOA"
+  | lcon /= typeRepTyCon (typeRep @([])) = Just "arglist type not an empty list"
+  | ocon /= typeRepTyCon (typeRep @Type) = Just "output not a Type"
+  | otherwise = Nothing
+ioaTyNilInvalidity _ = Just "no match with IOATyNil"
 
 pattern P
   :: Name Pipe -> Struct -> SomeTypeRep -> p -> [SomeType] -> SomeType

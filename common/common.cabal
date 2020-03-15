@@ -11,7 +11,7 @@ category:            System
 extra-source-files:  CHANGELOG.md
 
 library
-  ghc-options:         -j3 +RTS -A128m -n2m -qg -RTS
+  ghc-options:         -j3 -fprint-explicit-kinds -fprint-explicit-foralls +RTS -A128m -n2m -qg -RTS
 
   exposed-modules:
                        Data.Dict
@@ -19,6 +19,7 @@ library
                        Data.Parsing
                        Data.RTTI
                        Data.Some
+                       Data.Type.List
                        Debug.TraceErr
 
                        Generics.SOP.Mapping
@@ -32,6 +33,8 @@ library
 
                        Pipe.Expr
                        Pipe.Ops
+                       Pipe.Ops.Apply
+                       Pipe.Ops.Internal
                        Pipe.Scope
                        Pipe.Space
                        Pipe.Types
