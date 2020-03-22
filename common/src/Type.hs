@@ -32,6 +32,7 @@ module Type
   , SomeType(..)
   , proxySomeType
   , tagSomeType
+  , someTypeFromConType
   , unitSomeType
   , showSomeType
   , Value(..)
@@ -304,6 +305,9 @@ someType _ =
        (R.typeRepTyCon $ R.typeRep @k)
        tr
   where tr = R.someTypeRep $ Proxy @a
+
+someTypeFromConType :: SomeType -> SomeType -> SomeType
+someTypeFromConType SomeType{tCon} SomeType{tName, tRep} = SomeType{..}
 
 unitSomeType :: SomeType
 unitSomeType = tagSomeType TPoint (Proxy @())

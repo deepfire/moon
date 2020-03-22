@@ -10,6 +10,7 @@ module Pipe.Types
   , somePipeName
   , somePipeSig
   , withSomePipe
+  , withSingPipe
   , somePipeUncons
   , ArgConstr
   , PipeConstr
@@ -27,6 +28,8 @@ module Pipe.Types
   , showLR
   , showLRP
   , Desc(..)
+  , descOutTag
+  , descOutType
   , showDesc
   , pattern PipeD
   , Sig(..)
@@ -118,10 +121,39 @@ withSomePipe
   .  SomePipe p
   -> (forall (c :: * -> Constraint) (kas :: [*]) (o :: *)
       . (PipeConstr c kas o)
-      => Pipe c kas o p -> a)
+      => Pipe c kas  o  p -> a)
   -> a
 withSomePipe (G x) = ($ x)
 withSomePipe (T x) = ($ x)
+
+withSingPipe
+  :: forall (p :: *) (e :: *) (a :: *)
+  .  SomePipe p
+  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
+      . (PipeConstr c kas o, kas ~ '[])
+      => Pipe c kas o p -> e)
+  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
+             (ka :: *) (kas' :: [*])
+      . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (ka:kas'))
+      => Pipe c kas o p -> e)
+  -- -> (forall (c :: * -> Constraint) (o :: *) (ka :: *) (kas' :: [*]) (o' :: *)
+  --     . (PipeConstr c (ka : '[]) o, PipeConstr c '[] o)
+  --     => Pipe c (ka : '[]) o p -> Either e (Pipe c kas' o' p))
+  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*]) (ka :: *) (kas' :: [*])
+             (kas'' :: [*]) (o'' :: *)
+      . (PipeConstr c kas o, PipeConstr c kas' o --, PipeConstr c kas'' o''
+        , kas ~ (ka:kas'), kas' ~ '[])
+      => Pipe c kas o p -> Either e (Pipe c kas o p))
+  -> Either e (SomePipe p)
+withSingPipe (G p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si =
+  case si p of
+    Left e -> Left e
+    Right rp -> Right $ G rp
+withSingPipe (G p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _ _  = Left $ nil p
+withSingPipe (G p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons _ = Left $ cons p
+-- withSingPipe (T p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si = T <$> si p
+withSingPipe (T p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _ _  = Left $ nil p
+withSingPipe (T p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons _ = Left $ cons p
 
 withCompatiblePipes
   :: forall c1 c2 as1 as2 o1 o2 p a
@@ -140,15 +172,15 @@ withCompatiblePipes f l r
   | otherwise = Nothing
 
 somePipeUncons
-  :: forall (p :: *) (a :: *) (e :: *)
+  :: forall (p :: *) (e :: *)
   . ()
   => SomePipe p
   -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
       . (PipeConstr c kas o, kas ~ '[])
       => Pipe c '[] o p -> e)
   -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
-             (k :: Con) (a :: *) (kas' :: [*])
-      . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (Type k a:kas'))
+             (ka :: *) (kas' :: [*])
+      . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (ka:kas'))
       => Pipe c kas o p -> Either e (Pipe c kas' o p))
   -> Either e (SomePipe p)
 somePipeUncons (G p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _  = Left $ nil p
@@ -156,11 +188,17 @@ somePipeUncons (G p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons = G <$> cons p
 somePipeUncons (T p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _  = Left $ nil p
 somePipeUncons (T p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons = T <$> cons p
 
-class    (ka ~ (Type (TagOf ka) (TypeOf ka)), Typeable (TagOf ka), Typeable (TypeOf ka), Typeable ka, Top ka) => IsType (ka :: *)
-instance (ka ~ (Type (TagOf ka) (TypeOf ka)), Typeable (TagOf ka), Typeable (TypeOf ka), Typeable ka, Top ka) => IsType (ka :: *)
+class    ( Typeable (TagOf ct), Typeable (TypeOf ct), Typeable ct
+         , Top ct
+         , ct ~ Type (TagOf ct) (TypeOf ct)
+         ) => IsType (ct :: *)
+instance ( Typeable (TagOf ct), Typeable (TypeOf ct), Typeable ct
+         , Top ct
+         , ct ~ Type (TagOf ct) (TypeOf ct)
+         ) => IsType (ct :: *)
 
-type ArgConstr (c :: * -> Constraint) (ka :: *)
-  = (IsType ka, Typeable c, c (TypeOf ka))
+type ArgConstr (c :: * -> Constraint) (ct :: *)
+  = ( IsType ct, Typeable c, c (TypeOf ct))
 
 type PipeConstr (c :: * -> Constraint) (kas :: [*]) (o :: *)
   = ( All IsType kas, ArgConstr c o
@@ -185,6 +223,12 @@ data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
   , pdOut    :: !(TypePair o)
   }
   deriving (Generic)
+
+descOutTag :: Desc c kas (Type to o) -> Tag to
+descOutTag = tpTag . pdOut
+
+descOutType :: Desc c kas (Type to o) -> Proxy o
+descOutType = tpType . pdOut
 
 showDesc, showDescP :: Desc c as o -> Text
 showDesc  p = pack $ show (pdName p) <>" :: "<>show (pdSig p)
@@ -258,14 +302,6 @@ data Ops p where
       :: forall c as o. (PipeConstr c as o)
       => Desc c as o -> Value (Arg1Tag as) (Arg1Ty as) -> p -> p
     , comp
-      -- :: forall c1 c2   k t kt1 tt1
-      --        kf2 tf2
-      -- . ( Typeable c1, Typeable c2
-      --   , Typeable kf2, Typeable tf2, Typeable k, Typeable t, Typeable kt1, Typeable tt1
-      --   , ReifyTag k, ReifyTag kt1
-      --   , c1 (), c1 tt1)
-      -- => Desc c2 kf2 tf2 k t -> p
-      -- -> Desc c1         k t kt1 tt1 -> p
       :: forall c1 c2 as1 as2 o1 o2
       . ( PipeConstr c1 as1 o1, PipeConstr c2 as2 o2
         , o2 ~ Arg1 as1

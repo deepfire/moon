@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 module Pipe.Ops.Apply
   ( apply
   , demo_apply
@@ -37,11 +38,12 @@ demo_apply = case apply appDyn pipe val of
    val = SomeValue $ SomeKindValue TPoint $ VPoint ("demo!" :: String)
 
 apply
-  :: (forall c kas kas' o k a
+  :: (forall c kas kas' o ka
       . ( PipeConstr c kas  o
         , PipeConstr c kas' o
-        , kas ~ (Type k a : kas'))
-      => Desc c kas o -> Value k a -> p -> Either Text p)
+        , kas ~ (ka : kas')
+        )
+      => Desc c kas o -> Value (TagOf ka) (TypeOf ka) -> p -> Either Text p)
   -> SomePipe p
   -> SomeValue
   -> Either Text (SomePipe p)
@@ -54,39 +56,39 @@ apply pf sp x = somePipeUncons sp
                           <> ".")
 
 apply'
-  :: forall c (k :: Con) (a :: *) (kas :: [*]) (kas' :: [*]) o p
+  :: forall c ka (kas :: [*]) (kas' :: [*]) o p
   . ( PipeConstr c kas o
-    , kas ~ (Type k a:kas')
+    , kas ~ (ka:kas')
     )
-  => (Desc c kas o -> Value k a -> p -> Either Text p)
+  => (Desc c kas o -> Value (TagOf ka) (TypeOf ka) -> p -> Either Text p)
   -> Pipe c kas o p
   -> SomeValue
   -> Either Text (Pipe c kas' o p)
 apply' pf
-  f@(P _ _ ioa@(IOATyCons _ _ _ ka a _ _ _) _ _ _)
-    (SomeValue (SomeKindValue _ (v :: Value kv v) :: SomeKindValue v))
+  f@P{pPipeRep=ioa@IOATyCons{tagARep, aRep}}
+  (SomeValue (SomeKindValue _ (v :: Value kv v) :: SomeKindValue v))
   | Just e <- ioaTyConsInvalidity ioa
   = Left $ "Apply: " <> e
 
-  | Nothing <- typeRep @kv `eqTypeRep`  ka
-  = Left $ "Apply: Value mismatch: " <> show2 "kv" (typeRep @kv) "ka" ka
-  | Nothing <- typeRep @v  `eqTypeRep`  a
-  = Left $ "Apply: Con mismatch: "   <> show2  "v" (typeRep @v)   "a"  a
+  | Nothing <- typeRep @kv `eqTypeRep`  tagARep
+  = Left $ "Apply: Value mismatch: " <> show2 "kv" (typeRep @kv) "ka" tagARep
+  | Nothing <- typeRep @v  `eqTypeRep`  aRep
+  = Left $ "Apply: Con mismatch: "   <> show2  "v" (typeRep @v)   "a"  aRep
 
-  | Just HRefl <- typeRep @kv `eqTypeRep` ka
-  , Just HRefl <- typeRep @kv `eqTypeRep` typeRep @k
-  , Just HRefl <- typeRep @v  `eqTypeRep`  a
-  , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @a
+  | Just HRefl <- typeRep @kv `eqTypeRep` tagARep
+  , Just HRefl <- typeRep @kv `eqTypeRep` typeRep @(TagOf ka)
+  , Just HRefl <- typeRep @v  `eqTypeRep`  aRep
+  , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(TypeOf ka)
   = case spineConstraint of
       (Dict :: Dict Typeable kas') -> doApply pf f v
   | otherwise
-  = Left "Apply: fall through."
+  = Left "Apply: matched, but checks failed."
   where
     show2 :: Text -> TypeRep l -> Text -> TypeRep r -> Text
     show2 ln l rn r = ln<>"="<>pack (show l)<>", "<>rn<>"="<>pack (show r)
 
-apply' _ (P _ _ tr _ _ _) _ =
-  Left $ "Typerep structure mismatch: " <> pack (show tr)
+apply' _ P{pPipeRep} _ =
+  Left $ "Apply: typerep match fell through: " <> pack (show pPipeRep)
 
 -- | 'doApply': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
@@ -111,11 +113,11 @@ doApply pf
         in Pipe desc' <$> pf desc v f
 
 appDyn
-  :: forall c kas kass (o :: *) f k a f'
+  :: forall c kas kass (o :: *) f ka f'
    . ( PipeConstr c kas o
-     , kas ~ (Type k a:kass)
+     , kas ~ (ka:kass)
      )
-  => Desc c kas o -> Value k a -> Dynamic
+  => Desc c kas o -> Value (TagOf ka) (TypeOf ka) -> Dynamic
   -> Either Text Dynamic
 appDyn
   Desc {pdArgs = (TypePair _ _) SOP.:* _}

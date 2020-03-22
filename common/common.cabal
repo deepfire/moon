@@ -20,6 +20,7 @@ library
                        Data.RTTI
                        Data.Some
                        Data.Type.List
+                       Data.TypeRep
                        Debug.TraceErr
 
                        Generics.SOP.Mapping
@@ -34,7 +35,10 @@ library
                        Pipe.Expr
                        Pipe.Ops
                        Pipe.Ops.Apply
+                       Pipe.Ops.Base
+                       Pipe.Ops.Compose
                        Pipe.Ops.Internal
+                       Pipe.Ops.Traverse
                        Pipe.Scope
                        Pipe.Space
                        Pipe.Types
