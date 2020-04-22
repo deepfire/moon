@@ -14,10 +14,10 @@ let
   ghc      = ghcOrig.override { overrides = overrides pkgs; };
   extras   = [
                # ghc.ghc-events
-               ghc.ghcid
+               # ghc.ghcid
                # ghc.graphmod
                ghc.cabal-install
-               pkgs.graphviz
+               # pkgs.graphviz
              ];
   localPackages  = with ghc; with pkgs.lib; with builtins; {};
   final-default  = ghc.callPackage default localPackages;

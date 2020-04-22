@@ -139,19 +139,16 @@ withSingPipe
   -- -> (forall (c :: * -> Constraint) (o :: *) (ka :: *) (kas' :: [*]) (o' :: *)
   --     . (PipeConstr c (ka : '[]) o, PipeConstr c '[] o)
   --     => Pipe c (ka : '[]) o p -> Either e (Pipe c kas' o' p))
-  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*]) (ka :: *) (kas' :: [*])
+   -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*]) (ka :: *) (kas' :: [*])
              (kas'' :: [*]) (o'' :: *)
       . (PipeConstr c kas o, PipeConstr c kas' o --, PipeConstr c kas'' o''
         , kas ~ (ka:kas'), kas' ~ '[])
       => Pipe c kas o p -> Either e (Pipe c kas o p))
   -> Either e (SomePipe p)
-withSingPipe (G p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si =
-  case si p of
-    Left e -> Left e
-    Right rp -> Right $ G rp
+withSingPipe (G p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si = G <$> si p
 withSingPipe (G p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _ _  = Left $ nil p
 withSingPipe (G p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons _ = Left $ cons p
--- withSingPipe (T p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si = T <$> si p
+withSingPipe (T p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si = T <$> si p
 withSingPipe (T p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _ _  = Left $ nil p
 withSingPipe (T p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons _ = Left $ cons p
 

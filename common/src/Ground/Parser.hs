@@ -29,7 +29,7 @@ instance Parse (Some Tag) where
 
 parseTag
   :: forall m
-  . (Monad m, TokenParsing m)
+  . (MonadFail m, TokenParsing m)
   => m (Some Tag)
 parseTag = do
   i <- tagIdentifier

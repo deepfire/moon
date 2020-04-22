@@ -69,7 +69,7 @@ groundTypeNames = Dict.names groundTypes
 instance Parse (TyDict Ground) where
   parser = parseDict
 
-parseDict :: (Monad m, TokenParsing m) => m (TyDict Ground)
+parseDict :: (MonadFail m, TokenParsing m) => m (TyDict Ground)
 parseDict = do
   i <- identifier
   case Ground.Table.lookupName i of

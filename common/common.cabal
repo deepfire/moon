@@ -91,7 +91,7 @@ library
                      , contra-tracer
                      , io-sim-classes
                      , typed-protocols
-                     , typed-protocols-cbor
+                     -- , typed-protocols-cbor
 
                      , time
 

@@ -177,7 +177,7 @@ mapSOP c u@(datatypeInfo -> dti) f {-fr-} {-ff-}
   let polyfad :: All2 c xss => a c xss -> fa
       polyfad = fadt
   in case dti of
-    SOP.ADT _moduleName _typeName _cInfos ->
+    SOP.ADT _moduleName _typeName _cInfos _ ->
       let typed :: a c xss
           typed = mapSum' c u f
                   cadt cctor cfield dti
@@ -204,7 +204,7 @@ mapSum'
   -> (forall x.      c x   => CollectField   f u c x)
   -> DatatypeInfo xss
   -> a c xss
-mapSum' c u _f adt ctor field dti@(SOP.ADT _ _ cinfos) =
+mapSum' c u _f adt ctor field dti@(SOP.ADT _ _ cinfos _) =
   adt c u dti $
     hcliftA2 (Proxy @(All c))
     (mapProduct c ctor field dti)
@@ -227,7 +227,7 @@ mapProduct
   -> r c xs
 mapProduct c ct fi _ consi@(Record _ finfos)  travs = mapFields c ct fi consi finfos travs
 mapProduct c ct fi _ consi@(Constructor ctor) travs = mapFields c ct fi consi (hpure (FieldInfo $ "un"<>ctor)) travs
-mapProduct _ _ _ (SOP.ADT _ ty _) _ _     = error $ "Infix ADTs not supported: type "<>ty
+mapProduct _ _ _ (SOP.ADT _ ty _ _) _ _   = error $ "Infix ADTs not supported: type "<>ty
 mapProduct _ _ _ (SOP.Newtype _ ty _) _ _ = error $ "Infix newtypes not supported: type "<>ty
 
 mapFields

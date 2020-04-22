@@ -283,7 +283,7 @@ executable node-editor
 
               , contra-tracer
               , typed-protocols
-              , typed-protocols-cbor
+              -- , typed-protocols-cbor
 
               -- , ghcjs-websockets -- inlined for now
               , base64-bytestring
