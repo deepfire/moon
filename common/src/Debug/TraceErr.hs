@@ -6,9 +6,8 @@ where
 
 import Data.List (partition)
 
-import Control.Monad (when)
+import Control.Monad (unless)
 import Foreign.C.String as Foreign
-import System.IO as IO
 import System.IO.Unsafe as Unsafe
 
 
@@ -21,13 +20,13 @@ foreign import ccall unsafe "HsBase.h debugBelch2"
    debugBelch :: Foreign.CString -> Foreign.CString -> IO ()
 
 traceIOErr :: String -> IO ()
-traceIOErr msg = do
+traceIOErr msg =
     Foreign.withCString "%s\n" $ \cfmt -> do
      -- NB: debugBelch can't deal with null bytes, so filter them
      -- out so we don't accidentally truncate the message.  See Trac #9395
      let (nulls, msg') = partition (=='\0') msg
      Foreign.withCString msg' $ \cmsg ->
       debugBelch cfmt cmsg
-     when (not (null nulls)) $
+     unless (null nulls) $
        Foreign.withCString "WARNING: previous trace message had null bytes" $ \cmsg ->
          debugBelch cfmt cmsg

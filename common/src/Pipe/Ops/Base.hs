@@ -25,10 +25,10 @@ runPipe'
   => Desc c as o
   -> Dynamic
   -> Result SomeValue
-runPipe' pd@Desc{pdArgs, pdOut=TypePair{tpTag, tpType}} dyn =
+runPipe' pd@Desc{pdOut=TypePair{tpTag, tpType}} dyn =
   case fromDynamic dyn :: Maybe (IOA Ground '[] o) of
     Nothing -> pure . Left $ "Incomplete pipe: " <> showDesc pd
-    Just (IOA io c as o) ->
+    Just (IOA io _c _as _o) ->
       (SomeValue . SomeKindValue tpTag . mkValue tpType tpTag <$>) <$> io
 
 
@@ -78,7 +78,7 @@ link n from to pf = T $ link' n from to pf
 
 gen'
   :: forall kf tf kt tt c
-  .  ( kf ~ Point, tf ~ ()
+  .  ( kf ~ 'Point, tf ~ ()
      , ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt, Typeable c
      , c tt)
   => Name Pipe
@@ -110,7 +110,7 @@ link' name (splitType -> (kf, tf)) (splitType -> (kt, tt)) mf
                 = Pipe desc dyn
   where desc    = Desc name sig struct (dynRep dyn) (TypePair kf tf :* Nil) (TypePair kt tt)
         sig     = Sig [tagSomeType kf tf] (tagSomeType kt tt)
-        struct  = Struct $ G.empty
+        struct  = Struct G.empty
           -- G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
         ---------
         dyn     = Dynamic typeRep pipeFun

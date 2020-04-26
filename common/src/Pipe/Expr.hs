@@ -9,21 +9,18 @@ module Pipe.Expr
   )
 where
 
-import Control.Applicative (liftA2, some)
+import Control.Applicative (some)
 import Control.Monad (foldM)
-import Data.Foldable (fold)
-import Data.Functor.Identity (Identity(..))
 import Data.Either (partitionEithers)
 import qualified Data.IntervalMap.FingerTree            as IMap
-import Data.Text (dropEnd, pack)
 
-import Text.Megaparsec (between, runParserT, eof)
+import Text.Megaparsec (runParserT, eof)
 import Text.Megaparsec.Char (string)
-import Text.Megaparsec.Parsers (unParsecT, sepBy1, token)
+import Text.Megaparsec.Parsers (unParsecT, sepBy1)
 import Text.Parser.Token
 
 import Data.Parsing
-import Debug.TraceErr
+-- import Debug.TraceErr
 import Basis
 import Ground
 import Pipe.Types
@@ -54,9 +51,8 @@ indexLocated
   :: Expr (Int, QName Pipe, Int)
   -> IMap.IntervalMap Int (QName Pipe)
 indexLocated =
-  fold
-  . fmap (\(l, x, r) ->
-            IMap.singleton (IMap.Interval l r) x)
+  foldMap (\(l, x, r) ->
+             IMap.singleton (IMap.Interval l r) x)
 
 lookupLocatedQName
   :: Int -> IMap.IntervalMap Int (QName Pipe)
@@ -74,7 +70,7 @@ parse'
   => (Bool -> Parser n)
   -> Text
   -> Either e (Expr n)
-parse' nameParser s = tryParse True s
+parse' nameParser = tryParse True
  where
    tryParse :: Bool -> Text -> Either e (Expr n)
    tryParse mayExtend s =
@@ -87,7 +83,7 @@ parse' nameParser s = tryParse True s
             "" s)
           mayExtend
      of
-       (Right (Right x), _)     -> Right $ x
+       (Right (Right x), _)     -> Right x
        (Left         e,  False) -> Left $ "Pipe expr parser: " <> pack (show e)
        (Right (Left  e), False) -> Left $ pack (show e)
        (_,               True)  -> tryParse False (s <> magicToken)
@@ -113,7 +109,7 @@ parseExpr nameParser =
      xs' <- sepBy1 applys (token (string "."))
      let (errs, xs) = partitionEithers xs'
      pure $ if null errs
-       then Right $ foldl PComp (head xs) (tail xs)
+       then Right $ foldl1 PComp xs
        else Left (pack . show $ head errs)
 
 {-------------------------------------------------------------------------------

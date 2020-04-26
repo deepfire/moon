@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Ground.Parser
   ( parseTag
   , parseQName
@@ -14,7 +15,7 @@ import Text.Parser.Token.Highlight
        (Highlight(..))
 import Text.Parser.Token
        (IdentifierStyle(..), TokenParsing
-       , ident, token, someSpace)
+       , ident, token)
 
 import Basis
 import Data.Parsing

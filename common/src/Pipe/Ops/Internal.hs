@@ -34,7 +34,6 @@ import Type.Reflection ( pattern App
                        , eqTypeRep
                        , someTypeRepTyCon
                        , splitApps
-                       , typeRepKind
                        , typeRepTyCon
                        )
 import Pipe.Types
@@ -87,7 +86,7 @@ typeRepNull
   -> Maybe (a :~~: b)
 typeRepNull rep = rep `eqTypeRep` typeRep @('[] :: [k])
 
-consTyCon, nilTyCon, typeTyCon :: TyCon
+consTyCon, ioaTyCon, nilTyCon, typeTyCon :: TyCon
 consTyCon = typeRepTyCon (typeRep @(() : '[]))
 nilTyCon  = someTypeRepTyCon (head $ tail $ snd $ splitApps $ typeRep @(() : '[]))
 typeTyCon = typeRepTyCon (typeRep @Type)
@@ -103,11 +102,11 @@ ioaTyInvalidity (IOATyNil con lcon ocon _ko _o)
 ioaTyInvalidity _     = Just "no match with an IOA"
 
 ioaTyConsInvalidity :: SomeTypeRep -> Maybe Text
-ioaTyConsInvalidity IOATyCons{ioaCon, listCon, typeACon, typeOCon}
-  |   ioaCon /= ioaTyCon  = Just "not an IOA"
-  |  listCon /= consTyCon = Just "arglist type not a nonempty list"
-  | typeACon /= typeTyCon = Just "first arg not a Type"
-  | typeOCon /= typeTyCon = Just "output not a Type"
+ioaTyConsInvalidity IOATyCons{ioaCon=ioa, listCon=list, typeACon=tyA, typeOCon=tyO}
+  |   ioa /= ioaTyCon  = Just "not an IOA"
+  |  list /= consTyCon = Just "arglist type not a nonempty list"
+  | tyA   /= typeTyCon = Just "first arg not a Type"
+  | tyO   /= typeTyCon = Just "output not a Type"
   | otherwise = Nothing
 ioaTyConsInvalidity _ = Just "no match with IOATyCons"
 
@@ -115,8 +114,9 @@ ioaTySingletonInvalidity :: SomeTypeRep -> Maybe Text
 ioaTySingletonInvalidity rep@IOATyCons{}
   | Just e <- ioaTyConsInvalidity rep = Just e
   | otherwise = case rep of
-      IOATyCons{restRep=Con nilCon} -> Nothing
+      IOATyCons{restRep=Con{}} -> Nothing
       _ -> Just "arglist type not a singleton list"
+ioaTySingletonInvalidity _ = Just "arglist type not a singleton list"
 
 ioaTyNilInvalidity :: SomeTypeRep -> Maybe Text
 ioaTyNilInvalidity (IOATyNil con lcon ocon _ko _o)

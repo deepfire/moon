@@ -6,7 +6,7 @@ module Data.Type.List
   )
 where
 
-import Data.SOP (All(..), NP)
+import Data.SOP (All(..))
 import Data.SOP.Dict (Dict(..))
 import Data.Typeable
 

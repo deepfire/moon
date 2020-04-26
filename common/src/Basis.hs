@@ -44,7 +44,7 @@ import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, firs
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (join, void)
 import Data.Bifunctor             (bimap)
-import Data.Dict                  (TyDict(..), TyDicts(..))
+import Data.Dict                  (TyDict(..), TyDicts)
 import Data.Dynamic               (Dynamic(..), Typeable)
 import Data.Either.Extra          (mapLeft, mapRight, fromLeft, fromRight, eitherToMaybe, maybeToEither)
 import Data.Function              ((&), on)
@@ -97,8 +97,8 @@ listSetUnsafe = Set.fromDistinctAscList
 setToList :: Ord a => Set.Set a -> [a]
 setToList = Set.toAscList
 
-tr :: (a -> String) -> a -> a
-tr f x = trace (f x) x
+trc :: (a -> String) -> a -> a
+trc f x = trace (f x) x
 
 dynRep :: Dynamic -> SomeTypeRep
 dynRep (Dynamic rep _) = SomeTypeRep rep

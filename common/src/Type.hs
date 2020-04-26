@@ -1,4 +1,5 @@
 {-# LANGUAGE UndecidableSuperClasses #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Type
   ( Name(..)
   , QName(..)
@@ -58,7 +59,6 @@ import qualified Algebra.Graph                    as G
 import           Codec.Serialise
 import qualified Codec.CBOR.Decoding              as CBOR (decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
-import           Control.DeepSeq                    (NFData(..))
 import qualified Data.Sequence                    as Seq
 import qualified Data.Set.Monad                   as S
 import qualified Data.Text                        as Text
@@ -68,7 +68,7 @@ import           GHC.Generics                       (Generic)
 import           GHC.TypeLits
 import qualified GHC.TypeLits                     as Ty
 import           Text.Parser.Token                  (TokenParsing)
-import           Text.Read                          (Read(..), Lexeme(..), lexP)
+import           Text.Read                          (Lexeme(..), lexP)
 import qualified Type.Reflection                  as R
 import qualified Unsafe.Coerce                    as Unsafe
 
@@ -301,10 +301,10 @@ data SomeType =
 
 someType :: forall k a. (Typeable k, Typeable a) => Type k a -> SomeType
 someType _ =
-  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
+  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
        (R.typeRepTyCon $ R.typeRep @k)
-       tr
-  where tr = R.someTypeRep $ Proxy @a
+       rep
+  where rep = R.someTypeRep $ Proxy @a
 
 someTypeFromConType :: SomeType -> SomeType -> SomeType
 someTypeFromConType SomeType{tCon} SomeType{tName, tRep} = SomeType{..}
@@ -314,10 +314,10 @@ unitSomeType = tagSomeType TPoint (Proxy @())
 
 proxySomeType  :: forall k a. (Typeable k, Typeable a) => Proxy k -> Proxy a -> SomeType
 proxySomeType _ pa =
-  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon tr)
+  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
        (R.typeRepTyCon $ R.typeRep @k)
-       tr
-  where tr = R.someTypeRep pa
+       rep
+  where rep = R.someTypeRep pa
 
 tagSomeType :: forall k a. Typeable a => Tag k -> Proxy a -> SomeType
 tagSomeType TPoint a = proxySomeType (Proxy @k) a
@@ -336,6 +336,7 @@ showSomeType SomeType{tName=(showName -> n), tCon} =
     "'Tree"  -> "♆⇊ "<>n
     "'Dag"   -> "♆⇄ "<>n
     "'Graph" -> "☸ "<>n
+    _        -> "??? "<>n
 
 --------------------------------------------------------------------------------
 data Value (k :: Con) a where
@@ -431,7 +432,7 @@ class Representable (a :: *) where
   repr :: a -> Present a
 
 instance {-# OVERLAPPABLE #-} Representable a where
-  type instance Present a = a
+  type Present a = a
   repr = id
 
 {-------------------------------------------------------------------------------

@@ -1,34 +1,26 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Pipe.Ops.Apply
   ( apply
-  , demo_apply
+  , demoApply
   )
 where
 
 import           Data.Dynamic                       (fromDynamic)
-import qualified Data.Kind                        as K
-import           Data.Maybe                         (fromJust)
 import qualified Data.SOP                         as SOP
-import qualified Data.SOP.Constraint              as SOP
-import qualified Generics.SOP                     as SOP
-import qualified Generics.SOP.NP                  as SOP
-import qualified Generics.SOP.NS                  as SOP
 import           Type.Reflection
 
 import Basis
-import Pipe.Expr
 import Pipe.Types
-import Pipe.Zipper
 import Pipe.Ops.Base
 import Pipe.Ops.Internal
 import Type
 
-demo_apply :: IO ()
-demo_apply = case apply appDyn pipe val of
+demoApply :: IO ()
+demoApply = case apply appDyn pipe val of
   Left e -> putStrLn . unpack $ "apply error: " <> e
   Right p -> runPipe p >>= \case
     Left e -> putStrLn . unpack $ "runtime error: " <> e
-    Right r -> pure ()
+    Right _ -> pure ()
  where
    pipe :: SomePipe Dynamic
    pipe = linkG "demo pipe" TPoint' TPoint'
@@ -65,19 +57,19 @@ apply'
   -> SomeValue
   -> Either Text (Pipe c kas' o p)
 apply' pf
-  f@P{pPipeRep=ioa@IOATyCons{tagARep, aRep}}
+  f@P{pPipeRep=ioa@IOATyCons{tagARep=tA, aRep=a}}
   (SomeValue (SomeKindValue _ (v :: Value kv v) :: SomeKindValue v))
   | Just e <- ioaTyConsInvalidity ioa
   = Left $ "Apply: " <> e
 
-  | Nothing <- typeRep @kv `eqTypeRep`  tagARep
-  = Left $ "Apply: Value mismatch: " <> show2 "kv" (typeRep @kv) "ka" tagARep
-  | Nothing <- typeRep @v  `eqTypeRep`  aRep
-  = Left $ "Apply: Con mismatch: "   <> show2  "v" (typeRep @v)   "a"  aRep
+  | Nothing <- typeRep @kv `eqTypeRep`  tA
+  = Left $ "Apply: Value mismatch: " <> show2 "kv" (typeRep @kv) "ka" tA
+  | Nothing <- typeRep @v  `eqTypeRep`   a
+  = Left $ "Apply: Con mismatch: "   <> show2  "v" (typeRep @v)   "a"  a
 
-  | Just HRefl <- typeRep @kv `eqTypeRep` tagARep
+  | Just HRefl <- typeRep @kv `eqTypeRep` tA
   , Just HRefl <- typeRep @kv `eqTypeRep` typeRep @(TagOf ka)
-  , Just HRefl <- typeRep @v  `eqTypeRep`  aRep
+  , Just HRefl <- typeRep @v  `eqTypeRep`  a
   , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(TypeOf ka)
   = case spineConstraint of
       (Dict :: Dict Typeable kas') -> doApply pf f v
@@ -86,14 +78,15 @@ apply' pf
   where
     show2 :: Text -> TypeRep l -> Text -> TypeRep r -> Text
     show2 ln l rn r = ln<>"="<>pack (show l)<>", "<>rn<>"="<>pack (show r)
-
-apply' _ P{pPipeRep} _ =
-  Left $ "Apply: typerep match fell through: " <> pack (show pPipeRep)
+apply' _ P{pPipeRep=r} _ =
+  Left $ "Apply: typerep match fell through: " <> pack (show r)
+apply' _ _ _ =
+  Left "Apply: typerep match fell through."
 
 -- | 'doApply': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 doApply
-  :: forall c kas o k a ra rb p ka kass
+  :: forall c kas o k a p ka kass
    . ( PipeConstr c kas o
      , kas ~ (ka : kass))
   => (Desc c kas o -> Value k a -> p -> Either Text p)
@@ -101,7 +94,7 @@ doApply
   -> Value   k a
   -> Either Text (Pipe c (Tail kas) o p)
 doApply pf
-        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (ka SOP.:* kass) o) f)
+        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (_ka SOP.:* kass) o) f)
         v
   = case spineConstraint of
       (Dict :: Dict Typeable kass) ->
@@ -113,7 +106,7 @@ doApply pf
         in Pipe desc' <$> pf desc v f
 
 appDyn
-  :: forall c kas kass (o :: *) f ka f'
+  :: forall c kas kass (o :: *) ka
    . ( PipeConstr c kas o
      , kas ~ (ka:kass)
      )
@@ -139,11 +132,11 @@ applyIOA
   -> IOA c kass o
 applyIOA
   (IOA (f :: PipeFunTy (Type k a:ass) o)
-    c as o
+    c _as o
   ) v = case spineConstraint of
-  (Dict :: Dict Typeable kas) ->
-    (IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
-     c (Proxy @ass) (Proxy @o))
+          (Dict :: Dict Typeable kas) ->
+            (IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
+             c (Proxy @ass) (Proxy @o))
 
 -- | 'applyPipeFun': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
@@ -162,10 +155,10 @@ applyPipeFun' f _ _ = \case
   VDag   x -> f x
   VGraph x -> f x
 
-applyPipeFun
+_applyPipeFun
   :: (Repr k a -> r) -> Value k a
   -> r
-applyPipeFun f = \case
+_applyPipeFun f = \case
   VPoint x -> f x
   VList  x -> f x
   VSet   x -> f x

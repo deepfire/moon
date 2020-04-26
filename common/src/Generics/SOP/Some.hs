@@ -1,32 +1,5 @@
-{-# LANGUAGE BangPatterns               #-}
-{-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveAnyClass             #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE EmptyCase                  #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE NamedFieldPuns             #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE PartialTypeSignatures      #-}
-{-# LANGUAGE PackageImports             #-}
-{-# LANGUAGE PatternSynonyms            #-}
-{-# LANGUAGE QuantifiedConstraints      #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeInType                 #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
-{-# LANGUAGE ViewPatterns               #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wextra #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
@@ -64,8 +37,6 @@ import Data.Orphanage ()
 import Generics.SOP.Mapping hiding (cFields)
 import Data.SOP.NP
 
-import Text.Printf                (printf)
-
 
 data Form = Fun | Still
 
@@ -77,8 +48,8 @@ data Data  (f :: Form) (c :: Type -> Constraint) u = Data
 
 -- TODO:  go Doc (& compare complexity after switching..)
 ppData :: Data f c u -> Text
-ppData Data{moduleName, typeName, dCtors} =
-  pack (printf "%s.%s\n" moduleName typeName) <>
+ppData Data{moduleName=modname, typeName, dCtors} =
+  pack (printf "%s.%s\n" modname typeName) <>
   Data.Text.intercalate "\n" (ppCtor <$> dCtors)
  where
    ppCtor Ctor{cName, cFields} =
@@ -91,7 +62,7 @@ class    ( Generic u, HasDatatypeInfo u, Typeable u
          , All2 c (Code u)
          , All2 (And Typeable c) (Code u))
   => HasTypeData (c :: * -> Constraint) (u :: *) where
-  typeData :: Proxy c -> Proxy u -> Data Fun c u
+  typeData :: Proxy c -> Proxy u -> Data 'Fun c u
   typeData c u = collect c u mkData
 
 instance ( Generic u, HasDatatypeInfo u, Typeable u
@@ -102,16 +73,16 @@ instance ( Generic u, HasDatatypeInfo u, Typeable u
 -- XXX: factor
 mkData
   :: forall (u :: *) c xss. (All2 (And Typeable c) xss, Typeable u)
-  => ForgetADT u c xss (Data Fun c u)
-mkData (ADTDesc _ _ (ADT mod ty _ _) ctors) =
-  Data (pack mod) (pack ty)
-       (collapse_NP $
+  => ForgetADT u c xss (Data 'Fun c u)
+mkData (ADTDesc _ _ (ADT modname ty _ _) ctors) =
+  Data (pack modname) (pack ty)
+       (collapse_NP
         (cliftA_NP (Proxy @(All (And Typeable c)))
          (K . (mkCtor @u @c))
          (ctors :: NP (CtorDesc u c) xss)))
-mkData (ADTDesc _ _ (Newtype mod ty _) ctors) =
-  Data (pack mod) (pack ty)
-       (collapse_NP $
+mkData (ADTDesc _ _ (Newtype modname ty _) ctors) =
+  Data (pack modname) (pack ty)
+       (collapse_NP
         (cliftA_NP (Proxy @(All (And Typeable c)))
          (K . (mkCtor @u @c))
          (ctors :: NP (CtorDesc u c) xss)))
@@ -125,7 +96,7 @@ data Ctor  (f :: Form) (c :: Type -> Constraint) u = Ctor
 mkCtor
   :: forall (u :: *) c (xs :: [*])
   . (All (And Typeable c) xs, Typeable u)
-  => ForgetCtor u c xs (Ctor Fun c u)
+  => ForgetCtor u c xs (Ctor 'Fun c u)
 mkCtor (CtorDesc _ _ (Constructor name) fields) =
   Ctor (pack name)
        (hcollapse $ hcliftA (Proxy @(And Typeable c))
@@ -160,7 +131,7 @@ data Field (f :: Form) (c :: Type -> Constraint) u = Field
 
 mkField
   :: forall u c x. (Typeable u, Typeable x, c x)
-  => ForgetField u c x (Field Fun c u)
+  => ForgetField u c x (Field 'Fun c u)
 mkField (FieldDesc _c (FieldInfo name) getter) =
   Field (pack name)
         (someTypeRep $ Proxy @u)
@@ -177,34 +148,34 @@ data Accessors u (c :: Type -> Constraint) a = c a => Accessors
   }
 
 type family Formed f c u :: Type where
-  Formed Fun   c u = SomeAccessors c u
-  Formed Still c u = ()
+  Formed 'Fun   c u = SomeAccessors c u
+  Formed 'Still c u = ()
 
-stillData :: Data Fun c u -> Data Still c u
+stillData :: Data 'Fun c u -> Data 'Still c u
 stillData d = d { dCtors = stillCtor <$> dCtors d }
   where stillCtor  c = c { cFields = stillField <$> cFields c }
         stillField f = f { fAccess = () }
 
-deriving instance Eq          (Data  Still c u)
-deriving instance GHC.Generic (Data  Still c u)
-deriving instance Ord         (Data  Still c u)
+deriving instance Eq          (Data  'Still c u)
+deriving instance GHC.Generic (Data  'Still c u)
+deriving instance Ord         (Data  'Still c u)
 deriving instance (Typeable c, Typeable u)
-               => Read        (Data  Still c u)
-deriving instance Serialise   (Data  Still c u)
-deriving instance Show        (Data  Still c u)
+               => Read        (Data  'Still c u)
+deriving instance Serialise   (Data  'Still c u)
+deriving instance Show        (Data  'Still c u)
 
-deriving instance Eq          (Ctor  Still c u)
-deriving instance GHC.Generic (Ctor  Still c u)
-deriving instance Ord         (Ctor  Still c u)
+deriving instance Eq          (Ctor  'Still c u)
+deriving instance GHC.Generic (Ctor  'Still c u)
+deriving instance Ord         (Ctor  'Still c u)
 deriving instance (Typeable c, Typeable u)
-               => Read        (Ctor  Still c u)
-deriving instance Serialise   (Ctor  Still c u)
-deriving instance Show        (Ctor  Still c u)
+               => Read        (Ctor  'Still c u)
+deriving instance Serialise   (Ctor  'Still c u)
+deriving instance Show        (Ctor  'Still c u)
 
-deriving instance Eq          (Field Still c u)
-deriving instance GHC.Generic (Field Still c u)
-deriving instance Ord         (Field Still c u)
+deriving instance Eq          (Field 'Still c u)
+deriving instance GHC.Generic (Field 'Still c u)
+deriving instance Ord         (Field 'Still c u)
 instance          (Typeable c, Typeable u)
-               => Read        (Field Still c u) where readPrec = failRead
-deriving instance Serialise   (Field Still c u)
-deriving instance Show        (Field Still c u)
+               => Read        (Field 'Still c u) where readPrec = failRead
+deriving instance Serialise   (Field 'Still c u)
+deriving instance Show        (Field 'Still c u)

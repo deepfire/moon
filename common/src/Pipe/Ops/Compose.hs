@@ -2,35 +2,27 @@
 module Pipe.Ops.Compose
   ( -- compose
   -- ,
-    demo_compose
+    demoCompose
   )
 where
 
 import qualified Algebra.Graph                    as G
 import           Data.Dynamic                       (fromDynamic)
-import qualified Data.Kind                        as K
-import           Data.Maybe                         (fromJust)
 import qualified Data.SOP                         as SOP
-import qualified Data.SOP.Constraint              as SOP
-import qualified Generics.SOP                     as SOP
-import qualified Generics.SOP.NP                  as SOP
-import qualified Generics.SOP.NS                  as SOP
 import           Type.Reflection
 
 import Basis
-import Pipe.Expr
 import Pipe.Types
-import Pipe.Zipper
 import Pipe.Ops.Base
 import Pipe.Ops.Internal
 import Type
 
-demo_compose :: IO ()
-demo_compose = case compose compDyn pipe val of
+demoCompose :: IO ()
+demoCompose = case compose compDyn pipe val of
   Left e -> putStrLn . unpack $ "compose error: " <> e
   Right p -> runPipe p >>= \case
     Left e -> putStrLn . unpack $ "runtime error: " <> e
-    Right r -> pure ()
+    Right _ -> pure ()
  where
    pipe :: SomePipe Dynamic
    pipe = linkG "demo pipe" TPoint' TPoint'
@@ -76,6 +68,7 @@ compose pf f v =
     \(v' :: Pipe cv _vas vo p) ->
     case typeRep @ka  `eqTypeRep` typeRep @vo of
       Just HRefl -> compose'' pf f' v'
+      _ -> error "compose"
 
 compose''
   :: forall cf cv vas vo fas fass ras fo p
@@ -100,7 +93,7 @@ compose'' pf
   | True
   = compose' pf
   | otherwise
-  = \l r -> Left $ ("'compose' failed on: l="<>pack (show l)<>" r="<>pack (show r))
+  = \l r -> Left $ "'compose' failed on: l="<>pack (show l)<>" r="<>pack (show r)
 
 -- | 'compose': approximate '(.)'
 -- (.) :: (b -> c) -> (a -> b) -> a -> c
@@ -153,7 +146,7 @@ doBind pf
   P{ pDesc_=df, pName=Name fn, pArgStys=sfas, pOutSty=sfo, pStruct=Struct fg
    , pArgs=(_fa SOP.:* fass), pOut=fo, pPipe=f}
   P{ pDesc_=dv, pName=Name vn, pStruct=Struct vg
-   , pOut=vo, pPipe=v}
+   , pOut=_vo, pPipe=v}
   = Pipe desc <$> pf dv v df f
  where
    desc    = Desc name sig struct (SomeTypeRep rep) fass fo
@@ -163,6 +156,7 @@ doBind pf
    rep     = case spineConstraint of
                (Dict :: Dict Typeable fass) ->
                  typeRep :: TypeRep (IOA cf fass fo)
+doBind _ _ _ = error "doBind"
 
 compDyn
   :: forall cf cv vas vo fas fass ras fo
@@ -212,9 +206,9 @@ compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
 -- | 'bindPipes*': approximate 'bind':
 -- (>>=) :: forall a b. m a -> (a -> m b) -> m b
 bindPipes0
-  :: (Result b)
+  :: Result b
   -> (b -> Result c)
-  -> (Result c)
+  -> Result c
 bindPipes0 v f = do
   -- fmap join . join $ traverse f <$> v
   r <- v
@@ -222,11 +216,11 @@ bindPipes0 v f = do
     Left e  -> pure $ Left e
     Right x -> f x
 
-bindPipes1
+_bindPipes1
   :: (a -> Result b)
   -> (b -> Result c)
   -> (a -> Result c)
-bindPipes1 v f = \ra -> do
+_bindPipes1 v f ra = do
   -- fmap join . join $ traverse f <$> v ra
   r <- v ra
   case r of

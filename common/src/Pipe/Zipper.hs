@@ -36,14 +36,17 @@ right (xs, x) = case x of
 upFromLeft'  :: ZExpr p -> ZExpr p
 upFromLeft'  (Left  (PApp  l _):xs, x) = (xs, PApp  l x)
 upFromLeft'  (Left  (PComp l _):xs, x) = (xs, PComp l x)
+upFromLeft' _ = error "upFromLeft'"
 
 upFromRight' :: ZExpr p -> ZExpr p
 upFromRight' (Right (PApp  _ r):xs, x) = (xs, PApp  x r)
 upFromRight' (Right (PComp _ r):xs, x) = (xs, PComp x r)
+upFromRight' _ = error "upFromRight'"
 
 up :: ZExpr p -> Maybe (ZExpr p)
 up ([], _)         = Nothing
 up z@(Left _:_, _) = Just $ upFromLeft' z
+up _ = error "up"
 
 top :: ZExpr p -> ZExpr p
 top z@(Left  _:_, _) = upFromLeft'  z

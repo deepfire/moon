@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
+{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls -Wno-unticked-promoted-constructors -Wno-orphans #-}
 
 module Ground.Table
   ( lookupRep
@@ -20,7 +20,7 @@ import           Codec.CBOR.Decoding                (decodeListLen)
 import           Control.Monad                      (forM, unless)
 import qualified Data.Kind                        as K
 import qualified Data.SOP                         as SOP
-import           Type.Reflection                    ((:~~:)(..), TypeRep, eqTypeRep, typeRepKind, withTypeable)
+import           Type.Reflection                    ((:~~:)(..), eqTypeRep, typeRepKind, withTypeable)
 
 import qualified Data.Set.Monad                   as Set
 import Text.Read (Lexeme(..), ReadPrec, lexP)
@@ -126,7 +126,7 @@ parseSomeValue =
                  (fail "")
 
 readValue :: forall (k :: Con). Tag k -> TyDict Ground -> ReadPrec SomeValue
-readValue tag (TyDict (a :: Proxy a)) = do
+readValue tag (TyDict (a :: Proxy a)) =
   case tag of
     TPoint -> do
       v :: a <- readPrec
@@ -148,14 +148,14 @@ instance Read SomeValue where
       Exists tag' -> readValue tag' dict
 
 
-withGroundTop
+_withGroundTop
   :: forall out b
   .  Typeable out
   => out
   -> (forall a. Ground a => a -> b)
   -> (forall a. Top    a => a -> b)
   -> b
-withGroundTop out ground top =
+_withGroundTop out ground top =
   case lookupRep (someTypeRep $ Proxy @out) of
     Nothing -> top out
     Just (TyDict (_ :: Ground b' => Proxy b')) ->
@@ -248,9 +248,10 @@ instance Serialise (SomePipe ()) where
        of
          (Just HRefl, Just HRefl, Just HRefl) ->
            withTypeable ka $ withTypeable  a $ withReifyTag ta $
-             f ((TypePair (reifyTag (Proxy @ka)) (Proxy @a))
-                :: TypePair (Type k a))
+             f (TypePair (reifyTag (Proxy @ka)) (Proxy @a)
+                 :: TypePair (Type k a))
                (Proxy @ka) (Proxy @a)
+         _ -> error "withRecoveredTypePair"
 
 -- instance Serialise (SomePipe ()) where
 --   decode = do

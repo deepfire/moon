@@ -1,5 +1,5 @@
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
+{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls -Wno-orphans -Wno-unticked-promoted-constructors #-}
 module Pipe.Types
   ( SomePipeSpace
   , PipeSpace(..)
@@ -127,7 +127,7 @@ withSomePipe (G x) = ($ x)
 withSomePipe (T x) = ($ x)
 
 withSingPipe
-  :: forall (p :: *) (e :: *) (a :: *)
+  :: forall (p :: *) (e :: *)
   .  SomePipe p
   -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
       . (PipeConstr c kas o, kas ~ '[])
@@ -140,17 +140,16 @@ withSingPipe
   --     . (PipeConstr c (ka : '[]) o, PipeConstr c '[] o)
   --     => Pipe c (ka : '[]) o p -> Either e (Pipe c kas' o' p))
    -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*]) (ka :: *) (kas' :: [*])
-             (kas'' :: [*]) (o'' :: *)
       . (PipeConstr c kas o, PipeConstr c kas' o --, PipeConstr c kas'' o''
         , kas ~ (ka:kas'), kas' ~ '[])
       => Pipe c kas o p -> Either e (Pipe c kas o p))
   -> Either e (SomePipe p)
-withSingPipe (G p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si = G <$> si p
-withSingPipe (G p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _ _  = Left $ nil p
-withSingPipe (G p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons _ = Left $ cons p
-withSingPipe (T p@(Pipe (Desc {pdArgs = _ SOP.:* Nil}) _)) _ _ si = T <$> si p
-withSingPipe (T p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _ _  = Left $ nil p
-withSingPipe (T p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons _ = Left $ cons p
+withSingPipe (G p@(Pipe Desc {pdArgs = _ SOP.:* Nil} _)) _ _ si = G <$> si p
+withSingPipe (G p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _ _  = Left $ nil p
+withSingPipe (G p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons _ = Left $ cons p
+withSingPipe (T p@(Pipe Desc {pdArgs = _ SOP.:* Nil} _)) _ _ si = T <$> si p
+withSingPipe (T p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _ _  = Left $ nil p
+withSingPipe (T p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons _ = Left $ cons p
 
 withCompatiblePipes
   :: forall c1 c2 as1 as2 o1 o2 p a
@@ -180,10 +179,10 @@ somePipeUncons
       . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (ka:kas'))
       => Pipe c kas o p -> Either e (Pipe c kas' o p))
   -> Either e (SomePipe p)
-somePipeUncons (G p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _  = Left $ nil p
-somePipeUncons (G p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons = G <$> cons p
-somePipeUncons (T p@(Pipe (Desc {pdArgs = SOP.Nil   }) _)) nil _  = Left $ nil p
-somePipeUncons (T p@(Pipe (Desc {pdArgs = _ SOP.:* _}) _)) _ cons = T <$> cons p
+somePipeUncons (G p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
+somePipeUncons (G p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = G <$> cons p
+somePipeUncons (T p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
+somePipeUncons (T p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = T <$> cons p
 
 class    ( Typeable (TagOf ct), Typeable (TypeOf ct), Typeable ct
          , Top ct
@@ -251,7 +250,7 @@ newtype Struct = Struct (G.Graph SomeType) deriving (Eq, Generic, Ord, Show)
 type SomePipeSpace p = PipeSpace (SomePipe p)
 
 data PipeSpace a = PipeSpace
-  { psName  :: !(QName (PipeSpace))
+  { psName  :: !(QName PipeSpace)
   , psSpace :: !(Space Point a)
   , psFrom  :: !(MonoidalMap SomeTypeRep (Set (QName Pipe)))
   , psTo    :: !(MonoidalMap SomeTypeRep (Set (QName Pipe)))
@@ -269,7 +268,7 @@ instance (Ord a, Serialise a, Typeable a) => Serialise (PipeSpace a) where
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (5, 2177) -> do
+      (5, 2177) ->
         PipeSpace
         <$> decode
         <*> decode
@@ -357,7 +356,7 @@ instance Ord (SomePipe ()) where
   l' `compare` r' =
     withSomePipe l' $ \(pDesc -> l) ->
     withSomePipe r' $ \(pDesc -> r) ->
-      (pdRep l `compare` pdRep    r)
+      pdRep l `compare` pdRep    r
 
 instance Functor SomePipe where
   fmap f (G x) = G (f <$> x)
