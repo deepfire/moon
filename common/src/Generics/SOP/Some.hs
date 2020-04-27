@@ -46,7 +46,6 @@ data Data  (f :: Form) (c :: Type -> Constraint) u = Data
   , dCtors     :: ![Ctor f c u]
   }
 
--- TODO:  go Doc (& compare complexity after switching..)
 ppData :: Data f c u -> Text
 ppData Data{moduleName=modname, typeName, dCtors} =
   pack (printf "%s.%s\n" modname typeName) <>
