@@ -1,6 +1,6 @@
 module Pipe.Ops.Traverse
   ( traverse
-  , demo_traverse
+  , demoTraverse
   )
 where
 
@@ -24,8 +24,8 @@ import Pipe.Ops.Internal
 import Type
 
 
-demo_traverse :: IO ()
-demo_traverse = undefined
+demoTraverse :: IO ()
+demoTraverse = undefined
 
 traverseP
   :: (forall cf ct fas fa fo a b tas to
@@ -38,12 +38,50 @@ traverseP pf f t =
   (const "Cannot traverse with a saturated pipe.")
   (const "Cannot traverse with a pipe of arity above one.") $
   \(f' :: Pipe cf (fa : '[]) fo p) ->
-    withSomePipe t $
-    \(t' :: Pipe ct _tas to p) ->
-      -- ka must (ka :: *) ~ (Type te0 e0 :: *)
-      -- ka is from kas~ka:kas' -- from the last lambda of 'somePipeUnsing'
-       $ traverseP'' pf f' t'
-       -- TODO:  we could inline traverseP
+    _ (traverseP'' pf f')
+    -- (Pipe
+    --    ct0
+    --    tas0
+    --    (Type ttr0 tr0)
+    --    p
+    --  -> Either Text
+    -- (Pipe
+    --    c
+    --    tas0
+    --    (Type ttr0 (TypeOf o))
+    --    p))
+    -- ->
+    -- Either Text
+    -- (Pipe
+    --    c
+    --    ((':) @* (Type (TagOf ka) (TypeOf ka)) ('[] @*))
+    --    (Type (TagOf o) (TypeOf o))
+    --    p)
+    --
+    -- • Could not deduce: (TypeOf o :: *)
+    --                     ~ (Type (TagOf ka) (TypeOf ka) :: *)
+    --     arising from a use of ‘traverseP''’
+    --
+    -- _ (traverseP'' pf f' t')
+    -- withSomePipe t $
+    -- \(t' :: Pipe ct _tas to p) ->
+    --   -- • Could not deduce:
+    --   -- (kas1 :: [*]) ~
+    --   -- ((':) @* (Type (TagOf ka) (TypeOf ka)) ('[] @*) :: [*])
+    --   --
+    --   -- src: 
+    --   -- forall (c :: * -> Constraint) o (kas :: [*]) ka (kas' :: [*]).
+    --   -- (PipeConstr c kas o, PipeConstr c kas' o,
+    --   --  (kas :: [*]) ~ ((':) @* ka kas' :: [*]),
+    --   --  (kas' :: [*]) ~ ('[] @* :: [*])) =>
+    --   -- Pipe c kas o p -> Either Text (Pipe c kas o p)
+    --   --
+    --   -- src: 
+    --   -- forall (c1 :: * -> Constraint) (kas1 :: [*]) o1.
+    --   -- PipeConstr c1 kas1 o1 =>
+    --   -- Pipe c1 kas1 o1 p -> Either Text (Pipe c kas o p)
+    --    traverseP'' pf f' t'
+    --    -- TODO:  we could inline traverseP''/..
 
 -- traverseP pf (G f) (G t) = G <$> traverseP'' pf f t
 -- traverseP pf (G f) (T t) = G <$> traverseP'' pf f t
@@ -55,8 +93,8 @@ traverseP''
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
      , fas ~ (fa:'[])
-     , fo ~ (Type ft fa)
-     , to ~ (Type ttr tr)
+     , fo ~ Type ft fa
+     , to ~ Type ttr tr
      )
   => (Desc cf fas fo -> p -> Desc ct tas to -> p -> p)
   -> Pipe cf     fas fo p
@@ -72,7 +110,7 @@ traverseP'' pf f@P{pPipeRep=fioa} t@P{pPipeRep=tioa}
                     (Dict :: Dict Typeable tas) -> typeRepNull $ typeRep @tas
   = traverseP' pf f t
   | otherwise
-  = Left $ ("traverseP:  fell through on: f="<>pack (show f)<>" t="<>pack (show t))
+  = Left $ "traverseP:  fell through on: f="<>pack (show f)<>" t="<>pack (show t)
 
 traverseP'
   :: forall cf ct tas to tt e r fas fo ras ro p
@@ -80,10 +118,10 @@ traverseP'
      , PipeConstr ct tas to
      , fas ~ (Type Point e ': '[])
      , tas ~ '[]
-     , fo  ~ (Type Point r)
-     , to  ~ (Type tt    e)
+     , fo  ~ Type Point r
+     , to  ~ Type tt    e
      , ras ~ '[]                   -- TODO:  undo this constraint
-     , ro  ~ (Type tt    r)
+     , ro  ~ Type tt    r
      )
   => (Desc cf fas fo -> p -> Desc ct tas to -> p -> p)
   -> Pipe cf     fas fo p
@@ -104,10 +142,10 @@ doTraverse
      , PipeConstr ct tas to
      , fas ~ (Type Point a ': '[])
      , tas ~ '[]
-     , fo  ~ (Type Point b)
-     , to  ~ (Type tt    a)
+     , fo  ~ Type Point b
+     , to  ~ Type tt    a
      , ras ~ '[]                   -- TODO:  undo this constraint
-     , ro  ~ (Type tt    b)
+     , ro  ~ Type tt    b
      )
   => (Desc cf fas fo -> p -> Desc ct tas to -> p -> p)
   -> Pipe cf     fas fo p
@@ -138,9 +176,9 @@ travDyn
      , PipeConstr ct tas to
      , fas ~ (Type Point a ': '[])
      , tas ~ '[]
-     , fo  ~ (Type Point b)
-     , to  ~ (Type tt    a)
-     , ro  ~ (Type tt    b)
+     , fo  ~ Type Point b
+     , to  ~ Type tt    a
+     , ro  ~ Type tt    b
      )
   => Desc cf     fas fo -> Dynamic
   -> Desc ct tas to     -> Dynamic
@@ -188,8 +226,8 @@ traversePipes0
   -- TODO:  see if we can just pass a TypePair here
   => Tag ttr -> Proxy tr -> Proxy fr
   -> (Repr Point tr -> Result (Repr Point fr))
-  -> (Result (Repr ttr tr))
-  -> (Result (Repr ttr fr))
+  -> Result (Repr ttr tr)
+  -> Result (Repr ttr fr)
 traversePipes0 ttr _ _ f t = do
   tv <- t
   case tv :: Either Text (Repr ttr tr) of

@@ -136,9 +136,6 @@ withSingPipe
              (ka :: *) (kas' :: [*])
       . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (ka:kas'))
       => Pipe c kas o p -> e)
-  -- -> (forall (c :: * -> Constraint) (o :: *) (ka :: *) (kas' :: [*]) (o' :: *)
-  --     . (PipeConstr c (ka : '[]) o, PipeConstr c '[] o)
-  --     => Pipe c (ka : '[]) o p -> Either e (Pipe c kas' o' p))
    -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*]) (ka :: *) (kas' :: [*])
       . (PipeConstr c kas o, PipeConstr c kas' o --, PipeConstr c kas'' o''
         , kas ~ (ka:kas'), kas' ~ '[])

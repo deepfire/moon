@@ -77,13 +77,13 @@ compose''
     , fas ~ (vo:fass)
     , ras ~ fass
     )
-  => (forall cf cv vas vo fas fass ras fo
-       . ( PipeConstr cv vas vo
-         , PipeConstr cf fas fo
-         , fas ~ (vo:fass)
-         , ras ~ fass
+  => (forall cf' cv' vas' vo' fas' fass' ras' fo'
+       . ( PipeConstr cv' vas' vo'
+         , PipeConstr cf' fas' fo'
+         , fas' ~ (vo':fass')
+         , ras' ~ fass'
          )
-      => Desc cv vas vo -> p -> Desc cf fas fo -> p -> Either Text p)
+      => Desc cv' vas' vo' -> p -> Desc cf' fas' fo' -> p -> Either Text p)
   -> Pipe cf fas fo p
   -> Pipe cv vas vo p
   -> Either Text (Pipe cf ras fo p)
