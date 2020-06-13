@@ -5,6 +5,8 @@ module Pipe.Ops
   -- * High-level
   , compile
   , resolveNames
+  -- unused
+  , checkAndInfer
   -- * Ops
   , runPipe
   , apply
@@ -18,12 +20,6 @@ module Pipe.Ops
   -- , someEmptyPipe
   )
 where
-
-import qualified Algebra.Graph                    as G
-import           Data.Dynamic                       (fromDynamic)
-import qualified Data.Kind                        as K
-import           Data.Maybe                         (fromJust)
-import           Type.Reflection
 
 import Basis
 import Pipe.Expr
@@ -77,9 +73,6 @@ compile ops lookupPipe expr =
  where
    failMissing = ("No such pipe: " <>) . showQName
 
-data TCR p
-  = Known (SomePipe p)
-
 checkAndInfer
   :: forall m e p
   .  (Monad m, e ~ Text)
@@ -94,7 +87,7 @@ checkAndInfer expr = go True $ fromExpr expr
       -> ZExpr (Either (QName Pipe) (SomePipe p))
       -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))
    go _ (_, PVal x)          = Right (PVal x)
-   go known z@(parents, PPipe p) = case p of
+   go _known z@(parents, PPipe p) = case p of
      Right x   -> Right . PPipe $ Right x
      Left name -> case parents of
        [] -> Left $ "Lacking context to infer unknown: " <> showQName name
@@ -107,11 +100,11 @@ checkAndInfer expr = go True $ fromExpr expr
      :: QName Pipe
      -> ZExpr (Either (QName Pipe) (SomePipe p))
      -> Either e (SomePipe ())
-   inferFnApp n = goIFA [] where
+   inferFnApp _n = goIFA [] where
      goIFA :: [SomePipe ()]
            -> ZExpr (Either (QName Pipe) (SomePipe p))
            -> Either e (SomePipe ())
-     goIFA xs z@(Right (PApp f x):ps, self) = join $
+     goIFA xs z@(Right (PApp _f x):_ps, _self) = join $
        goIFA <$> ((:)
                   <$> undefined (go False (fromExpr x))
                   <*> pure xs)

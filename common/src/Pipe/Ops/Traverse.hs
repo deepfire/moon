@@ -2,25 +2,17 @@ module Pipe.Ops.Traverse
   ( traverseP
   , demoTraverse
   , travDyn
+  , traverseP''
   )
 where
 
 import qualified Algebra.Graph                    as G
 import           Data.Dynamic                       (fromDynamic)
-import qualified Data.Kind                        as K
-import           Data.Maybe                         (fromJust)
 import qualified Data.SOP                         as SOP
-import qualified Data.SOP.Constraint              as SOP
-import qualified Generics.SOP                     as SOP
-import qualified Generics.SOP.NP                  as SOP
-import qualified Generics.SOP.NS                  as SOP
 import           Type.Reflection
 
 import Basis
-import Pipe.Expr
 import Pipe.Types
-import Pipe.Zipper
-import Pipe.Ops.Base
 import Pipe.Ops.Internal
 import Type
 
@@ -40,7 +32,7 @@ traverseP
         )
       => Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p)
   -> SomePipe p -> SomePipe p -> Either Text (SomePipe p)
-traverseP pf f t = undefined
+traverseP _ _ = undefined
   -- case f of
   --   G f' ->
   --     pipeArityCase f'
@@ -70,7 +62,7 @@ traverseP pf f t = undefined
       --         traverseP'' Proxy pf f' t'
 
 traverseP''
-  :: forall cf ct fas te e fo ft fa tas ttr tr to ras ro p proxy
+  :: forall cf ct fas fo ft fa tas ttr tr to ras ro p proxy
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
      , PipeConstr cf ras ro
@@ -79,7 +71,7 @@ traverseP''
      , to ~ Type ttr tr
      )
   => proxy (Type (TagOf to) (TypeOf fo))
-  -> (forall cf' ct' fas' fa' fo' a' b' tas' to'
+  -> (forall cf' ct' fas' fo' tas' to'
       . ( PipeConstr cf' fas' fo'
         , PipeConstr ct' tas' to')
       => Desc cf' fas' fo' -> p -> Desc ct' tas' to' -> p -> Either Text p)
@@ -101,6 +93,7 @@ traverseP'' _p pf f@P{pPipeRep=fioa} t@P{pPipeRep=tioa}
   = traverseP' pf f t
   | otherwise
   = Left $ "traverseP:  fell through on: f="<>pack (show f)<>" t="<>pack (show t)
+traverseP'' _ _ _ _ = Left "traverseP'':  fell through absurdly bad."
 
 traverseP'
   :: forall cf ct tas to tt a b fas fo ras ro p
@@ -116,7 +109,7 @@ traverseP'
   -> Pipe cf     fas fo p
   -> Pipe ct tas to     p
   -> Either Text (Pipe cf ras ro p)
-traverseP' pf f@P{pPipeRep=fioa} t@P{pPipeRep=tioa}
+traverseP' pf f@P{} t@P{}
   -- | Just e <- ioaTySingletonInvalidity fioa = Left $ "Traverse: funty: " <> e
   -- | Just e <- ioaTyNilInvalidity tioa = Left $ "Traverse: traversablety: " <> e
   | otherwise = doTraverse pf f t
@@ -142,9 +135,9 @@ doTraverse
   -> Either Text (Pipe cf ras ro p)
 doTraverse pf
   P{ pDesc_=df, pName=Name fn, pOutSty=fosty, pStruct=Struct fg
-   , pArgs=(fka SOP.:* Nil), pOut=TypePair{tpType=fty}, pPipe=f}
+   , pArgs=(_fka SOP.:* Nil), pOut=TypePair{tpType=fty}, pPipe=f}
   P{ pDesc_=dt, pName=Name tn, pOutSty=tosty, pStruct=Struct tg
-   , pArgs=(tka SOP.:* Nil), pOut=TypePair{tpTag=ttag}, pPipe=t}
+   , pArgs=(_tka SOP.:* Nil), pOut=TypePair{tpTag=ttag}, pPipe=t}
   -- (Pipe df@(Desc (Name fn) _ (Struct fg) _  _ _  _ c) f)
   -- (Pipe dt@(Desc (Name fn) _ (Struct fg) _ ka a kb _) t)
   = Pipe desc <$> (pf df f dt t)
@@ -160,7 +153,7 @@ doTraverse pf
 --   = Left $ "doBind: PipeFuns, but "<>showLR (pack $ show l) (pack $ show r)
 
 travDyn
-  :: forall cf ct tas to tt a b fas fo ras ro
+  :: forall cf ct tas to tt a b fas fo ro
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
      , fas ~ (Type Point a ': '[])
@@ -172,10 +165,10 @@ travDyn
   => Desc cf     fas fo -> Dynamic
   -> Desc ct tas to     -> Dynamic
   -> Either Text Dynamic
-travDyn df f dt t = Dynamic typeRep <$>
+travDyn _df f dt t = Dynamic typeRep <$>
   case (fromDynamic f, fromDynamic t) of
-    ( Just (IOA f' cf _   fo :: IOA cf     fas fo)
-     ,Just (IOA t' _  tas to :: IOA ct tas to))
+    ( Just (IOA f' cf _   _fo :: IOA cf     fas fo)
+     ,Just (IOA t' _  tas _to :: IOA ct tas to))
       -> Right (IOA ioa cf tas (Proxy @ro) :: IOA cf tas ro)
      where
        ioa :: Result (ReprOf ro)

@@ -74,16 +74,20 @@ data Pipe (c :: * -> Constraint) (kas :: [*]) (o :: *) (p :: *) where
     } -> Pipe c kas o p
 
 pipeName :: (PipeConstr c as o) => Pipe c as o p -> Name Pipe
-pipeName   (PipeD name _ _ _ _ _ _)   = name
+pipeName (PipeD name _ _ _ _ _ _)   = name
+pipeName _ = error "impossible pipeName"
 
 pipeSig :: (PipeConstr c as o) => Pipe c as o p -> Sig
 pipeSig   (PipeD _ sig _ _ _ _ _)    = sig
+pipeSig _ = error "impossible pipeSig"
 
 pipeStruct :: (PipeConstr c as o) => Pipe c as o p -> Struct
 pipeStruct   (PipeD _ _ struct _ _ _ _) = struct
+pipeStruct _ = error "impossible pipeStruct"
 
 pipeRep :: (PipeConstr c as o) => Pipe c as o p -> SomeTypeRep
 pipeRep   (PipeD _ _ _ rep _ _ _)    = rep
+pipeRep _ = error "impossible pipeRep"
 
 showPipe, showPipeP :: Pipe c as o p -> Text
 showPipe  Pipe{pDesc} = showDesc  pDesc
@@ -110,10 +114,12 @@ data SomePipe (p :: *)
 somePipeName :: SomePipe p -> Name Pipe
 somePipeName (GPipeD name _ _ _) = coerceName name
 somePipeName (TPipeD name _ _ _) = coerceName name
+somePipeName _ = error "impossible somePipeName"
 
 somePipeSig :: SomePipe p -> Sig
 somePipeSig  (GPipeD _ sig _ _) = sig
 somePipeSig  (TPipeD _ sig _ _) = sig
+somePipeSig _ = error "impossible somePipeSig"
 
 somePipeRep :: SomePipe p -> SomeTypeRep
 somePipeRep p = withSomePipe p pipeRep
@@ -165,7 +171,7 @@ pipeArityCase
   -> (forall (ka :: *) (kas' :: [*])
       . (kas ~ (ka:kas'), PipeConstr c kas' o)
       => Pipe c kas o p -> a)
-  -> (forall (ka :: *) (kas' :: [*]) (k :: *)
+  -> (forall (ka :: *) (kas' :: [*])
       . (kas ~ (ka:kas'), PipeConstr c kas' o, kas' ~ '[])
       => Pipe c kas o p -> a)
   -> a
@@ -217,12 +223,6 @@ instance ( Typeable (TagOf ct), Typeable (TypeOf ct), Typeable ct
 
 type ArgConstr (c :: * -> Constraint) (ct :: *)
   = ( IsType ct, Typeable c, c (TypeOf ct))
-
--- Same as PipeConstr, exactly minus c-based constraints.
-type PipeConstr' (kas :: [*]) (o :: *)
-  = ( All IsType kas, IsType o
-    , All Typeable kas -- why do we need this, when we have IsType?
-    )
 
 type PipeConstr (c :: * -> Constraint) (kas :: [*]) (o :: *)
   = ( All IsType kas, ArgConstr c o

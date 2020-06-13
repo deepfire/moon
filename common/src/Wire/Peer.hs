@@ -41,7 +41,6 @@ import           Network.TypedProtocol.Codec
 import qualified Network.TypedProtocol.Channel       as Net
 import           Network.TypedProtocol.Core            (Peer(..))
 import qualified Network.TypedProtocol.Core          as Net
-import qualified Network.TypedProtocol.Driver        as Net
 import qualified Network.TypedProtocol.Driver.Simple as Net
 
 import Wire.Protocol

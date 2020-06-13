@@ -26,7 +26,7 @@ import qualified Data.Set.Monad                   as Set
 import qualified Data.Text                        as Text
 
 import Basis
-import Namespace (PointScope, Scope)
+import Namespace (PointScope)
 import qualified Namespace
 import Pipe.Scope
 import Pipe.Types
