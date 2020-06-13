@@ -202,10 +202,10 @@ somePipeUncons
   -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
       . (PipeConstr c kas o, kas ~ '[])
       => Pipe c '[] o p -> e)
-  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
+  -> (forall (c :: * -> Constraint) (o :: *)
              (ka :: *) (kas' :: [*])
-      . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (ka:kas'))
-      => Pipe c kas o p -> Either e (Pipe c kas' o p))
+      . (PipeConstr c (ka:kas') o, PipeConstr c kas' o)
+      => Pipe c (ka:kas') o p -> Either e (Pipe c kas' o p))
   -> Either e (SomePipe p)
 somePipeUncons (G p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
 somePipeUncons (G p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = G <$> cons p

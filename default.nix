@@ -35,76 +35,37 @@ in (import ./../reflex-platform {
       (self.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub {
           inherit owner repo rev sha256;
           }) cabalExtras {});
+      unbreak = name: (overrideCabal old.${name} (old: { broken = false; }));
       df = c "deepfire";
       ds = c "deepshared";
       io = repo: rev: s: subdir: c "input-output-hk" repo rev s "--subpath ${subdir}";
-      io-on = x: dontCheck (io "ouroboros-network" "edfdf732f051ac513277a83065b928a5db8e652c" "sha256:1qssfmixm88khcxmsn6zdg1bczwjgn7av47g3gmi06f0xf18xm7b" x);
+      io-on = x: l x (../ouroboros-network + "/${x}") "";
+      # io-on = x: dontCheck (io "ouroboros-network" "edfdf732f051ac513277a83065b928a5db8e652c" "sha256:1qssfmixm88khcxmsn6zdg1bczwjgn7av47g3gmi06f0xf18xm7b" x);
       io-mf = io "iohk-monitoring-framework" "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w";
       microlen = c "monadfix" "microlens"       "adec46f45a5feb8df15014124773e2bacd9f3afe" "sha256:00iach6gy3srv66dshjzlrdlxhbmzw9mhlk7f6shspz778sf45j0";
       sop = c "well-typed" "generics-sop"       "770bf3fb50b2fa8ea5f33e3abcdc01a973ed3754" "sha256:0fn0555sc4lmd2rbddyypg90f4rwcprvvqg2rgd6ss59waflz61g";
   in {
-    common                = self.callCabal2nix "common" ./common {};
-    lift                  = self.callCabal2nix "lift"   ./lift   {};
+    ### Locals
+    common                   = self.callCabal2nix "common" ./common {};
+    lift                     = self.callCabal2nix "lift"   ./lift   {};
 
+    ### IOHK
+    contra-tracer            = io-mf "contra-tracer";
+    io-sim                   = io-on "io-sim";
+    io-sim-classes           = io-on "io-sim-classes";
+    typed-protocols          = io-on "typed-protocols";
+    typed-protocols-examples = io-on "typed-protocols-examples";
+
+    ### Externals
+    ## 0.4 (that comes in Nixpkgs with for 8.8) doesn't have Generic instances.
+    algebraic-graphs         = dontCheck (c "snowleopard" "alga" "d6a91d10a8132d93c4ba7004e8dd15692a4ab8b0" "02pgdykdndnizga9b92cpp2nby4lhq4vd7nx94jpmxc57fg871s4" "");
+    patch                    = dontCheck old.patch;
+    reflex                   = dontCheck old.reflex;
+    reflex-vty               = l "reflex-vty" ../reflex-vty "";
+
+    ### Luna IDE
     frontend-common       = dontCheck (doJailbreak (self.callCabal2nix "frontend-common"           ./lib                           {}));
     luna-api-definition   = dontCheck (doJailbreak (self.callCabal2nix "luna-api-definition"       ./api-definition/api-definition {}));
-
-    # iohk-monitoring       = io-mf                  "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w" "iohk-monitoring";
-    # Glob                  = dontCheck old.Glob;      # test failure
-    # SHA                   = dontCheck old.SHA;
-    # alg                   = c "strake" "alg"       "ee1d266587ea8315f224d9ea16ae51279c0c27eb" "02kb90glapbs39721p994d5fsw2vkqgi7hi3a0nplnr1q4hb6jg3" "";
-    # algebraic-graphs      = dontCheck (c "snowleopard" "alga" "eb0366ffd90802b1cfc2e2d739960d5f8bba3b3c" "0p9xv8w9iskg6lqygmf3myp892s5bq08xrgbm0zmy1isbh9rlzjv" "");
-    # algebraic-graphs        = dontCheck (doJailbreak (overrideCabal old.algebraic-graphs (old: { broken = false; })));
-    async-timer           = dontCheck (overrideCabal old.async-timer  (old: { broken = false; }));
-    # async-timer           = dontCheck (overrideCabal old.async-timer (old: { broken = false; }));
-    # category              = df "category.hs"       "fba78a5a1f2487d9a1a7375605f90bdc125f07fa" "1hmfiilwc6rk0si6a96iflhzszyhivwzxz0aclssjbv3fkprw5nd" "";
-    # cborg                 = l "cborg" ../cborg/cborg "";
-    # conduit               = dontCheck old.conduit;
-    # constraint            = overrideCabal old.constraint (old: { broken = false; });
-    contra-tracer         = io-mf "contra-tracer";
-    constraints-extras    = doJailbreak (old.constraints-extras);
-    # cryptohash-sha1       = dontCheck old.cryptohash-sha1;
-    # datetime              = doJailbreak (self.callHackage "datetime" "0.3.1" {});
-    # either                = doJailbreak (self.callHackage "either" "4.4.1.1" {});
-    # extra                 = dontCheck old.extra;
-    # exception-transformers
-    #                       = c "mainland" "exception-transformers" "c8bdf179aa2464a46f8da8bc6040c42c3d29988c" "sha256:1aka1cja92pivi700571zdncnfx1nprd8pvcbz4fjsp42qs37c7x" "";
-    fclabels              = doJailbreak old.fclabels;
-    generic-monoid        = dontCheck (doJailbreak (overrideCabal old.generic-monoid (old: {})));
-    generics-sop          = sop "--subpath generics-sop";
-    sop-core              = sop "--subpath sop-core";
-    # half                  = dontCheck old.half;
-    hlint                 = doJailbreak (old.hlint);
-    # iohk-monitoring       = io-mf "iohk-monitoring";
-    io-sim                = io-on "io-sim";
-    io-sim-classes        = io-on "io-sim-classes";
-    # lifted-async          = dontCheck old.lifted-async;
-    # matrix                = dontCheck old.matrix; # test takes too long
-    # cryptohash-md5        = dontCheck old.cryptohash-md5; # test does not terminate
-    # mono-traversable      = dontCheck old.mono-traversable;
-    # microlens             = c "monadfix" "microlens"       "adec46f45a5feb8df15014124773e2bacd9f3afa" "sha256:00iach6gy3srv66dshjzlrdlxhbmzw9mhlk7f6shspz778sf45j0" "--subpath microlens";
-    # microlens             = microlen "--subpath microlens";
-    # microlens-platform    = microlen "--subpath microlens-platform";
-    # microlens-th          = microlen "--subpath microlens-th";
-    # microlens-mtl         = microlen "--subpath microlens-mtl";
-    # microlens-ghc         = microlen "--subpath microlens-ghc";
-    network-mux           = io-on "network-mux";
-    prim-uniq             = doJailbreak (old.prim-uniq);
-    # rebase                = doJailbreak (self.callHackage "rebase" "1.1.1" {});
-    # reflex                = doJailbreak (old.reflex);
-    # reflex-vty            = c "reflex-frp" "reflex-vty" "24b63006982a57c6db2047228233aa6490644531" "sha256:0rgcwzjddhcs41pwq4xv72c9gpmngxgdiw6kbhqf45zsjn6xm30x" "";
-    reflex-vty            = l "reflex-vty" ../reflex-vty "";
-    # reflex-vty            = doJailbreak (old.reflex-vty);
-    # serialise             = l "serialise" ../cborg/serialise "";
-    # shelly                = dontCheck old.shelly;
-    # temporary             = dontCheck old.temporary;
-    these                 = doJailbreak (old.these);
-    # type-list             = overrideCabal old.type-list (old: { broken = false; jailbreak = true; });
-    typed-protocols       = io-on "typed-protocols";
-    # typed-protocols-cbor  = io-on "typed-protocols-cbor";
-    # unliftio              = dontCheck old.unliftio;  # test failure
-    # yaml                  = dontCheck old.yaml;
-    # zeromq4-haskell       = overrideCabal old.zeromq4-haskell (old: { broken = false; });
 
     container             = ds "container"         "1bac6323943afeb2b13d3e21e69ab4a537d3030e" "124wlvrybalr0xh3jsin2x5r3hcw846zafndg90lkyq529dcgm1x" "";
     convert               = ds "convert"           "d10f56856a656ee515bd0ddcfaba43ad10b70814" "1wxszfxmarrf1i1gcz4bhiv813qiks00wmy03rws7lmpr0009fbc" "";

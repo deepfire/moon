@@ -1,1 +1,1 @@
-nix-shell -A shells.ghc --show-trace --cores 0 -j4 "$@"
+nix-shell -A shells.ghc --show-trace --cores 0 -j16 "$@"

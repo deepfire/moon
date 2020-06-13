@@ -60,6 +60,7 @@ import qualified Algebra.Graph                    as G
 import           Codec.Serialise
 import qualified Codec.CBOR.Decoding              as CBOR (decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
+import           Control.Monad.Fail                 (MonadFail)
 import qualified Data.Sequence                    as Seq
 import qualified Data.Set.Monad                   as S
 import qualified Data.Text                        as Text

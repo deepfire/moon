@@ -11,6 +11,7 @@ import Algebra.Graph.AdjacencyMap
 import Codec.Serialise
 import qualified Data.Map.Monoidal.Strict as MMap
 import qualified Data.Set.Monad as Set
+import GHC.Generics
 import Text.Read
 import Type.Reflection
 

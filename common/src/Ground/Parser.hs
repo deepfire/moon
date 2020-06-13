@@ -9,6 +9,7 @@ module Ground.Parser
   )
 where
 
+import Control.Monad.Fail (MonadFail)
 import Text.Parser.Combinators ((<?>), try)
 import Text.Parser.Char (alphaNum, char, letter, string)
 import Text.Parser.Token.Highlight

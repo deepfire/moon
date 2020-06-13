@@ -14,6 +14,7 @@ module Ground.Table
   )
 where
 
+import           Control.Monad.Fail (MonadFail)
 import           Codec.Serialise
 import           Codec.CBOR.Encoding                (Encoding, encodeListLen)
 import           Codec.CBOR.Decoding                (decodeListLen)

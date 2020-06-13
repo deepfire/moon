@@ -33,6 +33,8 @@ module Wire.Protocol
   )
 where
 
+import           GHC.Generics (Generic)
+
 import qualified Data.ByteString                  as  BS
 import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
