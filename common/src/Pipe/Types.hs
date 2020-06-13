@@ -1,4 +1,5 @@
-{-# LANGUAGE UndecidableSuperClasses #-}
+{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE UndecidableSuperClasses    #-}
 {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls -Wno-orphans -Wno-unticked-promoted-constructors #-}
 module Pipe.Types
   ( SomePipeSpace
@@ -10,9 +11,10 @@ module Pipe.Types
   , somePipeName
   , somePipeSig
   , withSomePipe
-  , withSingPipe
+  , pipeArityCase
   , somePipeUncons
   , ArgConstr
+  , IsType
   , PipeConstr
   , PipeFunTy
   -- , PipePairFunTy
@@ -118,7 +120,7 @@ somePipeRep p = withSomePipe p pipeRep
 
 withSomePipe
   :: forall (p :: *) (a :: *)
-  .  SomePipe p
+   . SomePipe p
   -> (forall (c :: * -> Constraint) (kas :: [*]) (o :: *)
       . (PipeConstr c kas o)
       => Pipe c kas  o  p -> a)
@@ -126,27 +128,50 @@ withSomePipe
 withSomePipe (G x) = ($ x)
 withSomePipe (T x) = ($ x)
 
-withSingPipe
-  :: forall (p :: *) (e :: *)
-  .  SomePipe p
-  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
-      . (PipeConstr c kas o, kas ~ '[])
-      => Pipe c kas o p -> e)
-  -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*])
-             (ka :: *) (kas' :: [*])
-      . (PipeConstr c kas o, PipeConstr c kas' o, kas ~ (ka:kas'))
-      => Pipe c kas o p -> e)
-   -> (forall (c :: * -> Constraint) (o :: *) (kas :: [*]) (ka :: *) (kas' :: [*])
-      . (PipeConstr c kas o, PipeConstr c kas' o --, PipeConstr c kas'' o''
-        , kas ~ (ka:kas'), kas' ~ '[])
-      => Pipe c kas o p -> Either e (Pipe c kas o p))
-  -> Either e (SomePipe p)
-withSingPipe (G p@(Pipe Desc {pdArgs = _ SOP.:* Nil} _)) _ _ si = G <$> si p
-withSingPipe (G p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _ _  = Left $ nil p
-withSingPipe (G p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons _ = Left $ cons p
-withSingPipe (T p@(Pipe Desc {pdArgs = _ SOP.:* Nil} _)) _ _ si = T <$> si p
-withSingPipe (T p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _ _  = Left $ nil p
-withSingPipe (T p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons _ = Left $ cons p
+-- withSomePipe'
+--   :: forall (p :: *)
+--   .  SomePipe p
+--   -> (forall (c :: * -> Constraint)
+--              (kas  :: [*]) (o  :: *)
+--              (kas' :: [*]) (o' :: *)
+--       . (PipeConstr c kas o)
+--       =>  Pipe c kas  o  p
+--       -> (Pipe c kas' o' p -> SomePipe p)
+--       -> SomePipe p)
+--   -> SomePipe p
+-- withSomePipe' (G x) f = f x G
+-- withSomePipe' (T x) f = f x T
+-- withSomePipe'
+--   :: forall (p :: *)
+--   .  SomePipe p
+--   -> (forall (c :: * -> Constraint)
+--              (kas  :: [*]) (o  :: *)
+--              (kas' :: [*]) (o' :: *)
+--       . (PipeConstr c kas o, PipeConstr c kas' o')
+--       =>  Pipe c kas  o  p
+--       -> (Pipe c kas' o' p -> SomePipe p)
+--       -> SomePipe p)
+--   -> SomePipe p
+-- withSomePipe' (G x) f = f x G
+-- withSomePipe' (T x) f = f x T
+
+pipeArityCase
+  :: forall (c :: * -> Constraint) (kas :: [*]) (o :: *) (p :: *) (a :: *)
+  .  (PipeConstr c kas o)
+  => Pipe c kas o p
+  -> (forall
+      . (kas ~ '[])
+      => Pipe c kas o p -> a)
+  -> (forall (ka :: *) (kas' :: [*])
+      . (kas ~ (ka:kas'), PipeConstr c kas' o)
+      => Pipe c kas o p -> a)
+  -> (forall (ka :: *) (kas' :: [*]) (k :: *)
+      . (kas ~ (ka:kas'), PipeConstr c kas' o, kas' ~ '[])
+      => Pipe c kas o p -> a)
+  -> a
+pipeArityCase p@(Pipe Desc {pdArgs =      Nil} _) nil _ _  = nil p
+pipeArityCase p@(Pipe Desc {pdArgs = _ :* Nil} _) _ _ si   = si p
+pipeArityCase p@(Pipe Desc {pdArgs = _ :* _}   _) _ cons _ = cons p
 
 withCompatiblePipes
   :: forall c1 c2 as1 as2 o1 o2 p a
@@ -192,6 +217,12 @@ instance ( Typeable (TagOf ct), Typeable (TypeOf ct), Typeable ct
 
 type ArgConstr (c :: * -> Constraint) (ct :: *)
   = ( IsType ct, Typeable c, c (TypeOf ct))
+
+-- Same as PipeConstr, exactly minus c-based constraints.
+type PipeConstr' (kas :: [*]) (o :: *)
+  = ( All IsType kas, IsType o
+    , All Typeable kas -- why do we need this, when we have IsType?
+    )
 
 type PipeConstr (c :: * -> Constraint) (kas :: [*]) (o :: *)
   = ( All IsType kas, ArgConstr c o
@@ -292,32 +323,29 @@ type SomePipeScope p = PointScope (SomePipe p)
 data Ops p where
   Ops ::
     { app
-      :: forall c as o. (PipeConstr c as o)
-      => Desc c as o -> Value (Arg1Tag as) (Arg1Ty as) -> p -> p
+      :: forall c kas kas' o ka
+      . ( PipeConstr c kas  o
+        , PipeConstr c kas' o
+        , kas ~ (ka : kas')
+        )
+      => Desc c kas o -> Value (TagOf ka) (TypeOf ka) -> p -> Either Text p
     , comp
-      :: forall c1 c2 as1 as2 o1 o2
-      . ( PipeConstr c1 as1 o1, PipeConstr c2 as2 o2
-        , o2 ~ Arg1 as1
+      :: forall cf cv vas vo fas fass ras fo
+      . ( PipeConstr cv vas vo
+        , PipeConstr cf fas fo
+        , fas ~ (vo:fass)
+        , ras ~ fass
         )
-      => Desc c2 as2 o2 -> p
-      -> Desc c1 as1 o1 -> p
-      -> p
+      => Desc cv vas vo -> p -> Desc cf fas fo -> p -> Either Text p
     , trav
-      -- :: forall c1 c2 t tt1 kf2 tf2 kt2
-      --     . ( Typeable c1, Typeable c2, c1 (), c1 tt1
-      --       , Typeable t, Typeable tt1, Typeable kf2, Typeable tf2, Typeable kt2
-      --       , ReifyTag kf2, ReifyTag kt2)
-      --     => Desc c1         Point t Point tt1 -> p
-      --     -> Desc c2 kf2 tf2 kt2   t           -> p
-      :: forall c1 c2 as1 as2 o1 o2
-      . ( PipeConstr c1 as1 o1, PipeConstr c2 as2 o2
-        , Arg1Tag as1 ~ Point
-        , TagOf o1 ~ Point
-        , Arg1Ty ty1 ~ TypeOf o2
-        )
-      => Desc c1 as1 o1 -> p
-      -> Desc c2 as2 o2 -> p
-      -> p
+      :: forall cf ct fas fo a tas to
+      . ( PipeConstr cf fas fo
+        , PipeConstr ct tas to
+        , fas ~ (Type Point a ': '[])
+        , tas ~ '[]
+        , TypeOf to ~ a
+        , TagOf fo ~ 'Point)
+      => Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p
     } -> Ops p
 
 -- This allows pipe operations (apply, compose, traverse) to be

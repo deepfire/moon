@@ -8,13 +8,14 @@ module Pipe.Ops
   -- * Ops
   , runPipe
   , apply
+  , compose
   , traverseP
   -- * Constructors
   , gen, genG, gen'
   , link, linkG, link'
-  , emptyDesc
-  , emptyPipe
-  , someEmptyPipe
+  -- , emptyDesc
+  -- , emptyPipe
+  -- , someEmptyPipe
   )
 where
 
@@ -26,6 +27,7 @@ import           Type.Reflection
 
 import Basis
 import Pipe.Expr
+import Pipe.Ops.Base
 import Pipe.Ops.Apply
 import Pipe.Ops.Compose
 import Pipe.Ops.Traverse
@@ -45,15 +47,15 @@ instance PipeOps () where
 opsFull :: Ops Dynamic
 opsFull = Ops
   { app  = appDyn
-  , trav = travDyn
   , comp = compDyn
+  , trav = travDyn
   }
 
 opsDesc :: Ops ()
 opsDesc = Ops
-  { app  = const . const . const ()
-  , trav = const . const . const . const ()
-  , comp = const . const . const . const ()
+  { app  = const . const . const (Right ())
+  , comp = const . const . const . const (Right ())
+  , trav = const . const . const . const (Right ())
   }
 
 
@@ -85,9 +87,9 @@ checkAndInfer
   -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))
 checkAndInfer expr = go True $ fromExpr expr
  where
-   toSig :: Either (SomePipe ()) (SomePipe p) -> (SomePipe ())
-   toSig (Left x)  = x
-   toSig (Right p) = somePipeDesc p
+   -- toSig :: Either (SomePipe ()) (SomePipe p) -> SomePipe ()
+   -- toSig (Left x)  = x
+   -- toSig (Right p) = somePipeDesc p
    go :: Bool
       -> ZExpr (Either (QName Pipe) (SomePipe p))
       -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))

@@ -1,8 +1,8 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 module Pipe.Ops.Compose
-  ( -- compose
-  -- ,
-    demoCompose
+  ( compose
+  , demoCompose
+  , compDyn
   )
 where
 
@@ -49,20 +49,6 @@ compose
 compose pf f v =
   somePipeUncons f
   (const "Cannot apply value to a saturated pipe.") $
-  -- • Could not deduce: (ka :: *) ~ (Type (TagOf ka1) (TypeOf ka1) :: *)
-  -- Expected type: Pipe c kas o p
-  --   Actual type: Pipe c ((':) * ka kas') o p
-  -- ka is
-  -- ka1 is
-  --   from the context: (PipeConstr c kas o, PipeConstr c kas' o,
-  --                     (kas :: [*]) ~ ((':) * ka1 kas' :: [*]))
-  --   bound by a type expected by the context:
-  -- forall (c :: * -> Constraint) o (kas :: [*]) ka1 (kas' :: [*]).
-  -- (PipeConstr c kas o, PipeConstr c kas' o,
-  --  (kas :: [*]) ~ ((':) * ka1 kas' :: [*])) =>
-  -- Pipe c kas o p -> Either Text (Pipe c kas' o p)
-  -- Expected type: Pipe c kas o p
-  --   Actual type: Pipe c ((':) * ka kas') o p
   \(f' :: Pipe cf (ka : kas) fo p) ->
     withSomePipe v $
     \(v' :: Pipe cv _vas vo p) ->

@@ -1,4 +1,5 @@
-{-# LANGUAGE UndecidableSuperClasses #-}
+{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE UndecidableSuperClasses    #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Type
   ( Name(..)

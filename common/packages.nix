@@ -15,9 +15,11 @@ let
   extras   = [
                # ghc.ghc-events
                # ghc.ghcid
-               # ghc.graphmod
+               ghc.graphmod
                ghc.cabal-install
-               # pkgs.graphviz
+               pkgs.graphviz
+               ghc.happy
+               ghc.alex
              ];
   localPackages  = with ghc; with pkgs.lib; with builtins; {};
   final-default  = ghc.callPackage default localPackages;

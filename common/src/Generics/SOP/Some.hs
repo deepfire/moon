@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveAnyClass             #-}
+{-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wextra #-}

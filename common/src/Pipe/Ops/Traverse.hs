@@ -1,6 +1,7 @@
 module Pipe.Ops.Traverse
-  ( traverse
+  ( traverseP
   , demoTraverse
+  , travDyn
   )
 where
 
@@ -28,80 +29,90 @@ demoTraverse :: IO ()
 demoTraverse = undefined
 
 traverseP
-  :: (forall cf ct fas fa fo a b tas to
+  :: (forall cf ct fas fo tas to
       . ( PipeConstr cf fas fo
-        , PipeConstr ct tas to)
-      => Desc cf fas fo -> p -> Desc ct tas to -> p -> p)
+        , PipeConstr ct tas to
+        , fas ~ (Type Point a ': '[])
+        , tas ~ '[]
+        , fo  ~ Type Point b
+        , to  ~ Type tt    a
+        , ro  ~ Type tt    b
+        )
+      => Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p)
   -> SomePipe p -> SomePipe p -> Either Text (SomePipe p)
-traverseP pf f t =
-  withSingPipe f
-  (const "Cannot traverse with a saturated pipe.")
-  (const "Cannot traverse with a pipe of arity above one.") $
-  \(f' :: Pipe cf (fa : '[]) fo p) ->
-    withSomePipe t $
-    \(t' :: Pipe ct _tas to p) ->
-      traverseP'' Proxy pf f' t'
-    -- withSomePipe t $
-    -- \(t' :: Pipe ct _tas to p) ->
-    --   -- • Could not deduce:
-    --   -- (kas1 :: [*]) ~
-    --   -- ((':) @* (Type (TagOf ka) (TypeOf ka)) ('[] @*) :: [*])
-    --   --
-    --   -- src:
-    --   -- forall (c :: * -> Constraint) o (kas :: [*]) ka (kas' :: [*]).
-    --   -- (PipeConstr c kas o, PipeConstr c kas' o,
-    --   --  (kas :: [*]) ~ ((':) @* ka kas' :: [*]),
-    --   --  (kas' :: [*]) ~ ('[] @* :: [*])) =>
-    --   -- Pipe c kas o p -> Either Text (Pipe c kas o p)
-    --   --
-    --   -- src:
-    --   -- forall (c1 :: * -> Constraint) (kas1 :: [*]) o1.
-    --   -- PipeConstr c1 kas1 o1 =>
-    --   -- Pipe c1 kas1 o1 p -> Either Text (Pipe c kas o p)
-    --    traverseP'' pf f' t'
-
--- traverseP pf (G f) (G t) = G <$> traverseP'' pf f t
--- traverseP pf (G f) (T t) = G <$> traverseP'' pf f t
--- traverseP pf (T f) (T t) = T <$> traverseP'' pf f t
--- traverseP pf (T f) (G t) = T <$> traverseP'' pf f t
+traverseP pf f t = undefined
+  -- case f of
+  --   G f' ->
+  --     pipeArityCase f'
+  --       (const $ Left "Cannot traverse with a saturated pipe.")
+  --       (const $ Left "Cannot traverse with a pipe of arity above one.") $
+  --       \(f'' :: Pipe cf fa fo p) ->
+  --         case t of
+  --           -- traverseP'' => o == ka
+  --           -- forall ka (kas' :: [*]) k3.
+  --           -- ((kas :: [*]) ~ ((':) @* ka kas' :: [*]), PipeConstr Ground kas' o,
+  --           --  (kas' :: [*]) ~ ('[] @* :: [*])) =>
+  --           -- Pipe Ground kas o p -> Either Text (SomePipe p)
+  --           G t' -> G <$> traverseP'' Proxy pf f' t'
+  --           T t' -> G <$> traverseP'' Proxy pf f' t'
+    -- T f' ->
+  -- withSomePipe f $
+  -- \(f' :: Pipe cf fa fo p) ->
+      -- pipeArityCase f'
+      --   (const $ Left "Cannot traverse with a saturated pipe.")
+      --   (const $ Left "Cannot traverse with a pipe of arity above one.") $
+      --   \(f'' :: Pipe cf fa fo p) ->
+      --     case t of
+      --       G t' -> T <$> traverseP'' Proxy pf f' t'
+      --       T t' -> T <$> traverseP'' Proxy pf f' t'
+      -- withSomePipe t $
+      -- \(t' :: Pipe ct _tas to p) ->
+      --         traverseP'' Proxy pf f' t'
 
 traverseP''
-  :: forall cf ct fas te e fo ft fa tas ttr tr to ro p proxy
+  :: forall cf ct fas te e fo ft fa tas ttr tr to ras ro p proxy
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
+     , PipeConstr cf ras ro
      , fas ~ (fa:'[])
      , fo ~ Type ft fa
      , to ~ Type ttr tr
      )
   => proxy (Type (TagOf to) (TypeOf fo))
-  -> (Desc cf fas fo -> p -> Desc ct tas to -> p -> p)
+  -> (forall cf' ct' fas' fa' fo' a' b' tas' to'
+      . ( PipeConstr cf' fas' fo'
+        , PipeConstr ct' tas' to')
+      => Desc cf' fas' fo' -> p -> Desc ct' tas' to' -> p -> Either Text p)
   -> Pipe cf     fas fo p
   -> Pipe ct tas to     p
-  -> Either Text (Pipe cf tas (Type (TagOf to) (TypeOf fo)) p)
+  -> Either Text (Pipe cf ras ro p)
 traverseP'' _p pf f@P{pPipeRep=fioa} t@P{pPipeRep=tioa}
   | Just e <- ioaTySingletonInvalidity fioa = Left $ "Traverse: funty: " <> e
   | Just e <- ioaTyNilInvalidity tioa = Left $ "Traverse: traversablety: " <> e
-  | Just HRefl <- typeRep @tr `eqTypeRep` typeRep @(TypeOf fa)
-  , Just HRefl <- typeRep @(TagOf fa) `eqTypeRep` typeRep @Point
-  , Just HRefl <- typeRep @ft `eqTypeRep` typeRep @Point
+  | Just HRefl <- typeRep @tr          `eqTypeRep` typeRep @(TypeOf fa)
+  , Just HRefl <- typeRep @(TagOf ro)  `eqTypeRep` typeRep @ttr
+  , Just HRefl <- typeRep @(TypeOf ro) `eqTypeRep` typeRep @(TypeOf fo)
+  , Just HRefl <- typeRep @(TagOf fa)  `eqTypeRep` typeRep @Point
+  , Just HRefl <- typeRep @ft          `eqTypeRep` typeRep @Point
   , Just HRefl <- case spineConstraint of
                     (Dict :: Dict Typeable tas) -> typeRepNull $ typeRep @tas
+  , Just HRefl <- case spineConstraint of
+                    (Dict :: Dict Typeable ras) -> typeRepNull $ typeRep @ras
   = traverseP' pf f t
   | otherwise
   = Left $ "traverseP:  fell through on: f="<>pack (show f)<>" t="<>pack (show t)
 
 traverseP'
-  :: forall cf ct tas to tt e r fas fo ras ro p
+  :: forall cf ct tas to tt a b fas fo ras ro p
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
-     , fas ~ (Type Point e ': '[])
-     , tas ~ '[]
-     , fo  ~ Type Point r
-     , to  ~ Type tt    e
-     , ras ~ '[]
-     , ro  ~ Type tt    r
+     , tas ~ '[],                   to  ~ Type tt    a
+     , fas ~ (Type Point a ': '[]), fo  ~ Type Point b
+     , ras ~ '[],                   ro  ~ Type tt    b
      )
-  => (Desc cf fas fo -> p -> Desc ct tas to -> p -> p)
+  => (Desc cf fas fo -> p ->
+      Desc ct tas to -> p ->
+      Either Text p)
   -> Pipe cf     fas fo p
   -> Pipe ct tas to     p
   -> Either Text (Pipe cf ras ro p)
@@ -125,7 +136,7 @@ doTraverse
      , ras ~ '[]                   -- TODO:  undo this constraint
      , ro  ~ Type tt    b
      )
-  => (Desc cf fas fo -> p -> Desc ct tas to -> p -> p)
+  => (Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p)
   -> Pipe cf     fas fo p
   -> Pipe ct tas to     p
   -> Either Text (Pipe cf ras ro p)
@@ -136,7 +147,7 @@ doTraverse pf
    , pArgs=(tka SOP.:* Nil), pOut=TypePair{tpTag=ttag}, pPipe=t}
   -- (Pipe df@(Desc (Name fn) _ (Struct fg) _  _ _  _ c) f)
   -- (Pipe dt@(Desc (Name fn) _ (Struct fg) _ ka a kb _) t)
-  = Right $ Pipe desc (pf df f dt t)
+  = Pipe desc <$> (pf df f dt t)
   where desc    = Desc name sig struct (SomeTypeRep rep) ras ro
         ras     = Nil
         ro      = TypePair ttag fty

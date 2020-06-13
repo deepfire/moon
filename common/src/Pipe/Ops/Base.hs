@@ -1,7 +1,7 @@
 module Pipe.Ops.Base
   ( runPipe
-  , gen,  genG
-  , link, linkG
+  , gen,  genG, gen'
+  , link, linkG, link'
   )
 where
 

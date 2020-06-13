@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances       #-}
+
 module Namespace
   ( Space
   , PointSpace

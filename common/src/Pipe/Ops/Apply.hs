@@ -2,6 +2,7 @@
 module Pipe.Ops.Apply
   ( apply
   , demoApply
+  , appDyn
   )
 where
 

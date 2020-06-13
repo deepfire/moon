@@ -32,16 +32,17 @@ module Wire.Peer
   )
 where
 
-import qualified Data.ByteString.Lazy             as LBS
+import qualified Data.ByteString.Lazy                as LBS
 
 import           Codec.Serialise
 import           Control.Tracer
 
 import           Network.TypedProtocol.Codec
-import qualified Network.TypedProtocol.Channel    as Net
-import           Network.TypedProtocol.Core         (Peer(..))
-import qualified Network.TypedProtocol.Core       as Net
-import qualified Network.TypedProtocol.Driver     as Net
+import qualified Network.TypedProtocol.Channel       as Net
+import           Network.TypedProtocol.Core            (Peer(..))
+import qualified Network.TypedProtocol.Core          as Net
+import qualified Network.TypedProtocol.Driver        as Net
+import qualified Network.TypedProtocol.Driver.Simple as Net
 
 import Wire.Protocol
 
@@ -60,9 +61,16 @@ runServer :: forall rej m a
           -> Server rej m a
           -> Net.Channel IO LBS.ByteString
           -> IO ()
-runServer tracer server channel = Net.runPeer (showTracing tracer) wireCodec peerId channel peer
+-- runPeer
+-- :: forall ps (st :: ps) pr failure bytes m a
+-- . (MonadThrow m, Exception failure)
+-- => Tracer m (TraceSendRecv ps)
+-- -> Codec ps failure m bytes
+-- -> Channel m bytes
+-- -> Peer ps pr st m a
+-- -> m a Source #
+runServer tracer server channel = Net.runPeer (showTracing tracer) wireCodec channel peer
   where
-    peerId = "client"
     peer   = serverPeer $ pure server
 
 serverPeer :: forall rej m a
@@ -111,9 +119,8 @@ runClient :: forall rej m a
           -> Net.Channel m LBS.ByteString
           -> m ()
 runClient tracer firstStep channel =
-  Net.runPeer (showTracing tracer) wireCodec peerId channel peer
+  Net.runPeer (showTracing tracer) wireCodec channel peer
    where
-    peerId = "server"
     peer   = mkClientSTS firstStep
 
 mkClientSTS :: forall rej m a

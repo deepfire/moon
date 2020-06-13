@@ -38,8 +38,6 @@ import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
-import           Data.Proxy                         (Proxy(..))
-import           Data.Typeable                      (Typeable)
 import           Options.Applicative hiding (Parser)
 import qualified Options.Applicative              as Opt
 import           Type.Reflection
@@ -54,7 +52,8 @@ import           Codec.Serialise.Encoding
 import           Control.Monad.ST                   (ST, stToIO)
 
 import qualified Network.TypedProtocol.Codec      as Codec
-import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
+import           Network.TypedProtocol.Codec  hiding (encode, decode)
+-- import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
 import Basis
@@ -138,8 +137,8 @@ instance Serialise SomeValue where
             ["Not a ground type: ", show str, "\n"
             ,"Ground types: ", show groundTypeReps]
           Just x -> x
-        where decodeSomeValue :: Dict Ground -> Decoder s SomeValue
-              decodeSomeValue (Dict (_a :: Proxy a)) =
+        where decodeSomeValue :: TyDict Ground -> Decoder s SomeValue
+              decodeSomeValue (TyDict (_a :: Proxy a)) =
                 SomeValue <$> (decode :: Decoder s (SomeKindValue a))
 
       _ -> failLenTag len tag

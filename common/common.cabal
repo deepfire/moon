@@ -91,6 +91,7 @@ library
                      , contra-tracer
                      , io-sim-classes
                      , typed-protocols
+                     , typed-protocols-examples
                      -- , typed-protocols-cbor
 
                      , time
@@ -135,6 +136,6 @@ library
                        TypeInType
                        TypeOperators
                        TypeSynonymInstances
-                       UndecidableInstances
+                       -- UndecidableInstances
                        -- UndecidableSuperClasses
                        ViewPatterns

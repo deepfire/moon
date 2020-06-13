@@ -89,16 +89,16 @@ scopeIndices
   -> (PipeRepIndex p, PipeRepIndex p)
 scopeIndices prefix =
   Namespace.scopeEntries
-  >>> ((<&> pipeEdge prefix sIn)
+  >>> ((<&> pipeEdge prefix (head . sArgs))
        &&&
        (<&> pipeEdge prefix sOut))
   >>> join (***) mconcat
  where
-   pipeEdge :: QName Scope -> (Sig -> Type) -> SomePipe p -> PipeRepIndex p
+   pipeEdge :: QName Scope -> (Sig -> SomeType) -> SomePipe p -> PipeRepIndex p
    pipeEdge prefix selector =
      (somePipeSig  >>> selector >>> tRep)
      &&&
-     (somePipeName >>> (coerceQName prefix |>)
+     (somePipeName >>> (coerceQName prefix `append`)
       >>> Set.singleton)
      >>> uncurry MMap.singleton
 
@@ -128,7 +128,7 @@ spaceAdd name x ps =
    <*> pure (MMap.alter (alteration name) strTo   $ psTo ps)
  where
    strFrom, strTo :: SomeTypeRep
-   (,) strFrom strTo = join (***) tRep . (sIn &&& sOut) $ somePipeSig x
+   (,) strFrom strTo = join (***) tRep . (head . sArgs &&& sOut) $ somePipeSig x
 
    alteration
      :: QName Pipe

@@ -28,6 +28,28 @@ import Pipe.Types
 
 
 --------------------------------------------------------------------------------
+-- TODO: make this a generic operation?
+dataProjScope
+  :: forall u.
+  ( Typeable u, SOP.HasDatatypeInfo u, SOP.Generic u
+  , All2 (SOP.And Typeable Top) (SOP.Code u)
+  )
+  => Proxy u -> Scope Point (SomePipe Dynamic)
+dataProjScope  p = dataProjScope' p $ dataProjPipes T (Proxy @Top) p
+
+dataProjScopeG
+  :: forall u. (GroundData u)
+  => Proxy u -> Scope Point (SomePipe Dynamic)
+dataProjScopeG p = dataProjScope' p $ dataProjPipes G (Proxy @Ground) p
+
+dataProjScope'
+  :: forall u. Typeable u
+  => Proxy u -> [SomePipe Dynamic] -> SomePipeScope Dynamic
+dataProjScope' _p ps = pipeScope name ps
+  where name  = Name $ pack $ show (R.typeRepTyCon (typeRep @u))
+
+
+--------------------------------------------------------------------------------
 emptyPipeScope :: Name Scope -> SomePipeScope p
 emptyPipeScope = Namespace.emptyScope . coerceName
 
@@ -41,13 +63,10 @@ dataProjPipes
     , SOP.HasTypeData c u, SOP.Generic u
     , All2 (SOP.And Typeable c) (SOP.Code u)
     , c u)
-  => (forall ka a kb b
-      . ( ReifyTag ka, ReifyTag kb
-        , Typeable ka, Typeable kb
-        , Typeable  a, Typeable  b
-        , c b
-        )
-      => Pipe c ka a kb b Dynamic -> SomePipe Dynamic)
+  => (forall (kas :: [*]) (o :: *)
+      .  PipeConstr c kas o
+      => Pipe c (kas :: [*]) (o :: *) Dynamic
+      -> SomePipe Dynamic)
   -> Proxy c -> Proxy u -> [SomePipe Dynamic]
 dataProjPipes ctor c u =
   let d :: SOP.Data SOP.Fun c u
@@ -69,23 +88,3 @@ dataProjPipes ctor c u =
   in [ fieldPipe d ct f
      | ct <- SOP.dCtors  d
      , f  <- SOP.cFields ct]
-
--- TODO: make this a generic operation?
-dataProjScope
-  :: forall u.
-  ( Typeable u, SOP.HasDatatypeInfo u, SOP.Generic u
-  , All2 (SOP.And Typeable Top) (SOP.Code u)
-  )
-  => Proxy u -> Scope Point (SomePipe Dynamic)
-dataProjScope  p = dataProjScope' p $ dataProjPipes T (Proxy @Top) p
-
-dataProjScopeG
-  :: forall u. (GroundData u)
-  => Proxy u -> Scope Point (SomePipe Dynamic)
-dataProjScopeG p = dataProjScope' p $ dataProjPipes G (Proxy @Ground) p
-
-dataProjScope'
-  :: forall u. Typeable u
-  => Proxy u -> [SomePipe Dynamic] -> SomePipeScope Dynamic
-dataProjScope' _p ps = pipeScope name ps
-  where name  = Name $ pack $ show (R.typeRepTyCon (typeRep @u))
