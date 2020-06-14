@@ -74,7 +74,7 @@ setupHackageCache cacheTmo = cachedIO cacheTmo $ do
 
 getHackagePackageCabalDesc :: Name Package -> IO (Either Text Cabal.GenericPackageDescription)
 getHackagePackageCabalDesc pkg@(Name pn) = do
-  r <- runReq def $
+  r <- runReq defaultHttpConfig $
        req GET (https "hackage.haskell.org" /~ ("package" :: String) /~ pn /~ (pn <> ".cabal")) NoReqBody bsResponse mempty
   case responseStatusCode r of
     200  -> do

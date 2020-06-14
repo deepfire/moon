@@ -56,8 +56,8 @@ pipeSpaceMeta =
      , linkG "pipes"   TPoint' TSet'   $ pipes
      , linkG "scopes"  TPoint' TSet'   $ scopes
      , genG  "ground"          TSet'   $ ground
-     , linkG "from"    TPoint' TSet'   $ fromTo sOut
-     , linkG "to"      TPoint' TSet'   $ fromTo sIn
+     , linkG "to"      TPoint' TSet'   $ fromTo sOut
+     , linkG "from"    TPoint' TSet'   $ fromTo (head . sArgs)
      , linkG "fromrep" TPoint' TSet'   $ fromToRep pipeNamesFrom
      , linkG "torep"   TPoint' TSet'   $ fromToRep pipeNamesTo
      , genG  "space"           TPoint' $ space
@@ -75,7 +75,7 @@ pipeSpaceMeta =
       pipe <- atomically $ lookupPipe name
       pure $ case pipe of
         Nothing -> Left $ "Missing pipe: " <> pack (show name)
-        Just (somePipeSig >>> sIn &&& sOut >>> join (***) tRep -> x) -> Right x
+        Just (somePipeSig >>> head . sArgs &&& sOut >>> join (***) tRep -> x) -> Right x
     pipes :: QName Scope -> Result (Set (Name Pipe))
     pipes name =
       maybeToEither ("No scope for name: " <> pack (show name))
@@ -88,7 +88,7 @@ pipeSpaceMeta =
       Right . Set.fromList . childScopeNamesAt name <$> STM.readTVarIO mutablePipeSpace
     ground :: Result (Set Text)
     ground = pure . Right $ Set.fromList groundTypeNames
-    fromTo :: (Sig -> Type) -> QName Pipe -> Result (Set (QName Pipe))
+    fromTo :: (Sig -> SomeType) -> QName Pipe -> Result (Set (QName Pipe))
     fromTo sigSide name = atomically $ do
       pipe <- lookupPipe name
       case pipe of

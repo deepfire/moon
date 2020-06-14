@@ -90,7 +90,7 @@ gen' name (splitType -> (tagTo, pTo)) mv
                 = Pipe desc dyn
   where ty      = tagSomeType tagTo pTo
         desc    = Desc name sig struct (dynRep dyn) Nil (TypePair tagTo pTo)
-        sig     = Sig [tagSomeType TPoint (Proxy @())] ty
+        sig     = Sig [] ty
         struct  = Struct graph
         graph   = G.vertex ty
         dyn     = Dynamic typeRep pipeFun

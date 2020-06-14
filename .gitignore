@@ -6,6 +6,7 @@
 *.zip
 *.js_o
 *.js_hi
+*.log
 .ghc.environment.*
 
 zipfs/

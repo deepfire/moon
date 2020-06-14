@@ -59,6 +59,9 @@ in (import ./../reflex-platform {
     ### Externals
     ## 0.4 (that comes in Nixpkgs with for 8.8) doesn't have Generic instances.
     algebraic-graphs         = dontCheck (c "snowleopard" "alga" "d6a91d10a8132d93c4ba7004e8dd15692a4ab8b0" "02pgdykdndnizga9b92cpp2nby4lhq4vd7nx94jpmxc57fg871s4" "");
+    ## 0.2.2.0 is buggy wrt. SomeTypeRep, and is what we get from Nixpkgs
+    cborg                    = dontCheck (c "well-typed" "cborg" "44163bd78da5e80e5ec90f7c66f3ebf4d19db6f8" "0s4hvn3b3addm1fb9g8dkrkqihpv2h0vmiqdz6f6px24hsh4w5kb" "--subpath cborg");
+    serialise                = dontCheck (c "well-typed" "cborg" "44163bd78da5e80e5ec90f7c66f3ebf4d19db6f8" "0s4hvn3b3addm1fb9g8dkrkqihpv2h0vmiqdz6f6px24hsh4w5kb" "--subpath serialise");
     patch                    = dontCheck old.patch;
     reflex                   = dontCheck old.reflex;
     reflex-vty               = l "reflex-vty" ../reflex-vty "";

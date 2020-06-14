@@ -16,7 +16,7 @@ import           Algebra.Graph (Graph)
 import           Data.Map (Map)
 import           Data.Set (Set)
 import           Data.Maybe hiding (catMaybes)
-import           Data.Text
+import           Data.Text hiding (append)
 import           Data.String
 ---------------- Effectful
 import           Control.Exception
@@ -68,7 +68,7 @@ newtype GhcLibDir = GhcLibDir FilePath deriving Show
 
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptyPipeSpace "Haskell"
-  & attachScopes (graft |> "Hask")
+  & attachScopes (graft `append` "Hask")
       [ dataProjScope $ Proxy @Loc
       -- *
       , dataProjScope $ Proxy @Index

@@ -50,7 +50,7 @@ library
                      , tuple
                      -- , type-list
                      , witherable
-                     -- , zippers
+                     , zippers
 
                      , algebraic-graphs
                      , cborg
@@ -70,7 +70,7 @@ library
                      , io-sim-classes
                      -- , iohk-monitoring -- either this, or reflex-platform
                      , typed-protocols
-                     -- , typed-protocols-cbor
+                     , typed-protocols-examples
 
                      , reflex
                      , reflex-vty
@@ -163,6 +163,50 @@ executable cli
                      , text
                      , tuple
                      , typed-protocols
+                     , typed-protocols-examples
                      , vty
                      , websockets
-                     -- , zippers
+                     , zippers
+
+  extensions:          AllowAmbiguousTypes
+                       BangPatterns
+                       ConstraintKinds
+                       -- CPP
+                       DataKinds
+                       -- DeriveAnyClass
+                       DeriveFunctor
+                       DeriveGeneric
+                       DeriveTraversable
+                       DerivingVia
+                       DuplicateRecordFields
+                       EmptyCase
+                       ExplicitNamespaces
+                       FlexibleContexts
+                       FlexibleInstances
+                       GADTs
+                       GeneralisedNewtypeDeriving
+                       KindSignatures
+                       LambdaCase
+                       MultiParamTypeClasses
+                       NamedFieldPuns
+                       NoMonomorphismRestriction
+                       OverloadedLabels
+                       OverloadedStrings
+                       PackageImports
+                       PartialTypeSignatures
+                       PatternSynonyms
+                       QuantifiedConstraints
+                       RankNTypes
+                       RecordWildCards
+                       RecursiveDo
+                       ScopedTypeVariables
+                       StandaloneDeriving
+                       TupleSections
+                       TypeApplications
+                       TypeFamilies
+                       TypeInType
+                       TypeOperators
+                       TypeSynonymInstances
+                       UndecidableInstances
+                       UndecidableSuperClasses
+                       ViewPatterns

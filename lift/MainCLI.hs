@@ -121,9 +121,7 @@ interact' space = mdo
   fromTyD    <- pure . pure .  SomeTypeRep $ typeRep @()
   pipesFromD <- pure $ flip pipesFrom space <$> fromTyD
   descsD     <- pure $ pipesFromD <&>
-                       ((somePipeDesc <$>)
-                        >>>
-                        sortBy (compare `on` somePipeName))
+                       (sortBy (compare `on` somePipeName))
 
   inputD <- holdDyn (Nothing, 0, "") retE
 
@@ -186,7 +184,7 @@ interact' space = mdo
      fixed (pure sigWi) $
        richText (textFocusStyle (foregro V.blue) focusB)
          (pure $ justifyLeft  sigWi ' ' . showSig $ pdSig pd)
-     pure sd
+     pure sp
     where
       textFocusStyle attr focB =
         RichTextConfig $
