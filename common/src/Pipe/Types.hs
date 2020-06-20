@@ -36,6 +36,7 @@ module Pipe.Types
   , pattern PipeD
   , Sig(..)
   , showSig
+  , showSigDotty
   , Struct(..)
   , Value(..)
   , withCompatiblePipes
@@ -267,7 +268,10 @@ data Sig =
   deriving (Eq, Generic, Ord)
 
 showSig :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSig (Sig as o) = T.intercalate " ⇨ " $ showSomeType <$> (as <> [o])
+showSig (Sig as o) = T.intercalate " ⇨  " $ showSomeType False <$> (as <> [o])
+
+showSigDotty :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
+showSigDotty (Sig as o) = T.intercalate " ⇨  " $ showSomeType True <$> (as <> [o])
 
 -- | Struct: Pipe's internal structure, as a graph of type transformations.
 newtype Struct = Struct (G.Graph SomeType) deriving (Eq, Generic, Ord, Show)
@@ -280,8 +284,8 @@ type SomePipeSpace p = PipeSpace (SomePipe p)
 data PipeSpace a = PipeSpace
   { psName  :: !(QName PipeSpace)
   , psSpace :: !(Space Point a)
-  , psFrom  :: !(MonoidalMap SomeTypeRep (Set (QName Pipe)))
-  , psTo    :: !(MonoidalMap SomeTypeRep (Set (QName Pipe)))
+  , psFrom  :: !(MonoidalMap (Maybe SomeTypeRep) (Set (QName Pipe)))
+  , psTo    :: !(MonoidalMap        SomeTypeRep  (Set (QName Pipe)))
   } deriving (Eq, Ord)
 
 instance (Ord a, Serialise a, Typeable a) => Serialise (PipeSpace a) where

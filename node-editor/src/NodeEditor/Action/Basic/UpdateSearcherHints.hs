@@ -124,7 +124,7 @@ updateHints' = unlessM inTopLevelBreadcrumb $ do
                 (uncurry toResult <$>) .
                     setToList $
                     (id &&& fromJust . flip lookupSpace ps) <$>
-                    pipesFrom (tRep . sOut $ somePipeSig curPipe) ps
+                    pipesFrom ps (tRep . sOut $ somePipeSig curPipe)
 
         Searcher.results .= results
         Searcher.waiting .= (pipes == Nothing)

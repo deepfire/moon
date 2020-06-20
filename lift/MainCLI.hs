@@ -1,15 +1,3 @@
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE GADTs   #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 --{-# OPTIONS_GHC -Wall #-}
 
 module Main (main) where
@@ -30,10 +18,10 @@ import qualified Data.IntervalMap.FingerTree            as IMap
 import qualified Data.List                              as List
 import           Data.Map (Map)
 import           Data.Maybe
-import           Data.Maybe
-import           Data.Text
 import           Data.Text (Text)
 import           Data.Tuple.All
+import qualified Type.Reflection                        as R
+
 import           Options.Applicative               hiding (switch)
 import           Options.Applicative.Common
 import           Reflex                            hiding (Request)
@@ -48,6 +36,7 @@ import qualified Data.Text                              as T
 import qualified Data.Text.Zipper                       as TZ
 import qualified Graphics.Vty                           as V
 import qualified Network.WebSockets                     as WS
+import qualified Reflex
 -- import qualified Control.Concurrent.STM.TMVar           as TM
 -- import qualified Control.Concurrent.STM.TBQueue         as TQ
 
@@ -66,131 +55,209 @@ import qualified Reflex.Vty.Widget.Input.RichText       as Rich
 import Basis hiding (Dynamic)
 import Data.Text.Extra
 import qualified Data.Text.Zipper.Extra as TZ
-import Ground.Hask
-import Lift
-import Pipe hiding (Dynamic)
-import Wire.Peer
-import Wire.Protocol
-import Debug.Reflex
 
+import qualified Ground.Hask                      as Hask
+import qualified Wire.Peer                        as Wire
+import qualified Wire.Protocol                    as Wire
+
+import Lift
+import Pipe
+import Pipe.Space
+
+import Debug.Reflex
 import Debug.TraceErr
 import Text.Printf
 
 
 main :: IO ()
 main = do
-  mreq <- execParser $ (info $ (optional parseRequest) <**> helper) fullDesc
+  mreq <- execParser $ (info $ optional Wire.parseRequest <**> helper) (traceErr "foo" fullDesc)
   WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
     \conn -> do
       let tracer = stdoutTracer
-          req    = fromMaybe (Run "meta.space") mreq
-          chan   = channelFromWebsocket conn
-      runClient tracer (client tracer req) $ channelFromWebsocket conn
+          req    = fromMaybe (Wire.Run "meta.space") mreq
+          -- chan   = channelFromWebsocket conn
+      Wire.runClient tracer (client tracer req) $ channelFromWebsocket conn
 
 client :: forall rej m a
-          . (rej ~ Text, m ~ IO, a ~ Reply)
+          . (rej ~ Text, m ~ IO, a ~ Wire.Reply)
        => Tracer m String
-       -> Request
-       -> m (ClientState rej m a)
+       -> Wire.Request
+       -> m (Wire.ClientState rej m a)
 client tracer req = pure $
-  ClientRequesting req handleReply
+  Wire.ClientRequesting req handleReply
  where
    handleReply (Left rej) = do
      putStrLn $ "error: " <> unpack rej
-     pure ClientDone
-   handleReply (Right (ReplyValue rep)) = do
-     putStrLn $ show rep
+     pure Wire.ClientDone
+   handleReply (Right (Wire.ReplyValue rep)) = do
+     print rep
      case
        withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep
        (\(VPoint space) -> do
-           traceWith tracer $ "Got pipes.."
-           mainWidget $ interact' space
+           traceWith tracer "Got pipes.."
+           mainWidget $ spaceInteraction space
        ) of
        Right x -> x
        Left  e -> fail (unpack e)
-     pure ClientDone
+     pure Wire.ClientDone
 
-interact'
-  :: ReflexVty t m
-  => PipeSpace (SomePipe ()) -> VtyWidget t m (Event t ())
-interact' space = mdo
-  inp <- input
-  w   <- displayWidth
-  h   <- displayHeight
+spaceInteraction ::
+     forall    t m
+  .  ReflexVty t m
+  => PipeSpace (SomePipe ())
+  -> VtyWidget t m (Event t ())
+spaceInteraction space = mdo
+  screenLayout@ScreenLayout{..} <- computeScreenLayout
 
-  fromTyD    <- pure . pure .  SomeTypeRep $ typeRep @()
-  pipesFromD <- pure $ flip pipesFrom space <$> fromTyD
-  descsD     <- pure $ pipesFromD <&>
-                       (sortBy (compare `on` somePipeName))
+  repFromD :: Reflex.Dynamic t (Maybe SomeTypeRep) <-
+    pure . pure $ Nothing
 
-  inputD <- holdDyn (Nothing, 0, "") retE
+  pipesFromD  <- pure $ pipesFromCstr space <$> repFromD
+  pipesSorteD <- pure $ pipesFromD <&>
+                        sortBy (compare `on` somePipeName)
 
-  visD
-    <- pure $ (zipDynWith lcons descsD $ snd . luncons <$> inputD) <&>
-       \(descs, col, input) ->
-         case parseLocated input of
-           Left e  -> ([], somePipeSelectable (3, 3), e)
-           Right exp@(indexLocated -> index) ->
-             let name = case lookupLocatedQName col index of
-                          Nothing -> ""
-                          Just qn -> showQName qn
-                 xs = infixNameFilter name `Prelude.filter` descs
-             in ( xs
-                , somePipeSelectable (presentCtx xs)
-                , T.pack $ printf "col=%s n=%s exp=%s" (show col) name (show exp))
-  retE :: Event t (Maybe (SomePipe ()), Int, Text) <-
-    menuSelector
-      (DynRegion 0 0 w (h - 6))
-      (rpop <$> visD)
-      (showName . somePipeName)
+  menuInputStateD <-
+    selectionUI
+      slSelectorReg
+      computeMenuInputState
+      pipesSorteD
 
-  pane (DynRegion 0 (h - 6) w 5) (pure False) $
-    richTextStatic (foregro V.red) (thd3 <$> current visD)
+  debugVisuals screenLayout menuInputStateD
 
-  pane (DynRegion 0 (h - 1) w 1) (pure False) $
-    richText (RichTextConfig $ pure (foregro V.green))
-    (T.pack . show <$> current inputD)
+  input <&> fmapMaybe
+    (\case
+        V.EvKey (V.KChar 'c') [V.MCtrl]
+          -> Just ()
+        _ -> Nothing)
 
-  return $ fforMaybe inp $ \case
-    V.EvKey (V.KChar 'c') [V.MCtrl] -> Just ()
-    _ -> Nothing
  where
-   presentCtx = (((showName . somePipeName <$>)
-                   &&&
-                  (showSig  . somePipeSig  <$>))
-                  >>>
-                 (join (***) (Prelude.maximum . (T.length <$>))))
-   infixNameFilter text = isInfixOf text . showName . somePipeName
-   escapable w = do
-     void w
-     i <- input
-     return $ fforMaybe i $ \case
-       V.EvKey V.KEsc [] -> Just $ Nothing
-       _ -> Nothing
+   debugVisuals ScreenLayout{..} menuStateD = do
+     showPane red   slErrorsReg $ misExt <$> current menuStateD
+     showPane blue  slDebug1Reg $ current (length . misElems <$> menuStateD)
+     showPane green slDebug2Reg $ current (misSelection <$> menuStateD)
+
+   showPane :: (CWidget t m, Show a)
+            => V.Attr -> DynRegion t -> Behavior t a -> VtyWidget t m ()
+   showPane attr region bx =
+     pane region (pure False) $
+     richTextStatic attr (T.pack . show <$> bx)
+
+   red, blue, green :: V.Attr
+   (,,) red blue green =
+    (,,) (foregro V.red) (foregro V.blue) (foregro V.green)
+
+computeMenuInputState ::
+     (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
+  => Width
+  -> [SomePipe ()]
+  -> Selection (SomePipe ())
+  -> MenuInputState t m (SomePipe ()) Text
+computeMenuInputState screenW allPipes selection@Selection{..} =
+  case parseLocated sInput of
+    Left e  -> MenuInputState selection [] (somePipeSelectable (Width 3, Width 3))
+                              (showName . somePipeName) e
+    Right expr@(indexLocated -> index) ->
+      let name = case lookupLocatedQName sColumn index of
+                   Nothing -> ""
+                   Just qn -> showQName qn
+          selectedPipes = infixNameFilter name `Prelude.filter` allPipes
+          reservedW = Width 4
+      in MenuInputState
+           selection
+           selectedPipes
+           (somePipeSelectable (presentCtx screenW reservedW selectedPipes))
+           (showName . somePipeName)
+           (T.pack
+            $ printf "col=%s n=%s exp=%s" (show sColumn) name (show expr))
+ where
+   infixNameFilter hay = T.isInfixOf hay . showName . somePipeName
+
    somePipeSelectable
      :: (MonadFix m, MonadHold t m, PostBuild t m, MonadNodeId m, Reflex t)
-     => (Int, Int)
+     => (Width, Width)
      -> SomePipe ()
      -> Behavior t Bool
      -> VtyWidget t m (SomePipe ())
-   somePipeSelectable (nameWi, sigWi) sp focusB =
+   somePipeSelectable (Width nameW, Width sigW) sp focusB =
     row $ withSomePipe sp $ \(Pipe pd _) -> do
-     fixed (pure nameWi) $
+     fixed (pure nameW) $
        richText (textFocusStyle (foregro V.green) focusB)
-         (pure $ justifyRight nameWi ' ' . showName $ pdName pd)
+         (pure $ T.justifyRight nameW ' ' . showName $ pdName pd)
      fixed 4 $
        richText (textFocusStyle V.defAttr focusB)
          (pure " :: ")
-     fixed (pure sigWi) $
+     fixed (pure sigW) $
        richText (textFocusStyle (foregro V.blue) focusB)
-         (pure $ justifyLeft  sigWi ' ' . showSig $ pdSig pd)
+         (pd & (pdSig
+                >>> showSig
+                >>> T.justifyLeft  sigW ' '
+                >>> pure))
      pure sp
     where
       textFocusStyle attr focB =
         RichTextConfig $
-          selecting (flip V.withBackColor $ V.rgbColor 1 1 1)
+          selecting (flip V.withBackColor $ V.rgbColor @Integer 1 1 1)
                     (pure attr)
                     focB
+
+   presentCtx :: Width -> Width -> [SomePipe p] -> (Width, Width)
+   presentCtx (Width total) (Width reserved) =
+     (showName . somePipeName <$>)
+     >>> (Prelude.maximum . (T.length <$>))
+     >>> (\nameWi -> ( Width nameWi
+                     , Width $ total - reserved - nameWi))
+   -- showSignature :: Sig -> Text
+   -- showSignature (Sig as o) = T.intercalate " ⇨ " $ showType <$> (as <> [o])
+   --  where showType SomeType{tName=(showName -> n), tCon} =
+   --          case R.tyConName tCon of
+   --            "'Point" -> n
+   --            "'List"  -> "["<>n<>"]"
+   --            "'Set"   -> "{"<>n<>"}"
+   --            "'Tree"  -> "♆⇊ "<>n
+   --            "'Dag"   -> "♆⇄ "<>n
+   --            "'Graph" -> "☸ "<>n
+   --            _        -> "??? "<>n
+   -- TODO:  ugly as sin.
+
+-- * Boring
+--
+data ScreenLayout t =
+  ScreenLayout
+  { slScreenWi      :: !(Reflex.Dynamic t Width)
+  , slScreenHe      :: !(Reflex.Dynamic t Height)
+  , slSelectorReg   :: !(DynRegion t)
+  , slErrorsReg     :: !(DynRegion t)
+  , slDebug1Reg     :: !(DynRegion t)
+  , slDebug2Reg     :: !(DynRegion t)
+  }
+
+computeScreenLayout ::
+  HasDisplaySize t m
+  => m (ScreenLayout t)
+computeScreenLayout = do
+  wi <- displayWidth
+  he <- displayHeight
+
+  pure $
+    ScreenLayout
+    { slScreenWi    = Width <$> wi
+    , slScreenHe    = Height <$> he
+    , slSelectorReg = DynRegion 0  0       wi (he - 6)
+    , slErrorsReg   = DynRegion 0 (he - 5) wi  3
+    , slDebug1Reg   = DynRegion 0 (he - 2) wi  1
+    , slDebug2Reg   = DynRegion 0 (he - 1) wi  1
+    }
+
+-- * UI
+--
+ -- where
+   -- escapable w = do
+   --   void w
+   --   i <- input
+   --   return $ fforMaybe i $ \case
+   --     V.EvKey V.KEsc [] -> Just Nothing
+   --     _ -> Nothing
 
    -- look :: PipeSpace (SomePipe ()) -> QName Pipe -> Either Text (SomePipe ())
    -- look space name = lookupSpace name space &

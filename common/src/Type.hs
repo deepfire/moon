@@ -329,10 +329,10 @@ tagSomeType TTree  a = proxySomeType (Proxy @k) a
 tagSomeType TDag   a = proxySomeType (Proxy @k) a
 tagSomeType TGraph a = proxySomeType (Proxy @k) a
 
-showSomeType :: SomeType -> Text
-showSomeType SomeType{tName=(showName -> n), tCon} =
+showSomeType :: Bool -> SomeType -> Text
+showSomeType showDot SomeType{tName=(showName -> n), tCon} =
   case R.tyConName tCon of
-    "'Point" -> "• "<>n
+    "'Point" -> if showDot then "• "<>n else n
     "'List"  -> "["<>n<>"]"
     "'Set"   -> "{"<>n<>"}"
     "'Tree"  -> "♆⇊ "<>n

@@ -30,6 +30,7 @@ module Basis
   , module Data.TypeRep
   , module Data.Witherable
   , module Debug.Trace
+  , module Debug.TraceErr
   , module Generics.SOP
   , module Text.Printf
   , module Text.Read
@@ -64,11 +65,12 @@ import Data.SOP.Dict              (Dict(..))
 import Data.SOP.Constraint        (Head, Tail)
 import Data.String                (IsString)
 import Data.Text                  (Text, pack, unpack)
-import Data.Tuple.Extra           (fst3, snd3, thd3)
+import Data.Tuple.Extra           (fst3, snd3, thd3, uncurry3)
 import Data.Type.List             (spineConstraint)
 import Data.TypeRep               (showSomeTypeRep, showTypeRep)
 import Data.Witherable            (catMaybes, mapMaybe, wither)
 import Debug.Trace                (trace)
+import Debug.TraceErr             (traceErr)
 import Generics.SOP               (All, All2, Compose, NP(..), NS, Top)
 import Text.Printf                (printf)
 import Text.Read                  (Read(..))
@@ -165,14 +167,20 @@ f <$$> xs = (f <$>) <$> xs
 (<&&>) :: (Functor f1, Functor f2) => f1 (f2 a) -> (a -> b) -> f1 (f2 b)
 (<&&>) = flip (<$$>)
 
-rcons :: (a, b) -> c -> (a, b, c)
-rcons (a, b) c = (a, b, c)
+rcons2 :: (a, b) -> c -> (a, b, c)
+rcons2 (a, b) c = (a, b, c)
 
-lcons :: a -> (b, c) -> (a, b, c)
-lcons a (b, c) = (a, b, c)
+lcons2 :: a -> (b, c) -> (a, b, c)
+lcons2 a (b, c) = (a, b, c)
 
-luncons :: (a, b, c) -> (a, (b, c))
-luncons (a, b, c) = (a, (b, c))
+rcons3 :: (a, b, c) -> d -> (a, b, c, d)
+rcons3 (a, b, c) d = (a, b, c, d)
 
-rpop :: (a, b, c) -> (a, b)
-rpop (a, b, _) = (a, b)
+lcons3 :: a -> (b, c, d) -> (a, b, c, d)
+lcons3 a (b, c, d) = (a, b, c, d)
+
+luncons3 :: (a, b, c) -> (a, (b, c))
+luncons3 (a, b, c) = (a, (b, c))
+
+rpop3 :: (a, b, c) -> (a, b)
+rpop3 (a, b, _) = (a, b)

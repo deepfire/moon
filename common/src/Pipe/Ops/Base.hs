@@ -86,7 +86,7 @@ gen'
   -> Result (Repr kt tt)
   -> Pipe c '[] (Type kt tt) Dynamic
 gen' name (splitType -> (tagTo, pTo)) mv
-  -- TODO: validate types agains the typerep/dynamic
+  -- TODO: validate types against the typerep/dynamic
                 = Pipe desc dyn
   where ty      = tagSomeType tagTo pTo
         desc    = Desc name sig struct (dynRep dyn) Nil (TypePair tagTo pTo)

@@ -9,7 +9,7 @@ module Reflex.Vty.Widget.Extra
 
 import           Safe
 
-import           Control.Arrow ((***), (>>>), (&&&))
+import           Control.Arrow ((>>>), (&&&))
 import           Control.Monad
 import           Control.Monad.Fix
 import           Control.Monad.NodeId
@@ -24,63 +24,110 @@ import           Data.List                             as List
 
 import           Reflex
 import           Reflex.Network
-import           Reflex.Vty.Widget
+import           Reflex.Vty.Widget                 hiding (text)
 import           Reflex.Vty.Widget.Input.RichText
 import           Reflex.Vty.Widget.Layout
 
 import qualified Graphics.Vty as V
 
+import           Basis (lcons2, uncurry3)
+import           Util (fst3)
 
-type ReflexVty t m = (Reflex t, MonadHold t m, MonadFix m, Adjustable t m, NotReady t m, PostBuild t m, MonadNodeId m)
+
+type ReflexVty t m =
+  ( Adjustable t m
+  , MonadFix m
+  , MonadHold t m
+  , MonadNodeId m
+  , NotReady t m
+  , PostBuild t m
+  , Reflex t
+  )
+
+data Selection a
+  = Selection
+  { sValue     :: !(Maybe a)
+  , sColumn    :: !Int
+  , sInput     :: !Text
+  } deriving Show
+
+newtype Width  = Width Int
+newtype Height = Height Int
+
+data MenuInputState t m a b =
+  MenuInputState
+  { misSelection :: !(Selection a)
+  , misElems     :: ![a]
+  , misPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
+  , misShow      :: !(a -> Text)
+  , misExt       :: !b
+  }
+
+type CWidget t m = (Reflex t, Adjustable t m, NotReady t m, PostBuild t m, MonadHold t m, MonadFix m, MonadNodeId m)
+
+selectionUI ::
+  (CWidget t m, Eq a, Show a)
+  => DynRegion t
+  -> (Width -> [a] -> Selection a -> MenuInputState t m a b)
+  -> Reflex.Dynamic t [a]
+  -> VtyWidget t m (Reflex.Dynamic t (MenuInputState t m a b))
+selectionUI region computeMenuState xsD = mdo
+  selectionD <- holdDyn (Selection Nothing 0 "") selectionE
+
+  menuStateD <- pure
+    $ zipDynWith lcons2 (_dynRegion_width region) (zipDynWith (,) xsD selectionD)
+      <&> (fst3 Width >>> uncurry3 computeMenuState)
+
+  selectionE :: Event t (Selection a) <-
+    menuSelector region menuStateD
+
+  pure menuStateD
 
 menuSelector
   :: forall t m a b
   .  ( ReflexVty t m
      , Eq a, Show a)
   => DynRegion t
-  -> Dynamic t ([a], a -> Behavior t Bool -> VtyWidget t m a)
-  -> (a -> Text)
-  -> VtyWidget t m (Event t (Maybe a, Int, Text))
-menuSelector r feeDF presentText = mdo
-  text0    <- pure ""
-  inputD   <- holdDyn (Nothing, 0, text0) inputE
-  let feeD  = zipDynWith (\(entries, present)
-                           (mEntryIx, inputCol, inputText) ->
-                            ( entries
-                            , present
+  -> Reflex.Dynamic t (MenuInputState t m a b)
+  -> VtyWidget t m (Event t (Selection a))
+menuSelector (DynRegion l u w h) menuStateD = mdo
+  text0      <- pure ""
+  selectionD <- holdDyn (Selection Nothing 0 text0) inputE
+  let feeD  = zipDynWith (\ms@MenuInputState{misElems}
+                           (Selection mEntry inputCol inputText) ->
+                            ( ms
                             , inputText
-                            , fromMaybe 0 $ join $ mEntryIx <&>
-                                                   flip List.elemIndex entries
+                            , fromMaybe 0 $ join $ mEntry <&>
+                                                   flip List.elemIndex misElems
                             , inputCol))
-              feeDF inputD
-  (xs0, pres0, _text0, sel0, pos0)
-           <- sample (current $ feeD)
+              menuStateD selectionD
+  (ms0, _text0, sel0, pos0)
+           <- sample (current feeD)
   inputE   <- switchDyn <$>
-              networkHold (frame r xs0 pres0 text0 sel0 pos0)
+              networkHold (frame ms0 text0 sel0 pos0)
               (updated $
-               feeD <&> \(xs, pres, text, sel, pos) ->
-                           frame r xs  pres  text  sel  pos)
-
+               feeD <&> \(ms, text, sel, pos) ->
+                           frame ms  text  sel  pos)
   pure inputE
  where
-   frame :: DynRegion t
-         -> [a] -> (a -> Behavior t Bool -> VtyWidget t m a)
-         -> Text -> Int -> Int
-         -> VtyWidget t m (Event t (Maybe a, Int, Text))
-   frame r@(DynRegion l u w h) xs presentMenuRow text selIx pos = do
-     let menuH = pure $ List.length xs + 2
-         menuR = DynRegion l (u + h - menuH - 1) (zipDynWith min (w - 2) 50) menuH
-         -- ruleRegion = DynRegion l (u + h - 7)         w       1
-         intrR = DynRegion l (u + h - 1)         w       1
+   frame :: MenuInputState t m a b
+         -> Text
+         -> Int
+         -> Int
+         -> VtyWidget t m (Event t (Selection a))
+   frame MenuInputState{..} text selIx pos = do
+     let menuH    = pure $ List.length misElems + 2
+         menuReg  = DynRegion l (u + h - menuH - 1) (w - 2) menuH
+         inputReg = DynRegion l (u + h - 1)          w      1
 
-     selD       <- menu menuR (fmap snd . focusButton presentMenuRow)
-                     selIx xs
-     offtInputE <- completingInput intrR
-                     ((presentText <$>) <$> current selD)
+     selD       <- menu menuReg (fmap snd . focusButton misPresent)
+                     selIx misElems
+     offtInputE <- completingInput inputReg
+                     ((misShow <$>) <$> current selD)
                      "> " text pos
 
      pure $ attachPromptlyDyn selD offtInputE
-       <&> (\(a, (b, c)) -> (a, b, c))
+       <&> \(a, (b, c)) -> Selection a b c
 
 completingInput
   :: ReflexVty t m
@@ -170,7 +217,7 @@ menu region displayMenuRow selIx =
 
 upDownNavigation :: (Reflex t, Monad m) => VtyWidget t m (Event t Int)
 upDownNavigation = do
-  fwd <- fmap (const 1) <$> key V.KDown
+  fwd  <- fmap (const   1)  <$> key V.KDown
   back <- fmap (const (-1)) <$> key V.KUp
   return $ leftmost [fwd, back]
 
@@ -217,10 +264,10 @@ focusButton child a = do
                  (True, (False, _)) -> Just (True, a)
                  _ -> Nothing)
              f
-  child a (current f)
+  void $ child a (current f)
   m <- mouseUp
   k <- key V.KEnter
-  return $ (leftmost [a <$ k, a <$ m], a <$ updated focused)
+  return (leftmost [a <$ k, a <$ m], a <$ updated focused)
 
 foregro :: V.Color -> V.Attr
 foregro = V.withForeColor V.defAttr

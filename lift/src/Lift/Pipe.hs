@@ -4,8 +4,6 @@ module Lift.Pipe
   )
 where
 
-import qualified Data.Map                         as Map
-import           Data.Map                           (Map)
 import qualified Data.Set.Monad as Set
 
 import qualified Control.Concurrent.STM           as STM
@@ -15,7 +13,6 @@ import qualified System.IO.Unsafe                 as Unsafe
 import Basis
 import Ground
 import Pipe
-import "common" Type
 
 import Lift.Hackage as Hackage
 import Lift.Haskell as Haskell
@@ -28,7 +25,7 @@ initialPipeSpace
   <> pipeSpaceMeta
 
 mutablePipeSpace :: TVar (SomePipeSpace Dynamic)
-mutablePipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO $ initialPipeSpace
+mutablePipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO initialPipeSpace
 {-# NOINLINE mutablePipeSpace #-}
 
 lookupPipe :: QName Pipe -> STM (Maybe (SomePipe Dynamic))
@@ -51,54 +48,95 @@ pipeSpaceMeta =
   emptyPipeSpace "Meta"
   & insertScope mempty
     (pipeScope "meta"
-     [ linkG "sig"     TPoint' TPoint' $ sig
-     , linkG "repsig"  TPoint' TPoint' $ repsig
-     , linkG "pipes"   TPoint' TSet'   $ pipes
-     , linkG "scopes"  TPoint' TSet'   $ scopes
-     , genG  "ground"          TSet'   $ ground
-     , linkG "to"      TPoint' TSet'   $ fromTo sOut
-     , linkG "from"    TPoint' TSet'   $ fromTo (head . sArgs)
-     , linkG "fromrep" TPoint' TSet'   $ fromToRep pipeNamesFrom
-     , linkG "torep"   TPoint' TSet'   $ fromToRep pipeNamesTo
-     , genG  "space"           TPoint' $ space
-     , genG  "unit"            TPoint' $ pure (Right ())
+
+     -- Generators:
+     --
+     [ genG  "space"           TPoint' $
+       STM.readTVarIO mutablePipeSpace
+       <&> Right . fmap void
+
+     , genG  "ground"          TSet' $
+       pure . Right $ Set.fromList groundTypeNames
+
+     , genG  "unit"            TPoint' $
+       pure (Right ())
+
+     -- Listing pipes and scopes:
+     --
+     , linkG "pipes"   TPoint' TSet' $
+       \name ->
+         STM.readTVarIO mutablePipeSpace
+         <&> (scopeAt name
+              >>> ((coerceName <$>) . scopeNames <$>)
+              >>> maybeToEither ("No scope for name: " <> pack (show name))
+              >>> \x-> x :: Either Text (Set (Name Pipe)))
+
+     , linkG "scopes"  TPoint' TSet' $
+       \name ->
+         STM.readTVarIO mutablePipeSpace
+         <&> Right . Set.fromList . childScopeNamesAt name
+
+     -- Pipe sigs:
+     --
+     , linkG "sig"     TPoint' TPoint' $
+       \name ->
+         withPipePure name
+         somePipeSig
+
+     , linkG "repsig"  TPoint' TPoint' $
+       \name ->
+         withPipePure name
+         $ somePipeSig
+         >>> head . sArgs &&& sOut
+         >>> join (***) tRep
+
+     -- Listing pipes by from/to types&reps:
+     --
+     , linkG "to"      TPoint' TSet' $
+       \name ->
+         withPipe name
+         $ somePipeSig >>> sOut >>> tRep
+           >>> \toRep ->
+                 atomically
+                 $ STM.readTVar mutablePipeSpace
+                   <&> Right . pipeNamesFrom (Just toRep)
+
+     , linkG "from"    TPoint' TSet' $
+       \name ->
+         withPipe name
+         $ somePipeSig >>> sArgs
+           >>> \args ->
+                 atomically $
+                 if null args
+                 then pure . Left $ "Pipe has no args: " <> pack (show name)
+                 else Right . pipeNamesFrom (Just . tRep $ head args) <$> STM.readTVar mutablePipeSpace
+
+     , linkG "fromrep" TPoint' TSet' $
+       \case
+         Nothing   -> atomically $
+           Right . pipeNamesFrom Nothing <$> STM.readTVar mutablePipeSpace
+         Just name -> atomically $
+           case lookupNameRep name of
+             Nothing -> pure . Left $ "Unknown ground: " <> pack (show name)
+             Just rep ->
+               Right . pipeNamesFrom (Just rep) <$> STM.readTVar mutablePipeSpace
+
+     , linkG "torep"   TPoint' TSet' $
+       \name ->
+         atomically
+         $ case lookupNameRep name of
+             Nothing -> pure . Left $ "Unknown ground: " <> pack (show name)
+             Just rep ->
+               Right . pipeNamesTo rep <$> STM.readTVar mutablePipeSpace
+
      ])
   where
-    sig :: QName Pipe -> Result Sig
-    sig name = do
-      pipe <- atomically $ lookupPipe name
-      pure $ case pipe of
-        Nothing -> Left $ "Missing pipe: " <> pack (show name)
-        Just (somePipeSig -> d) -> Right d
-    repsig :: QName Pipe -> Result (SomeTypeRep, SomeTypeRep)
-    repsig name = do
-      pipe <- atomically $ lookupPipe name
-      pure $ case pipe of
-        Nothing -> Left $ "Missing pipe: " <> pack (show name)
-        Just (somePipeSig >>> head . sArgs &&& sOut >>> join (***) tRep -> x) -> Right x
-    pipes :: QName Scope -> Result (Set (Name Pipe))
-    pipes name =
-      maybeToEither ("No scope for name: " <> pack (show name))
-      . ((coerceName <$>) . scopeNames <$>) . scopeAt name <$> STM.readTVarIO mutablePipeSpace
-    space :: Result (PipeSpace (SomePipe ()))
-    space =
-      Right . ((const () <$>) <$>) <$> STM.readTVarIO mutablePipeSpace
-    scopes :: QName Scope -> Result (Set (QName Scope))
-    scopes name =
-      Right . Set.fromList . childScopeNamesAt name <$> STM.readTVarIO mutablePipeSpace
-    ground :: Result (Set Text)
-    ground = pure . Right $ Set.fromList groundTypeNames
-    fromTo :: (Sig -> SomeType) -> QName Pipe -> Result (Set (QName Pipe))
-    fromTo sigSide name = atomically $ do
-      pipe <- lookupPipe name
-      case pipe of
+    withPipe :: QName Pipe -> (SomePipe Dynamic -> Result a) -> Result a
+    withPipe name f =
+      atomically (lookupPipe name) >>= \case
         Nothing -> pure . Left $ "Missing pipe: " <> pack (show name)
-        Just (tRep . sigSide . somePipeSig -> toRep) -> do
-          Right . pipeNamesFrom toRep <$> STM.readTVar mutablePipeSpace
-    fromToRep :: (SomeTypeRep -> SomePipeSpace Dynamic -> Set (QName Pipe)) -> Name Type -> Result (Set (QName Pipe))
-    fromToRep lister name = atomically $ do
-        let rep = lookupNameRep name
-        case rep of
-          Nothing -> pure . Left $ "Unknown ground: " <> pack (show name)
-          Just rep -> do
-            Right . lister rep <$> STM.readTVar mutablePipeSpace
+        Just p -> f p
+
+    withPipePure :: QName Pipe -> (SomePipe Dynamic -> a) -> Result a
+    withPipePure name f =
+      withPipe name $ pure . Right . f

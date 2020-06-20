@@ -2,6 +2,7 @@ module Pipe.Space
   ( SomePipeSpace
   , PipeSpace
   , emptyPipeSpace
+  , pipesFromCstr
   , pipesFrom
   , pipesTo
   , pipeNamesFrom
@@ -41,66 +42,77 @@ emptyPipeSpace n = PipeSpace
   , psTo    = mempty
   }
 
-pipesFrom :: SomeTypeRep -> PipeSpace a -> [a]
-pipesFrom str spc = setToList (pipeNamesFrom str spc) &
+pipesFromCstr :: PipeSpace a -> Maybe SomeTypeRep -> [a]
+pipesFromCstr spc Nothing  = Namespace.spaceEntries (psSpace spc)
+pipesFromCstr spc (Just x) = pipesFrom spc (Just x)
+
+pipesFrom :: PipeSpace a -> Maybe SomeTypeRep -> [a]
+pipesFrom spc mStr = setToList (pipeNamesFrom mStr spc) &
+  mapMaybe (flip lookupSpace spc . coerceQName) &
+  (\xs -> traceErr (mconcat ["pipesFrom ", show mStr, " -> ", show (length xs)])
+    xs)
+
+pipesTo :: PipeSpace a -> SomeTypeRep -> [a]
+pipesTo spc str = setToList (pipeNamesTo str spc) &
   mapMaybe (flip lookupSpace spc . coerceQName)
 
-pipesTo :: SomeTypeRep -> PipeSpace a -> [a]
-pipesTo str spc = setToList (pipeNamesTo str spc) &
-  mapMaybe (flip lookupSpace spc . coerceQName)
-
-pipeNamesFrom :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
-pipeNamesFrom str =
-  fromMaybe mempty . MMap.lookup str . psFrom
+pipeNamesFrom :: Maybe SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
+pipeNamesFrom str = psFrom >>> MMap.lookup str >>> fromMaybe mempty
+                    >>> (\xs -> traceErr (mconcat ["pipeNamesFrom ", show str, " -> ", show (length xs)])
+                          xs)
 
 pipeNamesTo :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
-pipeNamesTo str =
-  fromMaybe mempty . MMap.lookup str . psTo
-
-type PipeRepIndex p = MonoidalMap SomeTypeRep (Set (QName Pipe))
+pipeNamesTo   str = psTo   >>> MMap.lookup str >>> fromMaybe mempty
 
 insertScope :: QName Scope -> SomePipeScope p -> SomePipeSpace p -> SomePipeSpace p
-insertScope prefix scope ps =
-  ps { psSpace = Namespace.insertScope (coerceQName prefix) scope (psSpace ps)
-     , psFrom  = psFrom'
-     , psTo    = psTo'
+insertScope pfx scop ps =
+  ps { psSpace = Namespace.insertScope (coerceQName pfx) scop (psSpace ps)
+     , psFrom  = psFrom ps <> fro
+     , psTo    = psTo   ps <> to
      }
  where
-   fro, to, psFrom', psTo' :: PipeRepIndex p
-   (,) fro to =  scopeIndices (prefix <> (qname $ Namespace.scopeName scope)) scope
-   psFrom' = psFrom ps <> fro
-   psTo'   = psTo   ps <> to
+   fro :: MonoidalMap (Maybe SomeTypeRep) (Set (QName Pipe))
+   to  :: MonoidalMap        SomeTypeRep  (Set (QName Pipe))
+   (,) fro to = scopeIndices (pfx <> qname (Namespace.scopeName scop)) scop
 
-   _showPRI :: PipeRepIndex p -> Text
-   _showPRI map =
+   _showPRI :: MonoidalMap SomeTypeRep (Set (QName Pipe)) -> Text
+   _showPRI index =
      Text.intercalate ", " $
-     MMap.foldlWithKey (\ss str qs-> pack (printf "%s -> (%s)" (show str) (Text.intercalate ", " $ showQName <$> Set.toList qs)) : ss) [] map
+     MMap.foldlWithKey (\ss str qs-> pack (printf "%s -> (%s)" (show str) (Text.intercalate ", " $ showQName <$> Set.toList qs)) : ss) [] index
 
 
-pipeIndexElems :: PipeRepIndex p -> [QName Pipe]
+pipeIndexElems :: MonoidalMap SomeTypeRep (Set (QName Pipe)) -> [QName Pipe]
 pipeIndexElems = MMap.elems >>> (Set.elems <$>) >>> mconcat
 
-pipeIndexPower :: PipeRepIndex p -> Int
+pipeIndexPower :: MonoidalMap SomeTypeRep (Set (QName Pipe)) -> Int
 pipeIndexPower = length . pipeIndexElems
 
 scopeIndices
   :: QName Scope
   -> PointScope (SomePipe p)
-  -> (PipeRepIndex p, PipeRepIndex p)
+  -> ( MonoidalMap (Maybe SomeTypeRep) (Set (QName Pipe))
+     , MonoidalMap        SomeTypeRep  (Set (QName Pipe)))
 scopeIndices prefix =
   Namespace.scopeEntries
-  >>> ((<&> pipeEdge prefix (head . sArgs))
+  >>> ((<&> (\sp-> pipeEdge sp prefix $ if null (sArgs $ somePipeSig sp)
+                                        then const Nothing
+                                        else Just . tRep . head . sArgs))
        &&&
-       (<&> pipeEdge prefix sOut))
-  >>> join (***) mconcat
+       (<&> (\sp-> pipeEdge sp prefix $ tRep . sOut)))
+  >>> (mconcat *** mconcat)
  where
-   pipeEdge :: QName Scope -> (Sig -> SomeType) -> SomePipe p -> PipeRepIndex p
-   pipeEdge prefix selector =
-     (somePipeSig  >>> selector >>> tRep)
-     &&&
-     (somePipeName >>> (coerceQName prefix `append`)
-      >>> Set.singleton)
-     >>> uncurry MMap.singleton
+   pipeEdge :: Show a
+            => SomePipe p -> QName Scope -> (Sig -> a)
+            -> MonoidalMap a (Set (QName Pipe))
+   pipeEdge sp pfx sigKey =
+     sp &
+     ((somePipeSig  >>> sigKey)
+      &&&
+      (somePipeName >>> (coerceQName pfx `append`)
+       >>> Set.singleton)
+      >>> (\(k, v) -> traceErr (mconcat [ "pipeEdge: ", show k
+                                        , " -> ", show v]) (k, v))
+      >>> uncurry MMap.singleton)
 
 attachScopes :: QName Scope -> [SomePipeScope p] -> SomePipeSpace p -> SomePipeSpace p
 attachScopes sub scopes ns = foldr (insertScope sub) ns scopes
@@ -124,7 +136,9 @@ spaceAdd name x ps =
   PipeSpace
    <$> pure (psName ps)
    <*> Namespace.spaceAdd (coerceQName name) x (psSpace ps)
-   <*> pure (MMap.alter (alteration name) strFrom $ psFrom ps)
+   <*> pure (MMap.alter (alteration name)
+             (Just $ if null . sArgs $ somePipeSig x then strTo else strFrom)
+             (psFrom ps))
    <*> pure (MMap.alter (alteration name) strTo   $ psTo ps)
  where
    strFrom, strTo :: SomeTypeRep
