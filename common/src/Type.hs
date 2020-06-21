@@ -84,7 +84,7 @@ import qualified Generics.SOP.Some as SOP
   Metatheory
 -------------------------------------------------------------------------------}
 newtype  Name a  = Name { showName :: Text }
-  deriving (Eq, Generic, Ord, Read, Serialise, Typeable)
+  deriving (Eq, Generic, NFData, Ord, Read, Serialise, Typeable)
 
 newtype QName a = QName (Seq (Name a))
   deriving (Eq, Generic, Ord,           Read, Serialise, Typeable)
@@ -301,11 +301,17 @@ data SomeType =
   , tRep  :: R.SomeTypeRep  -- ^ Kind.Type
   } deriving (Eq, Generic, Ord)
 
-someType :: forall k a. (Typeable k, Typeable a) => Type k a -> SomeType
+instance NFData SomeType
+
+someType ::
+  forall k a
+  . (ReifyTag k, Typeable k, Typeable a)
+  => Type k a -> SomeType
 someType _ =
-  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
-       (R.typeRepTyCon $ R.typeRep @k)
-       rep
+  SomeType
+    (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
+    (R.typeRepTyCon $ R.typeRep @k)
+    rep
   where rep = R.someTypeRep $ Proxy @a
 
 someTypeFromConType :: SomeType -> SomeType -> SomeType
@@ -314,12 +320,16 @@ someTypeFromConType SomeType{tCon} SomeType{tName, tRep} = SomeType{..}
 unitSomeType :: SomeType
 unitSomeType = tagSomeType TPoint (Proxy @())
 
-proxySomeType  :: forall k a. (Typeable k, Typeable a) => Proxy k -> Proxy a -> SomeType
+proxySomeType ::
+  forall k a
+  . (ReifyTag k, Typeable k, Typeable a)
+  => Proxy k -> Proxy a -> SomeType
 proxySomeType _ pa =
-  SomeType (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
-       (R.typeRepTyCon $ R.typeRep @k)
-       rep
-  where rep = R.someTypeRep pa
+  SomeType
+    (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
+    (R.typeRepTyCon $ R.typeRep @k)
+    rep
+ where rep = R.someTypeRep pa
 
 tagSomeType :: forall k a. Typeable a => Tag k -> Proxy a -> SomeType
 tagSomeType TPoint a = proxySomeType (Proxy @k) a

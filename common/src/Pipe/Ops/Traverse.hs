@@ -93,6 +93,13 @@ traverseP'' _p pf f@P{pPipeRep=fioa} t@P{pPipeRep=tioa}
   = traverseP' pf f t
   | otherwise
   = Left $ "traverseP:  fell through on: f="<>pack (show f)<>" t="<>pack (show t)
+ where
+   showLR :: Text -> Text -> Text
+   showLR l r = "left "<>l<>", right "<>r
+
+   showLRP :: Pipe c1 as1 o1 Dynamic -> Pipe c2 as2 o2 Dynamic -> Text
+   showLRP l r = showLR (showPipe l) (showPipe r)
+
 traverseP'' _ _ _ _ = Left "traverseP'':  fell through absurdly bad."
 
 traverseP'

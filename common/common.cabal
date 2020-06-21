@@ -39,7 +39,9 @@ library
                        Pipe.Ops.Compose
                        Pipe.Ops.Internal
                        Pipe.Ops.Traverse
+                       Pipe.Pipe
                        Pipe.Scope
+                       Pipe.SomePipe
                        Pipe.Space
                        Pipe.Types
                        Pipe.Zipper
