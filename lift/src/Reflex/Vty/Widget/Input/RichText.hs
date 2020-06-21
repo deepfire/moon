@@ -16,12 +16,10 @@ import Control.Monad (join)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.NodeId (MonadNodeId)
 import Data.Default (Default(..))
-import Data.Function ((&), fix)
 import Data.Functor ((<&>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Zipper
-import Data.Text.Zipper.Extra
 import qualified Graphics.Vty as V
 import Reflex
 
@@ -65,11 +63,10 @@ textInput dyn cfg = do
   f <- focus
   dh <- displayHeight
   dw <- displayWidth
-  init <- getPostBuild
   rec v <- foldDyn ($) (_textInputConfig_initialValue cfg) $ mergeWith (.)
         [ attach (current dh) (attach dyn i)
           <&> \(dhV, (dynV, iV)) ->
-                (_textInputConfig_handler cfg cfg dhV dynV iV)
+                _textInputConfig_handler cfg cfg dhV dynV iV
         , _textInputConfig_modify cfg
         , let displayInfo = (,) <$> current rows <*> scrollTop
           in ffor (attach displayInfo click) $ \((dl, st), MouseDown _ (mx, my) _) ->

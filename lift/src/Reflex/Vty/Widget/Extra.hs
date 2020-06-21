@@ -16,11 +16,12 @@ import           Control.Monad.NodeId
 
 import           Data.Function
 import           Data.Functor ((<&>))
+import           Data.List                             as List
 import           Data.Maybe (fromMaybe)
-import           Data.Text (Text)
+import           Data.Text (Text, pack, unpack)
+import qualified Data.Text as T
 import           Data.Text.Zipper
 import           Data.Text.Zipper.Extra
-import           Data.List                             as List
 
 import           Reflex
 import           Reflex.Network
@@ -31,7 +32,6 @@ import           Reflex.Vty.Widget.Layout
 import qualified Graphics.Vty as V
 
 import           Basis (lcons2, uncurry3)
-import           Util (fst3)
 
 
 type ReflexVty t m =
@@ -44,106 +44,141 @@ type ReflexVty t m =
   , Reflex t
   )
 
-newtype Width  = Width  Int
-newtype Height = Height Int
-newtype Index  = Index  Int deriving Show
-newtype Column = Column Int deriving Show
+newtype Width  = Width  { unWidth  :: Int }
+newtype Height = Height { unHeight :: Int }
+newtype Index  = Index  { unIndex  :: Int } deriving Show
+newtype Column = Column { unColumn :: Int } deriving Show
 
-data Selection a
+data Selection a b
   = Selection
   { selValue     :: !(Maybe a)
   , selIndex     :: !Index
   , selColumn    :: !Column
+  , selCompleted :: !Bool
   , selInput     :: !Text
-  } deriving Show
+  , selExt       :: !b
+  }
+instance Show a => Show (Selection a b) where
+  show Selection{..} = unpack $ mconcat
+    [ "#<Sel "
+    , "_", selInput, "_ "
+    , "ix=", pack . show $ unIndex selIndex, " "
+    , "col=", pack . show $ unColumn selColumn, " "
+    , "cmp=", pack . show $ selCompleted, " "
+    , "val=", pack $ show selValue
+    , ">"
+    ]
 
-data MenuInputState t m a b =
-  MenuInputState
-  { mistSelection :: !(Selection a)
-  , mistElems     :: ![a]
-  , mistPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
-  , mistShow      :: !(a -> Text)
-  , mistExt       :: !b
+data SelectorParams t m a b =
+  SelectorParams
+  { sparElems     :: ![a]
+  , sparPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
+  , sparShow      :: !(a -> Text)
+  , sparExt       :: !b
+  }
+
+data Selector t a b =
+  Selector
+  { selrSelection :: !(Event t (Selection a b))
+  , selrChoice    :: !(Event t (Maybe a))
   }
 
 type CWidget t m = (Reflex t, Adjustable t m, NotReady t m, PostBuild t m, MonadHold t m, MonadFix m, MonadNodeId m)
 
-emptySelection :: Selection a
-emptySelection = Selection Nothing (Index 0) (Column 0) ""
+emptySelection :: b -> Selection a b
+emptySelection = Selection Nothing (Index 0) (Column 0) False ""
 
 selectionUI ::
-  (CWidget t m, Eq a, Show a)
+  (CWidget t m, Eq a, Show a, Monoid b)
   => DynRegion t
-  -> (Width -> [a] -> Selection a -> MenuInputState t m a b)
+  -> (Width -> [a] -> Selection a b -> SelectorParams t m a b)
   -> Reflex.Dynamic t [a]
-  -> VtyWidget t m (Reflex.Event t (MenuInputState t m a b))
-selectionUI region computeMenuState xsD = mdo
-  selectionD <- holdDyn emptySelection selectE
+  -> VtyWidget t m (Selector t a b)
+selectionUI region computeSelParams xsD = mdo
+  sparE :: Event t (SelectorParams t m a b) <- pure $
+    attachPromptlyDynWith
+      lcons2          (Width <$> _dynRegion_width region)
+      (attachPromptlyDynWith (,) xsD
+                                 selrSelection)
+    <&> uncurry3 computeSelParams
 
-  mist0 <-
-    computeMenuState
+  selr@Selector{..} :: Selector t a b <-
+    computeSelParams
       <$> (Width <$> sample (current $ _dynRegion_width region))
       <*> sample (current xsD)
-      <*> sample (current selectionD)
+      <*> pure (emptySelection mempty)
+    >>= flip holdDyn sparE
+    >>= menuSelector region
 
-  menuInputStateE <- pure
-    $ attachWith lcons2
-                 (current $ _dynRegion_width region)
-                 (attachWith (,) (current xsD) selectE)
-      <&> (fst3 Width >>> uncurry3 computeMenuState)
-
-  selectE :: Event t (Selection a) <-
-    menuSelector region mist0 menuInputStateE
-
-  pure menuInputStateE
+  pure selr
 
 menuSelector
   :: forall t m a b
   .  ( ReflexVty t m
      , Eq a, Show a)
   => DynRegion t
-  -> MenuInputState t m a b
-  -> Reflex.Event t (MenuInputState t m a b)
-  -> VtyWidget t m (Event t (Selection a))
-menuSelector (DynRegion l u w h) mist0 menuStateE = mdo
-  selectD    <- holdDyn (mistSelection mist0) selectE
+  -> Reflex.Dynamic t (SelectorParams t m a b)
+  -> VtyWidget t m (Selector t a b)
+menuSelector (DynRegion l u w h) sparD = mdo
+  spar0 <- sample $ current sparD
 
-  -- Making this attachWith make input rendering 1 frame stale.
-  let internalMenuStateE = attachPromptlyDynWith setMISTSel selectD menuStateE
+  selectD <- holdDyn (emptySelection $ sparExt spar0) selectE
 
-  selectE    <- switchDyn
-                <$> networkHold
-                      (frame mist0)
-                      (frame <$> internalMenuStateE)
-  pure selectE
+  selectE <-
+    (switchDyn
+      <$> (networkHold
+            (frame (emptySelection $ sparExt spar0) spar0
+              :: VtyWidget t m (Event t (Selection a b)))
+            (uncurry frame <$> attachPromptlyDyn selectD (updated sparD)
+              :: Event t (VtyWidget t m (Event t (Selection a b))))
+            :: VtyWidget t m (Dynamic t (Event t (Selection a b)))))
+    :: VtyWidget t m (Event t (Selection a b))
+
+  pure Selector
+    { selrSelection = selectE
+    -- XXX: we don't have nice text input facilities yet (that tell us about completion),
+    --      and so we must detect if it happened
+    , selrChoice    = fforMaybe selectE $
+                      \Selection{..}->
+                        if selCompleted
+                        then Just selValue
+                        else Nothing
+    }
  where
-   frame :: MenuInputState t m a b
-         -> VtyWidget t m (Event t (Selection a))
-   frame MenuInputState{mistSelection=Selection{..}, ..} = do
-     let menuH    = pure $ List.length mistElems + 2
+   frame :: Selection a b
+         -> SelectorParams t m a b
+         -> VtyWidget t m (Event t (Selection a b))
+   frame Selection{..} SelectorParams{..} = do
+     let menuH    = pure $ List.length sparElems + 2
          menuReg  = DynRegion l (u + h - menuH - 1) (w - 2) menuH
          inputReg = DynRegion l (u + h - 1)          w      1
 
-     valueD     <- menu menuReg (fmap snd . focusButton mistPresent)
-                     selIndex mistElems
+     menuChoiceD :: Dynamic t (Maybe a) <-
+       menu menuReg (fmap fbFocused . focusButton sparPresent)
+                     selIndex sparElems
      offtInputE :: Event t (Column, Text) <-
-       completingInput inputReg ((mistShow <$>) <$> current valueD)
+       completingInput inputReg ((sparShow <$>) <$> current menuChoiceD)
                        "> " selInput selColumn
 
-     pure $ attachPromptlyDyn valueD offtInputE
-       <&> \(val, (newCol, newInput)) ->
-             Selection
-               { selValue  = val
-               , selColumn = newCol
-               , selInput  = newInput
-               , selIndex  = val <&>
-                             (flip List.elemIndex mistElems
-                              >>> fmap Index)
-                             & join
-                             & fromMaybe (Index 0)
-               }
-   setMISTSel :: Selection a -> MenuInputState t m a b -> MenuInputState t m a b
-   setMISTSel sel mist = mist { mistSelection = sel }
+     let selectionE = attachPromptlyDyn menuChoiceD offtInputE
+           <&> \(val, (newCol, newInput)) ->
+                 Selection
+                 { selValue  = val
+                 , selColumn = newCol
+                 , selInput  = newInput
+                 , selIndex  = val <&>
+                               (flip List.elemIndex sparElems
+                                >>> fmap Index)
+                               & join
+                               & fromMaybe (Index 0)
+                 , selExt    = sparExt
+                 , selCompleted =
+                   let strIx = unColumn newCol - 1
+                   in if strIx < T.length newInput && strIx >= 0
+                      then T.index newInput strIx == ' '
+                      else False
+                 }
+     pure selectionE
 
 completingInput
   :: ReflexVty t m
@@ -154,56 +189,58 @@ completingInput
   -> Column                  -- ^ Initial position.
   -> VtyWidget t m (Event t (Column, Text))
 completingInput r@(DynRegion _ _ rw _) completion prompt text0 (Column col0) = do
-     TextInput txtD _ xyD <-
-       pane r (pure True) $ row $ do
-         fixedInert 2 $
-           richTextStatic (foregro V.blue) (pure prompt)
-         fixed (rw - 2) $
-           textInput completion $ def
-           { _textInputConfig_initialValue = fromText text0 & top & rightN col0
-           , _textInputConfig_handler = interactorEventHandler
-           }
-     utxtD <- holdUniqDyn txtD
-     pure $ updated $ zipDyn (Column . fst <$> xyD) utxtD
+  TextInput txtD _ xyD <-
+    pane r (pure True) $ row $ do
+      fixedInert 2 $
+        richTextStatic (foregro V.blue) (pure prompt)
+      fixed (rw - 2) $
+        textInput completion $
+          def
+          { _textInputConfig_initialValue = fromText text0 & top & rightN col0
+          , _textInputConfig_handler = interactorEventHandler
+          }
+  utxtD <- holdUniqDyn txtD
+  pure $ updated $ zipDyn (Column . fst <$> xyD) utxtD
  where
    interactorEventHandler
      :: TextInputConfig t (Maybe Text)
      -> Int
      -> Maybe Text
      -> V.Event
-     -> (TextZipper -> TextZipper)
+     -> TextZipper -> TextZipper
    interactorEventHandler TextInputConfig{..} pageSize mText = \case
      -- Special characters
-     V.EvKey (V.KChar '\t') [] -> flip complete mText
-     V.EvKey (V.KChar  ' ') [] -> flip complete mText
-     -- Regular characters
-     V.EvKey (V.KChar k) [] -> insertChar k
-     -- Deletion buttons
-     V.EvKey V.KBS [] -> deleteLeft
-     V.EvKey V.KDel [] -> deleteRight
-     -- Key combinations
-     V.EvKey (V.KChar 'a') [V.MCtrl] -> home
-     V.EvKey (V.KChar 'e') [V.MCtrl] -> end
-     V.EvKey (V.KChar 'f') [V.MCtrl] -> right
-     V.EvKey (V.KChar 'b') [V.MCtrl] -> left
-     V.EvKey (V.KChar 'f') [V.MMeta] -> rightWord
-     V.EvKey (V.KChar 'b') [V.MMeta] -> leftWord
+     V.EvKey (V.KChar '\t') [] -> complete mText
+     V.EvKey (V.KChar  ' ') [] -> complete mText
+     ev -> case ev of
+       -- Regular characters
+       V.EvKey (V.KChar k) [] -> insertChar k
+       -- Deletion buttons
+       V.EvKey V.KBS [] -> deleteLeft
+       V.EvKey V.KDel [] -> deleteRight
+       -- Key combinations
+       V.EvKey (V.KChar 'a') [V.MCtrl] -> home
+       V.EvKey (V.KChar 'e') [V.MCtrl] -> end
+       V.EvKey (V.KChar 'f') [V.MCtrl] -> right
+       V.EvKey (V.KChar 'b') [V.MCtrl] -> left
+       V.EvKey (V.KChar 'f') [V.MMeta] -> rightWord
+       V.EvKey (V.KChar 'b') [V.MMeta] -> leftWord
 
-     V.EvKey (V.KChar 'k') [V.MCtrl] -> killLine
-     V.EvKey (V.KChar 'd') [V.MMeta] -> deleteRightWord
-     V.EvKey (V.KChar 's') [V.MMeta] -> deleteLeftWord
-     V.EvKey V.KBS [V.MMeta] -> deleteLeftWord
-     -- V.EvKey V.KBS [V.MCtrl] -> TZ.deleteLeftWord -- jus doesn't work
-     -- Arrow keys
-     V.EvKey V.KLeft [] -> left
-     V.EvKey V.KRight [] -> right
-     V.EvKey V.KUp [] -> up
-     V.EvKey V.KDown [] -> down
-     V.EvKey V.KHome [] -> home
-     V.EvKey V.KEnd [] -> end
-     V.EvKey V.KPageUp [] -> pageUp pageSize
-     V.EvKey V.KPageDown [] -> pageDown pageSize
-     _ -> id
+       V.EvKey (V.KChar 'k') [V.MCtrl] -> killLine
+       V.EvKey (V.KChar 'd') [V.MMeta] -> deleteRightWord
+       V.EvKey (V.KChar 's') [V.MMeta] -> deleteLeftWord
+       V.EvKey V.KBS [V.MMeta] -> deleteLeftWord
+       -- V.EvKey V.KBS [V.MCtrl] -> TZ.deleteLeftWord -- jus doesn't work
+       -- Arrow keys
+       V.EvKey V.KLeft [] -> left
+       V.EvKey V.KRight [] -> right
+       V.EvKey V.KUp [] -> up
+       V.EvKey V.KDown [] -> down
+       V.EvKey V.KHome [] -> home
+       V.EvKey V.KEnd [] -> end
+       V.EvKey V.KPageUp [] -> pageUp pageSize
+       V.EvKey V.KPageDown [] -> pageDown pageSize
+       _ -> id
 
 -- XXX:  efficiency of fmap (fmap Just . leftmost) over 100+ elts?
 menu ::
@@ -270,11 +307,19 @@ clickable child = do
   a <- child
   return (() <$ click, a)
 
+-- * Focus button
+--
+data FocusButton t a =
+  FocusButton
+  { fbPress   :: !(Event t a)
+  , fbFocused :: !(Event t a)
+  }
+
 focusButton
   :: (Reflex t, MonadHold t m, MonadFix m, MonadNodeId m)
   => (a -> Behavior t Bool -> VtyWidget t m a)
   -> a
-  -> VtyWidget t m (Event t a, Event t a)
+  -> VtyWidget t m (FocusButton t a)
 focusButton child a = do
   f <- focus
   focused <- scanDynMaybe
@@ -286,7 +331,12 @@ focusButton child a = do
   void $ child a (current f)
   m <- mouseUp
   k <- key V.KEnter
-  return (leftmost [a <$ k, a <$ m], a <$ updated focused)
+  pure FocusButton
+    { fbPress   = leftmost [a <$ k, a <$ m]
+    , fbFocused = a <$ updated focused
+    }
 
+-- * Attributetry
+--
 foregro :: V.Color -> V.Attr
 foregro = V.withForeColor V.defAttr

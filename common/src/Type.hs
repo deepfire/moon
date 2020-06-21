@@ -30,13 +30,6 @@ module Type
   , TagOf
   , TypeOf
   , ReprOf
-  , someType
-  , SomeType(..)
-  , proxySomeType
-  , tagSomeType
-  , someTypeFromConType
-  , unitSomeType
-  , showSomeType
   , Value(..)
   , mkValue
   , mkValue'
@@ -293,64 +286,6 @@ type family ReprOf (reprof :: *) :: * where
   ReprOf x = TypeError (Ty.Text "ReprOf: invalid argument: " :<>: ShowType x)
 
 --------------------------------------------------------------------------------
--- | 'SomeType' is a serialisable form of 'Type'
-data SomeType =
-  SomeType
-  { tName :: Name SomeType  -- ^ Extracted from the typerep
-  , tCon  :: R.TyCon        -- ^ Con
-  , tRep  :: R.SomeTypeRep  -- ^ Kind.Type
-  } deriving (Eq, Generic, Ord)
-
-instance NFData SomeType
-
-someType ::
-  forall k a
-  . (ReifyTag k, Typeable k, Typeable a)
-  => Type k a -> SomeType
-someType _ =
-  SomeType
-    (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
-    (R.typeRepTyCon $ R.typeRep @k)
-    rep
-  where rep = R.someTypeRep $ Proxy @a
-
-someTypeFromConType :: SomeType -> SomeType -> SomeType
-someTypeFromConType SomeType{tCon} SomeType{tName, tRep} = SomeType{..}
-
-unitSomeType :: SomeType
-unitSomeType = tagSomeType TPoint (Proxy @())
-
-proxySomeType ::
-  forall k a
-  . (ReifyTag k, Typeable k, Typeable a)
-  => Proxy k -> Proxy a -> SomeType
-proxySomeType _ pa =
-  SomeType
-    (Name . pack . R.tyConName $ R.someTypeRepTyCon rep)
-    (R.typeRepTyCon $ R.typeRep @k)
-    rep
- where rep = R.someTypeRep pa
-
-tagSomeType :: forall k a. Typeable a => Tag k -> Proxy a -> SomeType
-tagSomeType TPoint a = proxySomeType (Proxy @k) a
-tagSomeType TList  a = proxySomeType (Proxy @k) a
-tagSomeType TSet   a = proxySomeType (Proxy @k) a
-tagSomeType TTree  a = proxySomeType (Proxy @k) a
-tagSomeType TDag   a = proxySomeType (Proxy @k) a
-tagSomeType TGraph a = proxySomeType (Proxy @k) a
-
-showSomeType :: Bool -> SomeType -> Text
-showSomeType showDot SomeType{tName=(showName -> n), tCon} =
-  case R.tyConName tCon of
-    "'Point" -> if showDot then "• "<>n else n
-    "'List"  -> "["<>n<>"]"
-    "'Set"   -> "{"<>n<>"}"
-    "'Tree"  -> "♆⇊ "<>n
-    "'Dag"   -> "♆⇄ "<>n
-    "'Graph" -> "☸ "<>n
-    _        -> "??? "<>n
-
---------------------------------------------------------------------------------
 data Value (k :: Con) a where
   VPoint  :: Repr Point a -> Value Point a
   VList   :: Repr List  a -> Value List  a
@@ -481,19 +416,6 @@ instance Show (Type k a) where
   show TTree'   = "TTree"
   show TDag'    = "TDag"
   show TGraph'  = "TGraph"
-
-instance Read SomeType where readPrec = failRead
-instance Show SomeType where
-  show (SomeType _ tycon sometyperep) =
-    show tycon<>":"<>unpack
-    -- cut out the middle part of a name: we don't care about the kind
-    (if Text.isPrefixOf "Name"  shownRep ||
-        Text.isPrefixOf "QName" shownRep
-     then Text.takeWhile (/= ' ') shownRep <> " " <>
-          (Text.reverse . Text.takeWhile (/= ' ') . Text.reverse $ shownRep)
-     else shownRep)
-    where shownRep = pack $ show sometyperep
-instance Serialise SomeType
 
 instance (Ord a, Show a) => Show (Value k a) where
   show (VPoint x) = "VPoint " <> show x

@@ -10,11 +10,8 @@ import           Data.Dynamic                       (fromDynamic)
 import qualified Data.SOP                         as SOP
 import           Type.Reflection
 
-import Basis
-import Pipe.Types
 import Pipe.Ops.Base
 import Pipe.Ops.Internal
-import Type
 
 demoApply :: IO ()
 demoApply = case apply appDyn pipe val of

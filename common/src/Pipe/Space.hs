@@ -7,6 +7,7 @@ module Pipe.Space
   , pipesTo
   , pipeNamesFrom
   , pipeNamesTo
+  , showPipeSpace
   -- , pipeDescs
   , insertScope
   , attachScopes
@@ -32,6 +33,7 @@ import qualified Namespace
 import Pipe.Scope
 import Pipe.Types
 import Type
+import SomeType
 
 
 emptyPipeSpace :: Name PipeSpace -> SomePipeSpace p
@@ -41,6 +43,17 @@ emptyPipeSpace n = PipeSpace
   , psFrom  = mempty
   , psTo    = mempty
   }
+
+showPipeSpace :: PipeSpace (SomePipe a) -> Text
+showPipeSpace PipeSpace{..} =
+  Text.intercalate "\n"
+    ( mconcat ["PipeSpace ", pack (show psName)]
+    : toList (showElt <$> Namespace.spaceEntries psSpace))
+ where
+   showElt sp = Text.concat
+     [ "  ", showName $ somePipeName sp
+     , ": ", showSig $ somePipeSig sp
+     ]
 
 pipesFromCstr :: PipeSpace a -> Maybe SomeTypeRep -> [a]
 pipesFromCstr spc Nothing  = Namespace.spaceEntries (psSpace spc)
@@ -110,8 +123,8 @@ scopeIndices prefix =
       &&&
       (somePipeName >>> (coerceQName pfx `append`)
        >>> Set.singleton)
-      >>> (\(k, v) -> traceErr (mconcat [ "pipeEdge: ", show k
-                                        , " -> ", show v]) (k, v))
+      >>> (\(k, v) -> traceErr (mconcat [show (head $ toList v), ": ", show k])
+                      (k, v))
       >>> uncurry MMap.singleton)
 
 attachScopes :: QName Scope -> [SomePipeScope p] -> SomePipeSpace p -> SomePipeSpace p

@@ -35,6 +35,7 @@ import           GHC.Generics                       (Generic)
 
 import Basis
 import Type
+import SomeType
 
 
 --------------------------------------------------------------------------------

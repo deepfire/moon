@@ -8,10 +8,7 @@ where
 import qualified Algebra.Graph                    as G
 import           Data.Dynamic                       (fromDynamic)
 
-import Basis
 import Pipe.Ops.Internal
-import Pipe.Types
-import Type
 
 
 -- * Running

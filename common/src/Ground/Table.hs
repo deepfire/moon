@@ -32,6 +32,7 @@ import Text.Parser.Token.Highlight
 import Basis
 import qualified Data.Dict as Dict
 import Type
+import SomeType
 
 import Data.Parsing
 import Ground.Parser ()

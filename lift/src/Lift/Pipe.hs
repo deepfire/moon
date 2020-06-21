@@ -7,6 +7,7 @@ where
 import qualified Data.Set.Monad as Set
 
 import qualified Control.Concurrent.STM           as STM
+-- import qualified Data.Text                        as Text
 import           Control.Concurrent.STM             (STM, TVar, atomically)
 import qualified System.IO.Unsafe                 as Unsafe
 
@@ -60,6 +61,12 @@ pipeSpaceMeta =
 
      , genG  "unit"            TPoint' $
        pure (Right ())
+
+     -- Normal functions, lifted:
+     --
+     , linkG "strlen"  TPoint' TPoint' $
+       \(str :: String) ->
+         pure . Right $ length str
 
      -- Listing pipes and scopes:
      --
@@ -128,6 +135,12 @@ pipeSpaceMeta =
              Nothing -> pure . Left $ "Unknown ground: " <> pack (show name)
              Just rep ->
                Right . pipeNamesTo rep <$> STM.readTVar mutablePipeSpace
+
+     -- Debug:
+     --
+     , genG "dump"     TPoint' $ do
+         putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
+         pure $ Right ()
 
      ])
   where

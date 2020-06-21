@@ -49,8 +49,8 @@ deleteRightWord (TextZipper lb b a la) =
 killLine :: TextZipper -> TextZipper
 killLine (TextZipper lb b _ la) = TextZipper lb b "" la
 
-complete :: TextZipper -> Maybe Text -> TextZipper
-complete tz@(TextZipper _ b _ _) mText =
+complete :: Maybe Text -> TextZipper -> TextZipper
+complete mText tz@(TextZipper _ b _ _) =
   let lastW = lastWord b
       nonNull = not (null lastW)
       lastCompletible = nonNull && all isAlphaNum (lastWord b)

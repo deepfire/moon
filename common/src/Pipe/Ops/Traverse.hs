@@ -11,10 +11,7 @@ import           Data.Dynamic                       (fromDynamic)
 import qualified Data.SOP                         as SOP
 import           Type.Reflection
 
-import Basis
-import Pipe.Types
 import Pipe.Ops.Internal
-import Type
 
 
 demoTraverse :: IO ()

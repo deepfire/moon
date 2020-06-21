@@ -80,6 +80,10 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Map.Monoidal.Strict as MMap
 import qualified Data.Set.Monad  as Set
 import qualified Data.Set        as Set'
+import qualified GHC.Types       as GHC
+import qualified Text.Builder    as TB
+import qualified Type.Reflection as R
+
 
 liftSet :: Ord a => Set'.Set a -> Set.Set a
 liftSet = Set.fromDistinctAscList . Set'.toAscList
@@ -184,3 +188,39 @@ luncons3 (a, b, c) = (a, (b, c))
 
 rpop3 :: (a, b, c) -> (a, b)
 rpop3 (a, b, _) = (a, b)
+
+showSomeTypeRepNoKind :: SomeTypeRep -> Text
+showSomeTypeRepNoKind (SomeTypeRep x) = showTypeRepNoKind x
+
+showTypeRepNoKind :: TypeRep a -> Text
+showTypeRepNoKind = TB.run . flip go False
+ where
+   go :: TypeRep b -> Bool -> TB.Builder
+   go (R.App (R.Con f) a1) _
+     | f == listTyCon =
+       case a1 of
+         R.Con x | x == charTyCon
+           -> TB.text "String"
+         _ -> TB.char '[' <> go a1 False <> TB.char ']'
+   go (R.App (R.App (R.Con f) a1) a2) _
+     | f == tuple2TyCon =
+       TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ')'
+   go (R.App (R.App (R.App (R.Con f) a1) a2) a3) _
+     | f == tuple3TyCon =
+       TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ',' <> TB.char ' ' <> go a3 False <> TB.char ')'
+   go (R.Con c) _ =
+     TB.string $ show c
+   go a@R.App{} True =
+     TB.char '(' <> go a False <> TB.char ')'
+   go (R.App f x) False =
+     go f True <> TB.char ' ' <> go x True
+   go f@R.Fun{} True =
+     TB.char '(' <> go f False <> TB.char ')'
+   go (R.Fun x r) False =
+     go x True <> TB.text " -> " <> go r True
+
+listTyCon, tuple2TyCon, tuple3TyCon, charTyCon :: GHC.TyCon
+listTyCon   = R.typeRepTyCon $ typeRep @[()]
+tuple2TyCon = R.typeRepTyCon $ typeRep @((),())
+tuple3TyCon = R.typeRepTyCon $ typeRep @((),(),())
+charTyCon   = R.typeRepTyCon $ typeRep @Char

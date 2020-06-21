@@ -1,4 +1,4 @@
---{-# OPTIONS_GHC -Wall #-}
+--{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Main (main) where
 
@@ -60,6 +60,8 @@ import qualified Ground.Hask                      as Hask
 import qualified Wire.Peer                        as Wire
 import qualified Wire.Protocol                    as Wire
 
+import qualified Shelly
+
 import Lift
 import Pipe
 import Pipe.Space
@@ -71,26 +73,30 @@ import Text.Printf
 
 main :: IO ()
 main = do
-  mreq <- execParser $ (info $ optional Wire.parseRequest <**> helper) (traceErr "foo" fullDesc)
+  timestamp <- Shelly.shelly $ Shelly.run "date" []
+  mreq <- execParser $ (info $ optional Wire.parseRequest <**> helper) (traceErr ("MainCLI::main: " <> unpack timestamp) fullDesc)
   WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
     \conn -> do
       let tracer = stdoutTracer
           req    = fromMaybe (Wire.Run "meta.space") mreq
           -- chan   = channelFromWebsocket conn
-      Wire.runClient tracer (client tracer req) $ channelFromWebsocket conn
+      Wire.runClient tracer (client tracer [Wire.Run "meta.dump", req]) $
+        channelFromWebsocket conn
 
 client :: forall rej m a
           . (rej ~ Text, m ~ IO, a ~ Wire.Reply)
        => Tracer m String
-       -> Wire.Request
+       -> [Wire.Request]
        -> m (Wire.ClientState rej m a)
-client tracer req = pure $
-  Wire.ClientRequesting req handleReply
+client tracer (r0:rs) = pure $
+  Wire.ClientRequesting r0 (handleReply rs)
  where
-   handleReply (Left rej) = do
+   handleReply _ (Left rej) = do
      putStrLn $ "error: " <> unpack rej
      pure Wire.ClientDone
-   handleReply (Right (Wire.ReplyValue rep)) = do
+   handleReply (r:rs') _ =
+     pure $ Wire.ClientRequesting r (handleReply rs')
+   handleReply []  (Right (Wire.ReplyValue rep)) = do
      print rep
      case
        withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep
@@ -111,36 +117,60 @@ spaceInteraction space = mdo
   screenLayout@ScreenLayout{..} <- computeScreenLayout
 
   assemblyD :: Reflex.Dynamic t (Maybe (SomePipe ())) <-
-    holdDyn Nothing never
+    holdDyn Nothing
+      selrChoice
+      -- (traceErrEventWith (const "selrChoice fired") selrChoice)
 
-  pipesFromD  <- pure $ assemblyD
-                        <&> (fmap (somePipeOutSomeTagType >>> snd)
-                             >>> pipesFromCstr space)
-  pipesSorteD <- pure $ pipesFromD <&>
-                        sortBy (compare `on` somePipeName)
+  let constraintD :: Reflex.Dynamic t (Maybe SomeTypeRep)
+      constraintD =
+        assemblyD
+          <&> fmap (somePipeOutSomeTagType >>> snd)
+      pipesFromD :: Reflex.Dynamic t [SomePipe ()]
+      pipesFromD =
+        constraintD
+          <&> (pipesFromCstr space
+               >>> sortBy (compare `on` somePipeName))
 
-  menuInputStateE :: Event t (MenuInputState t m (SomePipe ()) Text) <-
+  selr@Selector{..} :: Selector t (SomePipe ()) Text <-
     selectionUI
-      slSelectorReg
-      computeMenuInputState
-      pipesSorteD
+      slSelector
+      mistNarrowPipes
+      pipesFromD
 
-  debugVisuals screenLayout menuInputStateE
+  showPane yellow slAssembly $ current assemblyD
+
+  debugVisuals screenLayout selr constraintD pipesFromD
 
   input <&> fmapMaybe
     (\case
         V.EvKey (V.KChar 'c') [V.MCtrl]
-          -> Just ()
+          -> Just () -- terminate
         _ -> Nothing)
 
  where
-   debugVisuals ScreenLayout{..} menuStateE = do
-     err  <- hold "" $ mistExt <$> menuStateE
-     dbg1 <- hold 0 (length . mistElems <$> menuStateE)
-     dbg2 <- hold emptySelection (mistSelection <$> menuStateE)
-     showPane red   slErrorsReg err
-     showPane blue  slDebug1Reg dbg1
-     showPane green slDebug2Reg dbg2
+   debugVisuals ::
+     ScreenLayout t ->
+     Selector t (SomePipe ()) Text ->
+     Reflex.Dynamic t (Maybe SomeTypeRep) ->
+     Reflex.Dynamic t [SomePipe ()] ->
+     VtyWidget t m ()
+   debugVisuals ScreenLayout{..} Selector{..} cstrD pipesD = do
+     err  <- hold "" $ selExt <$> selrSelection
+     let showCstrEnv cstr pipes =
+           mconcat [ "pipes matching ", pack $ show cstr
+                   , ": ", pack $ show (length pipes)]
+     dbg1 <- pure . current $ zipDynWith showCstrEnv cstrD pipesD
+     dbg2 <- hold (emptySelection "")
+       selrSelection
+       -- (traceErrEventWith (const "selrSelection fired") selrSelection)
+     showPane red   slErrors err
+     showPane blue  slDebug1 dbg1
+     showPane green slDebug2 $ dbg2 <&>
+       \s@Selection{..}-> (,) s $
+       let strIx = unColumn selColumn - 1
+       in if strIx < T.length selInput && strIx >= 0
+          then T.index selInput strIx
+          else '*'
 
    showPane :: (CWidget t m, Show a)
             => V.Attr -> DynRegion t -> Behavior t a -> VtyWidget t m ()
@@ -148,20 +178,20 @@ spaceInteraction space = mdo
      pane region (pure False) $
      richTextStatic attr (T.pack . show <$> bx)
 
-   red, blue, green :: V.Attr
-   (,,) red blue green =
-    (,,) (foregro V.red) (foregro V.blue) (foregro V.green)
+   red, blue, green, yellow :: V.Attr
+   (,,,) red blue green yellow =
+    (,,,) (foregro V.red) (foregro V.blue) (foregro V.green) (foregro V.yellow)
 
-computeMenuInputState ::
+mistNarrowPipes ::
      (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
   => Width
   -> [SomePipe ()]
-  -> Selection (SomePipe ())
-  -> MenuInputState t m (SomePipe ()) Text
-computeMenuInputState screenW allPipes
-   selection@Selection{selColumn=Column coln, ..} =
+  -> Selection (SomePipe ()) Text
+  -> SelectorParams t m (SomePipe ()) Text
+mistNarrowPipes screenW
+ allPipes selection@Selection{selColumn=Column coln, ..} =
   case parseLocated selInput of
-    Left e  -> MenuInputState selection [] (somePipeSelectable (Width 3, Width 3))
+    Left e  -> SelectorParams [] (somePipeSelectable (Width 3, Width 3))
                               (showName . somePipeName) e
     Right expr@(indexLocated -> index) ->
       let name = case lookupLocatedQName coln index of
@@ -169,8 +199,7 @@ computeMenuInputState screenW allPipes
                    Just qn -> showQName qn
           selectedPipes = infixNameFilter name `Prelude.filter` allPipes
           reservedW = Width 4
-      in MenuInputState
-           selection
+      in SelectorParams
            selectedPipes
            (somePipeSelectable (presentCtx screenW reservedW selectedPipes))
            (showName . somePipeName)
@@ -232,10 +261,11 @@ data ScreenLayout t =
   ScreenLayout
   { slScreenWi      :: !(Reflex.Dynamic t Width)
   , slScreenHe      :: !(Reflex.Dynamic t Height)
-  , slSelectorReg   :: !(DynRegion t)
-  , slErrorsReg     :: !(DynRegion t)
-  , slDebug1Reg     :: !(DynRegion t)
-  , slDebug2Reg     :: !(DynRegion t)
+  , slSelector      :: !(DynRegion t)
+  , slAssembly      :: !(DynRegion t)
+  , slErrors        :: !(DynRegion t)
+  , slDebug1        :: !(DynRegion t)
+  , slDebug2        :: !(DynRegion t)
   }
 
 computeScreenLayout ::
@@ -249,10 +279,11 @@ computeScreenLayout = do
     ScreenLayout
     { slScreenWi    = Width <$> wi
     , slScreenHe    = Height <$> he
-    , slSelectorReg = DynRegion 0  0       wi (he - 6)
-    , slErrorsReg   = DynRegion 0 (he - 5) wi  3
-    , slDebug1Reg   = DynRegion 0 (he - 2) wi  1
-    , slDebug2Reg   = DynRegion 0 (he - 1) wi  1
+    , slSelector    = DynRegion 0  0       wi (he - 8)
+    , slAssembly    = DynRegion 0 (he - 7) wi  1
+    , slErrors      = DynRegion 0 (he - 5) wi  3
+    , slDebug1      = DynRegion 0 (he - 2) wi  1
+    , slDebug2      = DynRegion 0 (he - 1) wi  1
     }
 
 -- * UI

@@ -7,11 +7,13 @@ module Pipe
   --
   , module Basis
   , module Type
+  , module SomeType
   )
 where
 
 import Basis
 import Type
+import SomeType
 
 import Pipe.Expr
 import Pipe.Ops

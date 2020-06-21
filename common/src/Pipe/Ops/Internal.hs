@@ -24,6 +24,11 @@ module Pipe.Ops.Internal
   , typeACon, tagARep, aRep
   , restRep
   , typeOCon, tagORep, oRep
+  --
+  , module Basis
+  , module Type
+  , module SomeType
+  , module Pipe.Types
   )
 where
 
@@ -36,8 +41,11 @@ import Type.Reflection ( pattern App
                        , splitApps
                        , typeRepTyCon
                        )
+
+import Basis
 import Pipe.Types
 import Type
+import SomeType
 
 -- * Guts of the pipe guts.
 --

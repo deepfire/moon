@@ -44,8 +44,10 @@ library
                      , req
                      , safe
                      , set-monad
+                     , semialign
                      , stm
                      , text
+                     , these
                      , time
                      , tuple
                      -- , type-list
@@ -160,6 +162,7 @@ executable cli
                      , reflex-vty
                      , safe
                      , serialise
+                     , shelly
                      , text
                      , tuple
                      , typed-protocols
