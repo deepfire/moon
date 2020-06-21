@@ -110,20 +110,22 @@ spaceInteraction ::
 spaceInteraction space = mdo
   screenLayout@ScreenLayout{..} <- computeScreenLayout
 
-  repFromD :: Reflex.Dynamic t (Maybe SomeTypeRep) <-
-    pure . pure $ Nothing
+  assemblyD :: Reflex.Dynamic t (Maybe (SomePipe ())) <-
+    holdDyn Nothing never
 
-  pipesFromD  <- pure $ pipesFromCstr space <$> repFromD
+  pipesFromD  <- pure $ assemblyD
+                        <&> (fmap (somePipeOutSomeTagType >>> snd)
+                             >>> pipesFromCstr space)
   pipesSorteD <- pure $ pipesFromD <&>
                         sortBy (compare `on` somePipeName)
 
-  menuInputStateD <-
+  menuInputStateE :: Event t (MenuInputState t m (SomePipe ()) Text) <-
     selectionUI
       slSelectorReg
       computeMenuInputState
       pipesSorteD
 
-  debugVisuals screenLayout menuInputStateD
+  debugVisuals screenLayout menuInputStateE
 
   input <&> fmapMaybe
     (\case
@@ -132,10 +134,13 @@ spaceInteraction space = mdo
         _ -> Nothing)
 
  where
-   debugVisuals ScreenLayout{..} menuStateD = do
-     showPane red   slErrorsReg $ misExt <$> current menuStateD
-     showPane blue  slDebug1Reg $ current (length . misElems <$> menuStateD)
-     showPane green slDebug2Reg $ current (misSelection <$> menuStateD)
+   debugVisuals ScreenLayout{..} menuStateE = do
+     err  <- hold "" $ mistExt <$> menuStateE
+     dbg1 <- hold 0 (length . mistElems <$> menuStateE)
+     dbg2 <- hold emptySelection (mistSelection <$> menuStateE)
+     showPane red   slErrorsReg err
+     showPane blue  slDebug1Reg dbg1
+     showPane green slDebug2Reg dbg2
 
    showPane :: (CWidget t m, Show a)
             => V.Attr -> DynRegion t -> Behavior t a -> VtyWidget t m ()
@@ -153,12 +158,13 @@ computeMenuInputState ::
   -> [SomePipe ()]
   -> Selection (SomePipe ())
   -> MenuInputState t m (SomePipe ()) Text
-computeMenuInputState screenW allPipes selection@Selection{..} =
-  case parseLocated sInput of
+computeMenuInputState screenW allPipes
+   selection@Selection{selColumn=Column coln, ..} =
+  case parseLocated selInput of
     Left e  -> MenuInputState selection [] (somePipeSelectable (Width 3, Width 3))
                               (showName . somePipeName) e
     Right expr@(indexLocated -> index) ->
-      let name = case lookupLocatedQName sColumn index of
+      let name = case lookupLocatedQName coln index of
                    Nothing -> ""
                    Just qn -> showQName qn
           selectedPipes = infixNameFilter name `Prelude.filter` allPipes
@@ -169,7 +175,7 @@ computeMenuInputState screenW allPipes selection@Selection{..} =
            (somePipeSelectable (presentCtx screenW reservedW selectedPipes))
            (showName . somePipeName)
            (T.pack
-            $ printf "col=%s n=%s exp=%s" (show sColumn) name (show expr))
+            $ printf "col=%s n=%s exp=%s" (show coln) name (show expr))
  where
    infixNameFilter hay = T.isInfixOf hay . showName . somePipeName
 

@@ -233,8 +233,9 @@ instance Serialise (SomePipe ()) where
        :: forall b
        . (SomeTag, SomeTypeRep, SomeTypeRep)
        -> (forall (k1 :: Con) (a1 :: *) ty
-           . (Typeable (Type k1 a1), Typeable k1, Typeable a1
-             ,ty ~ Type k1 a1)
+           . ( Typeable (Type k1 a1), Typeable k1, Typeable a1
+             , ReifyTag k1
+             , ty ~ Type k1 a1)
            => TypePair ty -> Proxy k1 -> Proxy a1 -> b)
        -> b
      withRecoveredTypePair

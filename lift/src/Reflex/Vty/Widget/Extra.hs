@@ -44,90 +44,106 @@ type ReflexVty t m =
   , Reflex t
   )
 
+newtype Width  = Width  Int
+newtype Height = Height Int
+newtype Index  = Index  Int deriving Show
+newtype Column = Column Int deriving Show
+
 data Selection a
   = Selection
-  { sValue     :: !(Maybe a)
-  , sColumn    :: !Int
-  , sInput     :: !Text
+  { selValue     :: !(Maybe a)
+  , selIndex     :: !Index
+  , selColumn    :: !Column
+  , selInput     :: !Text
   } deriving Show
-
-newtype Width  = Width Int
-newtype Height = Height Int
 
 data MenuInputState t m a b =
   MenuInputState
-  { misSelection :: !(Selection a)
-  , misElems     :: ![a]
-  , misPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
-  , misShow      :: !(a -> Text)
-  , misExt       :: !b
+  { mistSelection :: !(Selection a)
+  , mistElems     :: ![a]
+  , mistPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
+  , mistShow      :: !(a -> Text)
+  , mistExt       :: !b
   }
 
 type CWidget t m = (Reflex t, Adjustable t m, NotReady t m, PostBuild t m, MonadHold t m, MonadFix m, MonadNodeId m)
+
+emptySelection :: Selection a
+emptySelection = Selection Nothing (Index 0) (Column 0) ""
 
 selectionUI ::
   (CWidget t m, Eq a, Show a)
   => DynRegion t
   -> (Width -> [a] -> Selection a -> MenuInputState t m a b)
   -> Reflex.Dynamic t [a]
-  -> VtyWidget t m (Reflex.Dynamic t (MenuInputState t m a b))
+  -> VtyWidget t m (Reflex.Event t (MenuInputState t m a b))
 selectionUI region computeMenuState xsD = mdo
-  selectionD <- holdDyn (Selection Nothing 0 "") selectionE
+  selectionD <- holdDyn emptySelection selectE
 
-  menuStateD <- pure
-    $ zipDynWith lcons2 (_dynRegion_width region) (zipDynWith (,) xsD selectionD)
+  mist0 <-
+    computeMenuState
+      <$> (Width <$> sample (current $ _dynRegion_width region))
+      <*> sample (current xsD)
+      <*> sample (current selectionD)
+
+  menuInputStateE <- pure
+    $ attachWith lcons2
+                 (current $ _dynRegion_width region)
+                 (attachWith (,) (current xsD) selectE)
       <&> (fst3 Width >>> uncurry3 computeMenuState)
 
-  selectionE :: Event t (Selection a) <-
-    menuSelector region menuStateD
+  selectE :: Event t (Selection a) <-
+    menuSelector region mist0 menuInputStateE
 
-  pure menuStateD
+  pure menuInputStateE
 
 menuSelector
   :: forall t m a b
   .  ( ReflexVty t m
      , Eq a, Show a)
   => DynRegion t
-  -> Reflex.Dynamic t (MenuInputState t m a b)
+  -> MenuInputState t m a b
+  -> Reflex.Event t (MenuInputState t m a b)
   -> VtyWidget t m (Event t (Selection a))
-menuSelector (DynRegion l u w h) menuStateD = mdo
-  text0      <- pure ""
-  selectionD <- holdDyn (Selection Nothing 0 text0) inputE
-  let feeD  = zipDynWith (\ms@MenuInputState{misElems}
-                           (Selection mEntry inputCol inputText) ->
-                            ( ms
-                            , inputText
-                            , fromMaybe 0 $ join $ mEntry <&>
-                                                   flip List.elemIndex misElems
-                            , inputCol))
-              menuStateD selectionD
-  (ms0, _text0, sel0, pos0)
-           <- sample (current feeD)
-  inputE   <- switchDyn <$>
-              networkHold (frame ms0 text0 sel0 pos0)
-              (updated $
-               feeD <&> \(ms, text, sel, pos) ->
-                           frame ms  text  sel  pos)
-  pure inputE
+menuSelector (DynRegion l u w h) mist0 menuStateE = mdo
+  selectD    <- holdDyn (mistSelection mist0) selectE
+
+  -- Making this attachWith make input rendering 1 frame stale.
+  let internalMenuStateE = attachPromptlyDynWith setMISTSel selectD menuStateE
+
+  selectE    <- switchDyn
+                <$> networkHold
+                      (frame mist0)
+                      (frame <$> internalMenuStateE)
+  pure selectE
  where
    frame :: MenuInputState t m a b
-         -> Text
-         -> Int
-         -> Int
          -> VtyWidget t m (Event t (Selection a))
-   frame MenuInputState{..} text selIx pos = do
-     let menuH    = pure $ List.length misElems + 2
+   frame MenuInputState{mistSelection=Selection{..}, ..} = do
+     let menuH    = pure $ List.length mistElems + 2
          menuReg  = DynRegion l (u + h - menuH - 1) (w - 2) menuH
          inputReg = DynRegion l (u + h - 1)          w      1
 
-     selD       <- menu menuReg (fmap snd . focusButton misPresent)
-                     selIx misElems
-     offtInputE <- completingInput inputReg
-                     ((misShow <$>) <$> current selD)
-                     "> " text pos
+     valueD     <- menu menuReg (fmap snd . focusButton mistPresent)
+                     selIndex mistElems
+     offtInputE :: Event t (Column, Text) <-
+       completingInput inputReg ((mistShow <$>) <$> current valueD)
+                       "> " selInput selColumn
 
-     pure $ attachPromptlyDyn selD offtInputE
-       <&> \(a, (b, c)) -> Selection a b c
+     pure $ attachPromptlyDyn valueD offtInputE
+       <&> \(val, (newCol, newInput)) ->
+             Selection
+               { selValue  = val
+               , selColumn = newCol
+               , selInput  = newInput
+               , selIndex  = val <&>
+                             (flip List.elemIndex mistElems
+                              >>> fmap Index)
+                             & join
+                             & fromMaybe (Index 0)
+               }
+   setMISTSel :: Selection a -> MenuInputState t m a b -> MenuInputState t m a b
+   setMISTSel sel mist = mist { mistSelection = sel }
 
 completingInput
   :: ReflexVty t m
@@ -135,21 +151,20 @@ completingInput
   -> Behavior t (Maybe Text) -- ^ If user requests completion, that's what to.
   -> Text                    -- ^ Prompt.
   -> Text                    -- ^ Initial value.
-  -> Int                     -- ^ Initial position.
-  -> VtyWidget t m (Event t (Int, Text))
-completingInput r@(DynRegion _ _ rw _) completion prompt initial initialOfft = do
+  -> Column                  -- ^ Initial position.
+  -> VtyWidget t m (Event t (Column, Text))
+completingInput r@(DynRegion _ _ rw _) completion prompt text0 (Column col0) = do
      TextInput txtD _ xyD <-
        pane r (pure True) $ row $ do
          fixedInert 2 $
            richTextStatic (foregro V.blue) (pure prompt)
          fixed (rw - 2) $
            textInput completion $ def
-           { _textInputConfig_initialValue = fromText initial
-                                             & top & rightN initialOfft
+           { _textInputConfig_initialValue = fromText text0 & top & rightN col0
            , _textInputConfig_handler = interactorEventHandler
            }
      utxtD <- holdUniqDyn txtD
-     pure $ updated $ zipDyn (fst <$> xyD) utxtD
+     pure $ updated $ zipDyn (Column . fst <$> xyD) utxtD
  where
    interactorEventHandler
      :: TextInputConfig t (Maybe Text)
@@ -190,17 +205,21 @@ completingInput r@(DynRegion _ _ rw _) completion prompt initial initialOfft = d
      V.EvKey V.KPageDown [] -> pageDown pageSize
      _ -> id
 
-menu :: (MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m, Reflex t)
-        => DynRegion t
-        -> (a -> VtyWidget t m (Event t a))
-        -> Int
-        -> [a]
-        -> VtyWidget t m (Dynamic t (Maybe a))
-menu region displayMenuRow selIx =
+-- XXX:  efficiency of fmap (fmap Just . leftmost) over 100+ elts?
+menu ::
+  forall t m a
+  . (MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m, Reflex t)
+  => DynRegion t
+  -> (a -> VtyWidget t m (Event t a))
+  -> Index
+  -> [a]
+  -> VtyWidget t m (Dynamic t (Maybe a))
+menu region displayMenuRow (Index selIx) =
   (id &&& displayPipeline)
   >>> \(xs, evW) ->
         evW >>= holdDyn (xs `atMay` selIx)
  where
+   displayPipeline :: [a] -> VtyWidget t m (Event t (Maybe a))
    displayPipeline
      -- Display rows as a sequence of widgets,
      =   traverse (fixed 1 . displayMenuRow)
@@ -212,7 +231,7 @@ menu region displayMenuRow selIx =
      >>> boxStatic roundedBoxStyle
      -- Constrain in a pane
      >>> pane region (constDyn True)
-     -- Merge lists of events
+     -- Merge lists of events:  XXX: efficiency?
      >>> fmap (fmap Just . leftmost)
 
 upDownNavigation :: (Reflex t, Monad m) => VtyWidget t m (Event t Int)
