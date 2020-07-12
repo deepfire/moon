@@ -18,10 +18,12 @@ module Pipe.Pipe
   , showDesc
   , pattern PipeD
   , Sig(..)
+  , ISig
   , showSig
   , showSigDotty
   , ListSig(..)
   , toListSig
+  , fromListSig
   , Struct(..)
   , Value(..)
   , withCompatiblePipes
@@ -62,7 +64,7 @@ data Pipe (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) where
 data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
   Desc
   { pdName   :: !(Name Pipe)
-  , pdSig    :: !Sig
+  , pdSig    :: !ISig
   , pdStruct :: !Struct
   , pdRep    :: !SomeTypeRep -- ^ Full type of the pipe, App4-style.
   , pdArgs   :: !(NP TypePair kas)
@@ -71,14 +73,18 @@ data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
   deriving (Generic)
 
 -- | Sig:  serialisable type signature
-data Sig =
-  Sig
-  { sArgs :: [SomeType]
-  , sOut  :: SomeType
-  }
-  deriving (Eq, Generic, Ord)
+type ISig = Sig I
 
-newtype ListSig = ListSig { unListSig :: [SomeType] }
+data Sig f =
+  Sig
+  { sArgs :: [f SomeType]
+  , sOut  :: f SomeType
+  }
+  deriving (Generic)
+deriving instance (Eq  (f SomeType)) => Eq (Sig f)
+deriving instance (Ord (f SomeType)) => Ord (Sig f)
+
+newtype ListSig f = ListSig { unListSig :: [f SomeType] }
 
 -- | Struct: Pipe's internal structure,
 --   as a graph of type transformations.
@@ -92,7 +98,7 @@ pattern PipeD :: ( ArgConstr c o
                  , All IsType kas
                  , All Top (kas :: [*])
                  )
-              => Name Pipe -> Sig -> Struct -> SomeTypeRep
+              => Name Pipe -> ISig -> Struct -> SomeTypeRep
               -> NP TypePair kas
               -> TypePair o
               -> p
@@ -105,12 +111,17 @@ pipeName :: (PipeConstr c as o) => Pipe c as o p -> Name Pipe
 pipeName (PipeD name _ _ _ _ _ _)   = name
 pipeName _ = error "impossible pipeName"
 
-pipeSig :: (PipeConstr c as o) => Pipe c as o p -> Sig
+pipeSig :: (PipeConstr c as o) => Pipe c as o p -> ISig
 pipeSig   (PipeD _ sig _ _ _ _ _)    = sig
 pipeSig _ = error "impossible pipeSig"
 
-toListSig :: Sig -> ListSig
+toListSig :: Sig f -> ListSig f
 toListSig Sig{..} = ListSig $ sArgs <> [sOut]
+
+fromListSig :: ListSig f -> Maybe (Sig f)
+fromListSig = \case
+  ListSig [] -> Nothing
+  ListSig xs -> Just $ Sig (init xs) (last xs)
 
 pipeStruct :: (PipeConstr c as o) => Pipe c as o p -> Struct
 pipeStruct   (PipeD _ _ struct _ _ _ _) = struct
@@ -226,13 +237,13 @@ instance NFData (Desc c as o) where
 --------------------------------------------------------------------------------
 -- * Sig
 --
-showSig :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSig (Sig as o) = T.intercalate " ⇨  " $ showSomeType False <$> (as <> [o])
+showSig :: ISig -> Text -- " ↦ ↣ → ⇨ ⇒ "
+showSig (Sig as o) = T.intercalate " ⇨  " $ showSomeType False . unI <$> (as <> [o])
 
-showSigDotty :: Sig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSigDotty (Sig as o) = T.intercalate " ⇨  " $ showSomeType True <$> (as <> [o])
+showSigDotty :: ISig -> Text -- " ↦ ↣ → ⇨ ⇒ "
+showSigDotty (Sig as o) = T.intercalate " ⇨  " $ showSomeType True . unI <$> (as <> [o])
 
-instance NFData Sig
+instance NFData (f SomeType) => NFData (Sig f)
 
 --------------------------------------------------------------------------------
 -- * Struct
@@ -248,10 +259,10 @@ instance Show (Pipe c as o p) where
 instance Show (Desc c as o) where show = unpack . showDesc
 instance (Typeable c, Typeable as, Typeable o) => Read (Desc c as o) where readPrec = failRead
 
-instance Show Sig where
+instance Show ISig where
   show x  =  "("<>T.unpack (showSig x)<>")"
-instance Serialise Sig
-instance Read Sig where readPrec = failRead
+instance (Serialise (f SomeType)) => Serialise (Sig f)
+instance Typeable f => Read (Sig f) where readPrec = failRead
 
 instance Serialise Struct
 instance Read Struct where readPrec = failRead

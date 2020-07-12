@@ -149,7 +149,7 @@ doTraverse pf
         ras     = Nil
         ro      = TypePair ttag fty
         name    = Name $ "("<>fn<>")-<trav>-("<>tn<>")"
-        sig     = Sig [] (someTypeFromConType tosty fosty)
+        sig     = Sig [] (I $ someTypeFromConType tosty fosty)
         struct  = Struct (fg `G.overlay` tg) -- XXX: structure!
         rep     = typeRep :: TypeRep (IOA cf ras ro)
 -- XXX: where is the best place for this check now?

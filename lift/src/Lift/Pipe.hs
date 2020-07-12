@@ -6,7 +6,8 @@ module Lift.Pipe
   )
 where
 
-import qualified Data.Set.Monad as Set
+import qualified Data.Set.Monad                   as Set
+import qualified Data.Text                        as Text
 
 import qualified Control.Concurrent.STM           as STM
 -- import qualified Data.Text                        as Text
@@ -74,8 +75,8 @@ pipeSpaceMeta =
      -- Normal functions, lifted:
      --
      , linkG "strlen"  TPoint' TPoint' $
-       \(str :: String) ->
-         pure . Right $ length str
+       \(str :: Text) ->
+         pure . Right $ Text.length str
 
      -- Listing pipes and scopes:
      --

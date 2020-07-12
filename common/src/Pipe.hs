@@ -8,12 +8,14 @@ module Pipe
   , module Basis
   , module Type
   , module SomeType
+  , module SomeValue
   )
 where
 
 import Basis
 import Type
 import SomeType
+import SomeValue
 
 import Pipe.Expr
 import Pipe.Ops

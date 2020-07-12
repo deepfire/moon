@@ -33,6 +33,7 @@ import Basis
 import qualified Data.Dict as Dict
 import Type
 import SomeType
+import SomeValue
 
 import Data.Parsing
 import Ground.Parser ()
@@ -107,6 +108,14 @@ instance Parse SomeValue where
 
 parseSomeValue :: Parser SomeValue
 parseSomeValue =
+  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Text) TPoint <$> stringLiteral)
+  <|>
+  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Integer) TPoint <$> integer)
+  <|>
+  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Integer) TPoint <$> hexadecimal)
+  <|>
+  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Double) TPoint <$> double)
+  <|>
   braces   (parseSV . reifyTag $ Proxy @Point)
   <|>
   brackets (parseSV . reifyTag $ Proxy @List)
@@ -169,7 +178,7 @@ _withGroundTop out ground top =
 --   and possibly Ground-ed SomePipe.
 mkSaturatedPipe
   :: forall c out. (ArgConstr c out)
-  => Proxy c -> TypePair out -> Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe ()
+  => Proxy c -> TypePair out -> Name Pipe -> ISig -> Struct -> SomeTypeRep -> SomePipe ()
 mkSaturatedPipe _c out name sig struct rep =
   case lookupRep (someTypeRep $ Proxy @out) of
     Nothing -> nondescript
@@ -210,7 +219,7 @@ instance Serialise (SomePipe ()) where
       <- forM [0..(arity - 1)] $ const $
          (,,) <$> decode <*> decode <*> decode
     name   :: Name Pipe   <- decode
-    sig    :: Sig         <- decode
+    sig    :: ISig        <- decode
     struct :: Struct      <- decode
     rep    :: SomeTypeRep <- decode
     pure $ withRecoveredTypePair (head xs) $
@@ -288,7 +297,7 @@ groundTypes = Dict.empty
   -- & Dict.insert "Ground"          # Proxy @(Dict Ground)
   & Dict.insert "Con"             # Proxy @Con
   & Dict.insert "SomeType"        # Proxy @SomeType
-  & Dict.insert "Sig"             # Proxy @Sig
+  & Dict.insert "Sig"             # Proxy @ISig
   & Dict.insert "Struct"          # Proxy @Struct
   & Dict.insert "Pipe"            # Proxy @(SomePipe ())
   & Dict.insert "TypeRep"         # Proxy @SomeTypeRep

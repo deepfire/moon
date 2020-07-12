@@ -63,8 +63,10 @@ import qualified Wire.Protocol                    as Wire
 import qualified Shelly
 
 import Lift
+import Lift.Pipe
 import Pipe
 import Pipe.Space
+import qualified Namespace
 
 import Debug.Reflex
 import Debug.TraceErr
@@ -134,7 +136,7 @@ spaceInteraction space = mdo
   selr@Selector{..} :: Selector t (SomePipe ()) Text <-
     selector
       slSelector
-      selToSelrFrameParams
+      (selToSelrFrameParams space)
       pipesD -- pipesFromD
 
   showPane yellow slAssembly $ current assemblyD
@@ -184,31 +186,41 @@ spaceInteraction space = mdo
 
 selToSelrFrameParams ::
      (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
-  => Width
+  => SomePipeSpace ()
+  -> Width
   -> [SomePipe ()]
   -> Selection (SomePipe ()) Text
   -> SelectorFrameParams t m (SomePipe ()) Text
-selToSelrFrameParams screenW
+selToSelrFrameParams spc screenW
  allPipes selection@Selection{selColumn=Column coln, ..} =
   -- selection
   -- -> (string -> parse with locations) & column
   -- -> current token
   -- -> dumb infix subsetting
-  case parseLocated selInput of
+  case join $ analyse (\n ->
+                         traceErr (mconcat
+                                   ["looking up pipe: "
+                                   , unpack $ showQName n
+                                   , " -> "
+                                   , show $ lookupPipe spc n
+                                   , " -- of "
+                                   , show $ length $ Namespace.spaceEntries $ psSpace spc])
+                         $ lookupPipe spc n) <$> parse selInput of
     Left e  -> SelectorFrameParams [] (selection { selExt = e })
                   (showName . somePipeName)
                   (somePipeSelectable (Width 3, Width 3))
     Right expr@(indexLocated -> index) ->
-      let name = case lookupLocatedQName coln index of
+      let name = case lookupLocated coln index of
                    Nothing -> ""
-                   Just qn -> showQName qn
+                   Just (CSomePipe p) -> showName (somePipeName p)
+                   Just (CFreePipe n _) -> showQName n
           selectedPipes = infixNameFilter name `Prelude.filter` allPipes
           reservedW = Width 4
       in SelectorFrameParams
            selectedPipes
            (selection
             { selExt =
-              T.pack $ printf "col=%s n=%s exp=%s" (show coln) name (show expr) })
+              T.pack $ printf "col=%s n=%s exp=%s" (show coln) name (show $ locVal <$> expr) })
            (showName . somePipeName)
            (somePipeSelectable (presentCtx screenW reservedW selectedPipes))
  where

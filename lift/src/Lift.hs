@@ -17,7 +17,6 @@ import           Data.Map                           (Map)
 import qualified Data.Set.Monad                   as Set
 import           Data.Set.Monad                     (Set)
 import           Data.Text
-import           Data.Time
 import           GHC.Generics                       (Generic)
 import           GHC.Types                          (Symbol)
 import           GHC.TypeLits
@@ -53,6 +52,7 @@ import qualified Generics.SOP.Some                as SOP
 import Basis
 import Ground
 import Ground.Hask
+import Ground.Parser
 import qualified Ground.Hask as Hask
 import Lift.Pipe
 import Pipe
@@ -86,7 +86,7 @@ defaultConfig = Config
   , cfWSPingTime = 30
   , cfGhcLibDir  = Nothing
   , cfGitRoot    = "."
-  , cfHackageTmo = fromInteger 3600
+  , cfHackageTmo = 3600
   }
 
 lift :: IO ()
@@ -115,7 +115,7 @@ finalise envConfig@Config{..} = do
 channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
 channelFromWebsocket conn =
   Net.Channel
-  { recv = catch (Just <$> WS.receiveData conn) $
+  { recv = catch (Just <$> WS.receiveData conn)
            (\(SomeException _x) -> pure Nothing)
   , send = WS.sendBinaryData conn
   }
@@ -136,7 +136,7 @@ wsServer env@Env{envConfig=Config{..},..} = forever $ do
           handleDisconnect x = putStrLn $ "Web disconnected: " <> show x
           tracer = stdoutTracer
 
-      flip catch handleDisconnect $ forever $ do
+      handle handleDisconnect . forever $
         runServer tracer (haskellServer env) $ channelFromWebsocket conn
 
 haskellServer
@@ -165,7 +165,7 @@ handleRequest Env{..} x = case x of
       Left e -> pure . Left $ "Parse: " <> e
       Right nameTree -> do
         putStrLn $ unpack $ Data.Text.unlines
-          ["Pipe:", pack $ show nameTree ]
+          ["Pipe:", pack $ show (locVal <$> nameTree) ]
         spc :: SomePipeSpace Dynamic <- atomically getState
         case Pipe.compile opsFull (lookupPipe spc) nameTree of
           Left e -> pure . Left $ "Compilation: " <> e
@@ -182,7 +182,7 @@ compile newname text =
     Left e -> pure . Left $ "Parse: " <> e
     Right nameTree -> do
       putStrLn $ unpack $ Data.Text.unlines
-        ["Pipe:", pack $ show nameTree ]
+        ["Pipe:", pack $ show (locVal <$> nameTree) ]
       atomically $ do
         spc <- getState
         let old = lookupPipe spc newname

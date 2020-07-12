@@ -2,9 +2,8 @@
 module Pipe.Expr
   ( Expr(..)
   , parse
-  , parseLocated
   , indexLocated
-  , lookupLocatedQName
+  , lookupLocated
   , parseExpr
   )
 where
@@ -44,26 +43,22 @@ data Expr p where
   deriving (Foldable, Functor, Traversable)
 
 
-parse :: Text -> Either Text (Expr (QName Pipe))
-parse = fmap (fmap snd3) <$> parse' parseQName'
+parse :: Text -> Either Text (Expr (Located (QName Pipe)))
+parse = parse' parseQName'
 
-indexLocated
-  :: Expr (Int, QName Pipe, Int)
-  -> IMap.IntervalMap Int (QName Pipe)
+indexLocated :: Expr (Located a)
+             -> IMap.IntervalMap Int a
 indexLocated =
-  foldMap (\(l, x, r) ->
-             IMap.singleton (IMap.Interval l r) x)
+  foldMap (\Locn{locSpan, locVal} ->
+             IMap.singleton locSpan locVal)
 
-lookupLocatedQName
-  :: Int -> IMap.IntervalMap Int (QName Pipe)
-  -> Maybe (QName Pipe)
-lookupLocatedQName col imap =
+lookupLocated
+  :: Int -> IMap.IntervalMap Int a
+  -> Maybe a
+lookupLocated col imap =
   case IMap.search col imap of
     [] -> Nothing
     (_, x):_ -> Just x
-
-parseLocated :: Text -> Either Text (Expr (Int, QName Pipe, Int))
-parseLocated = parse' parseQName'
 
 parse'
   :: forall e n. (e ~ Text)

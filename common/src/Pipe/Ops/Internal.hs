@@ -28,6 +28,7 @@ module Pipe.Ops.Internal
   , module Basis
   , module Type
   , module SomeType
+  , module SomeValue
   , module Pipe.Types
   )
 where
@@ -46,6 +47,7 @@ import Basis
 import Pipe.Types
 import Type
 import SomeType
+import SomeValue
 
 -- * Guts of the pipe guts.
 --
@@ -136,10 +138,10 @@ ioaTyNilInvalidity _  = Just "no match with IOATyNil"
 
 pattern P
   :: Desc c as o -> Name Pipe -> Struct -> SomeTypeRep -> p
-  -> [SomeType]     -> SomeType
+  -> [SomeType]   -> SomeType
   -> NP TypePair as -> TypePair o
   -> Pipe c as o p
 pattern P { pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pArgs, pOut }
-  <- Pipe pDesc_@(Desc pName (Sig pArgStys pOutSty) pStruct
+  <- Pipe pDesc_@(Desc pName (Sig (fmap unI -> pArgStys) (I pOutSty)) pStruct
                   pPipeRep pArgs pOut)
           pPipe

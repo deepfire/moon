@@ -14,7 +14,6 @@ where
 
 import           Codec.Serialise
 import qualified Data.Text                        as Text
-import qualified Data.Typeable                    as DT
 import           GHC.Generics                       (Generic)
 import qualified Type.Reflection                  as R
 
@@ -88,8 +87,12 @@ instance Show SomeType where
     where shownRep = pack $ show sometyperep
 instance Serialise SomeType
 
-showTypeable :: Int -> TypeRep (a :: k) -> ShowS
-showTypeable _ _ =
+instance Serialise a => Serialise (I a) where
+  encode (I x) = encode x
+  decode = I <$> decode
+
+_showTypeable :: Int -> TypeRep (a :: k) -> ShowS
+_showTypeable _ _ =
   undefined
 -- showTypeable _ TrType = showChar '*'
 -- showTypeable _ rep

@@ -87,7 +87,7 @@ gen' name (splitType -> (tagTo, pTo)) mv
                 = Pipe desc dyn
   where ty      = tagSomeType tagTo pTo
         desc    = Desc name sig struct (dynRep dyn) Nil (TypePair tagTo pTo)
-        sig     = Sig [] ty
+        sig     = Sig [] (I ty)
         struct  = Struct graph
         graph   = G.vertex ty
         dyn     = Dynamic typeRep pipeFun
@@ -106,7 +106,7 @@ link'
 link' name (splitType -> (kf, tf)) (splitType -> (kt, tt)) mf
                 = Pipe desc dyn
   where desc    = Desc name sig struct (dynRep dyn) (TypePair kf tf :* Nil) (TypePair kt tt)
-        sig     = Sig [tagSomeType kf tf] (tagSomeType kt tt)
+        sig     = Sig [I $ tagSomeType kf tf] (I $ tagSomeType kt tt)
         struct  = Struct G.empty
           -- G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
         ---------

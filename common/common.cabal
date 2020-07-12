@@ -54,6 +54,7 @@ library
                        Namespace
                        Pipe
                        SomeType
+                       SomeValue
                        Type
 
                        -- Network.TypedProtocol.Channel

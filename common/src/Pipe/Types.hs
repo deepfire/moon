@@ -12,7 +12,9 @@ module Pipe.Types
   -- reexports
   , module Pipe.Pipe
   , module Pipe.SomePipe
-  )
+  , module SomeType
+  , module SomeValue
+ )
 where
 
 import           Codec.Serialise
@@ -24,6 +26,8 @@ import qualified Data.Set.Monad                   as Set
 
 import Basis
 import Type
+import SomeType
+import SomeValue
 import Namespace (Space, PointScope, spaceEntries)
 import Pipe.Pipe
 import Pipe.SomePipe

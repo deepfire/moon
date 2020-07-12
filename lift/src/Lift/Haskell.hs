@@ -82,10 +82,10 @@ pipeSpace graft = emptyPipeSpace "Haskell"
 fileToHsModule
   :: GhcLibDir
   -> FileName
-  -> IO (DynFlags, ParseResult (Located (HsModule GhcPs)))
+  -> IO (DynFlags, ParseResult (SrcLoc.Located (HsModule GhcPs)))
 liftHsModule
   :: DynFlags
-  -> Located (HsModule GhcPs)
+  -> SrcLoc.Located (HsModule GhcPs)
   -> Module
 fileToModule
   :: GhcLibDir

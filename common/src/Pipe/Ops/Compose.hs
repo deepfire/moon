@@ -135,7 +135,7 @@ doBind pf
  where
    desc    = Desc name sig struct (SomeTypeRep rep) fass fo
    name    = Name $ fn<>">>="<>vn
-   sig     = Sig (tail sfas) sfo
+   sig     = Sig (fmap I $ tail sfas) (I sfo)
    struct  = Struct $ G.overlay fg vg
    rep     = case spineConstraint of
                (Dict :: Dict Typeable fass) ->

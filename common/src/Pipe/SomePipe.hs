@@ -40,7 +40,7 @@ type Result a = IO (Either Text a)
 --------------------------------------------------------------------------------
 -- * SomePipe
 --
-pattern GPipeD, TPipeD :: Name Pipe -> Sig -> Struct -> SomeTypeRep -> SomePipe p
+pattern GPipeD, TPipeD :: Name Pipe -> ISig -> Struct -> SomeTypeRep -> SomePipe p
 pattern GPipeD name sig str rep <- G (PipeD name sig str rep _ _ _)
 pattern TPipeD name sig str rep <- T (PipeD name sig str rep _ _ _)
 
@@ -49,7 +49,7 @@ somePipeName (GPipeD name _ _ _) = coerceName name
 somePipeName (TPipeD name _ _ _) = coerceName name
 somePipeName _ = error "impossible somePipeName"
 
-somePipeSig :: SomePipe p -> Sig
+somePipeSig :: SomePipe p -> ISig
 somePipeSig  (GPipeD _ sig _ _) = sig
 somePipeSig  (TPipeD _ sig _ _) = sig
 somePipeSig _ = error "impossible somePipeSig"

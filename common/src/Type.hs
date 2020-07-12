@@ -4,6 +4,7 @@
 module Type
   ( Name(..)
   , QName(..)
+  , Located(..)
   , qname
   , append
   , prepend
@@ -37,12 +38,9 @@ module Type
   , Ground
   , GroundData
   , GroundDataFull
-  , SomeKindValue(..)
-  , SomeValue(..)
-  , someValueSomeTypeRep
-  , withSomeValue
   , Representable(..)
   -- * Re-exports
+  , Interval(..)
   , Some(..)
   , module Basis
   , module Data.Some
@@ -54,6 +52,7 @@ import           Codec.Serialise
 import qualified Codec.CBOR.Decoding              as CBOR (decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
 import           Control.Monad.Fail                 (MonadFail)
+import           Data.IntervalMap.FingerTree (Interval(..))
 import qualified Data.Sequence                    as Seq
 import qualified Data.Set.Monad                   as S
 import qualified Data.Text                        as Text
@@ -64,7 +63,6 @@ import           GHC.TypeLits
 import qualified GHC.TypeLits                     as Ty
 import           Text.Parser.Token                  (TokenParsing)
 import           Text.Read                          (Lexeme(..), lexP)
-import qualified Type.Reflection                  as R
 import qualified Unsafe.Coerce                    as Unsafe
 
 import Basis
@@ -81,6 +79,14 @@ newtype  Name a  = Name { showName :: Text }
 
 newtype QName a = QName (Seq (Name a))
   deriving (Eq, Generic, Ord,           Read, Serialise, Typeable)
+
+-- TODO:  consider using a single Loc/Located type
+data Located a
+  = Locn
+    { locSpan :: {-# UNPACK #-} !(Interval Int)
+    , locVal  :: !a
+    }
+  deriving (Functor)
 
 instance Show (Name a)  where show = unpack . showName
 instance Show (QName a) where show = unpack . showQName
@@ -316,10 +322,6 @@ mkValue = const $ \case
 --------------------------------------------------------------------------------
 -- * Ground
 --
-data SomeKindValue a =
-  forall (k :: Con). Typeable k
-  => SomeKindValue (Tag k) (Value k a)
-
 type     GCtx a = (Ord a, Typeable a, Serialise a, Parse a, Read a, Show a)
 class    GCtx a => Ground a
 instance GCtx a => Ground a
@@ -333,30 +335,6 @@ class    ( Ground a, HasTypeData Ground a
 instance ( Ground a, HasTypeData Ground a
          , All2 Ground (Code a)
          ) => GroundDataFull a
-
-data SomeValue = forall a. Ground a => SomeValue  (SomeKindValue a)
-
-withSomeValue
-  :: forall a k b
-   . (Ground a, Typeable k)
-  => Tag k
-  -> Proxy a
-  -> SomeValue
-  -> (Value k a -> b)
-  -> Either Text b
-withSomeValue _ _ (SomeValue (SomeKindValue (_ :: Tag k') r :: SomeKindValue a')) f =
-  let exptr = typeRep @a
-      svtr  = typeRep @a'
-      expk  = typeRep @k
-      svk   = typeRep @k'
-  in case (,) (svtr `R.eqTypeRep` exptr)
-              (svk  `R.eqTypeRep` expk) of
-    (Just R.HRefl, Just R.HRefl) -> Right $ f r
-    _ -> Left . pack $ printf "withSomeValue: expected %s/%s, got %s/%s"
-                (show exptr) (show expk) (show svtr) (show svk)
-
-someValueSomeTypeRep :: SomeValue -> R.SomeTypeRep
-someValueSomeTypeRep (SomeValue (_ :: SomeKindValue a)) = R.someTypeRep $ Proxy @a
 
 --------------------------------------------------------------------------------
 -- * Generic parser
@@ -401,6 +379,7 @@ instance Read (Some Tag) where
       Ident "Graph" -> pure . Exists $ TGraph
       _ -> trace (printf "Unknown Tag: %s" (show con))
                  (fail "")
+
 instance Show (Tag k) where
   show TPoint = "TPoint"
   show TList  = "TList"
@@ -432,9 +411,3 @@ instance Functor (Value k) where
   fmap f (VTree x) = VTree $ f <$> x
   fmap f (VDag x) = VDag $ f <$> x
   fmap f (VGraph x) = VGraph $ f <$> x
-
-instance (Ord a, Show a) => Show (SomeKindValue a) where
-  show (SomeKindValue _ x) = "(SKV "<>show x<>")"
-
-instance Show SomeValue where
-  show (SomeValue (SomeKindValue _ x)) = show x
