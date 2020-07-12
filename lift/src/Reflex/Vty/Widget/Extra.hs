@@ -69,12 +69,12 @@ instance Show a => Show (Selection a b) where
     , ">"
     ]
 
-data SelectorParams t m a b =
-  SelectorParams
-  { sparElems     :: ![a]
-  , sparPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
-  , sparShow      :: !(a -> Text)
-  , sparExt       :: !b
+data SelectorFrameParams t m a b =
+  SelectorFrameParams
+  { sfpElems     :: ![a]
+  , sfpSelection :: !(Selection a b)
+  , sfpShow      :: !(a -> Text)
+  , sfpPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
   }
 
 data Selector t a b =
@@ -88,50 +88,32 @@ type CWidget t m = (Reflex t, Adjustable t m, NotReady t m, PostBuild t m, Monad
 emptySelection :: b -> Selection a b
 emptySelection = Selection Nothing (Index 0) (Column 0) False ""
 
-selectionUI ::
-  (CWidget t m, Eq a, Show a, Monoid b)
+selector ::
+  forall t m a b
+  . (CWidget t m, Eq a, Show a, Monoid b)
   => DynRegion t
-  -> (Width -> [a] -> Selection a b -> SelectorParams t m a b)
+  -> (Width -> [a] -> Selection a b -> SelectorFrameParams t m a b)
   -> Reflex.Dynamic t [a]
   -> VtyWidget t m (Selector t a b)
-selectionUI region computeSelParams xsD = mdo
-  sparE :: Event t (SelectorParams t m a b) <- pure $
-    attachPromptlyDynWith
-      lcons2          (Width <$> _dynRegion_width region)
-      (attachPromptlyDynWith (,) xsD
-                                 selrSelection)
-    <&> uncurry3 computeSelParams
-
-  selr@Selector{..} :: Selector t a b <-
-    computeSelParams
+selector region@(DynRegion l u w h) computeSelectorFrameParams xsD = mdo
+  let noSelection = emptySelection mempty
+  sfp0 <-
+    computeSelectorFrameParams
       <$> (Width <$> sample (current $ _dynRegion_width region))
       <*> sample (current xsD)
-      <*> pure (emptySelection mempty)
-    >>= flip holdDyn sparE
-    >>= menuSelector region
-
-  pure selr
-
-menuSelector
-  :: forall t m a b
-  .  ( ReflexVty t m
-     , Eq a, Show a)
-  => DynRegion t
-  -> Reflex.Dynamic t (SelectorParams t m a b)
-  -> VtyWidget t m (Selector t a b)
-menuSelector (DynRegion l u w h) sparD = mdo
-  spar0 <- sample $ current sparD
-
-  selectD <- holdDyn (emptySelection $ sparExt spar0) selectE
+      <*> pure noSelection
 
   selectE <-
-    (switchDyn
+    switchDyn
       <$> (networkHold
-            (frame (emptySelection $ sparExt spar0) spar0
-              :: VtyWidget t m (Event t (Selection a b)))
-            (uncurry frame <$> attachPromptlyDyn selectD (updated sparD)
-              :: Event t (VtyWidget t m (Event t (Selection a b))))
-            :: VtyWidget t m (Dynamic t (Event t (Selection a b)))))
+            (selectorFrame sfp0)
+            (selectorFrame . uncurry3 computeSelectorFrameParams
+              <$> attachPromptlyDynWith lcons2
+                  (Width <$> _dynRegion_width region)
+                  (attachPromptlyDynWith (,)
+                   xsD
+                   selectE))
+            :: VtyWidget t m (Dynamic t (Event t (Selection a b))))
     :: VtyWidget t m (Event t (Selection a b))
 
   pure Selector
@@ -145,19 +127,18 @@ menuSelector (DynRegion l u w h) sparD = mdo
                         else Nothing
     }
  where
-   frame :: Selection a b
-         -> SelectorParams t m a b
-         -> VtyWidget t m (Event t (Selection a b))
-   frame Selection{..} SelectorParams{..} = do
-     let menuH    = pure $ List.length sparElems + 2
+   selectorFrame :: SelectorFrameParams t m a b
+                 -> VtyWidget t m (Event t (Selection a b))
+   selectorFrame SelectorFrameParams{sfpSelection=Selection{..}, ..} = do
+     let menuH    = pure $ List.length sfpElems + 2
          menuReg  = DynRegion l (u + h - menuH - 1) (w - 2) menuH
          inputReg = DynRegion l (u + h - 1)          w      1
 
      menuChoiceD :: Dynamic t (Maybe a) <-
-       menu menuReg (fmap fbFocused . focusButton sparPresent)
-                     selIndex sparElems
+       menu menuReg (fmap fbFocused . focusButton sfpPresent)
+                     selIndex sfpElems
      offtInputE :: Event t (Column, Text) <-
-       completingInput inputReg ((sparShow <$>) <$> current menuChoiceD)
+       completingInput inputReg ((sfpShow <$>) <$> current menuChoiceD)
                        "> " selInput selColumn
 
      let selectionE = attachPromptlyDyn menuChoiceD offtInputE
@@ -167,11 +148,11 @@ menuSelector (DynRegion l u w h) sparD = mdo
                  , selColumn = newCol
                  , selInput  = newInput
                  , selIndex  = val <&>
-                               (flip List.elemIndex sparElems
+                               (flip List.elemIndex sfpElems
                                 >>> fmap Index)
                                & join
                                & fromMaybe (Index 0)
-                 , selExt    = sparExt
+                 , selExt    = selExt
                  , selCompleted =
                    let strIx = unColumn newCol - 1
                    in if strIx < T.length newInput && strIx >= 0

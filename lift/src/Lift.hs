@@ -166,10 +166,10 @@ handleRequest Env{..} x = case x of
       Right nameTree -> do
         putStrLn $ unpack $ Data.Text.unlines
           ["Pipe:", pack $ show nameTree ]
-        res <- atomically $ Pipe.compile opsFull lookupPipe nameTree
-        case res of
+        spc :: SomePipeSpace Dynamic <- atomically getState
+        case Pipe.compile opsFull (lookupPipe spc) nameTree of
           Left e -> pure . Left $ "Compilation: " <> e
-          Right runnable -> do
+          Right (runnable :: SomePipe Dynamic) -> do
             res :: Either Text SomeValue <- runPipe runnable
             case res of
               Left e -> pure . Left $ "Runtime: " <> e
@@ -184,8 +184,9 @@ compile newname text =
       putStrLn $ unpack $ Data.Text.unlines
         ["Pipe:", pack $ show nameTree ]
       atomically $ do
-        old <- lookupPipe newname
-        res <- Pipe.compile opsFull lookupPipe nameTree
+        spc <- getState
+        let old = lookupPipe spc newname
+            res = Pipe.compile opsFull (lookupPipe spc) nameTree
         case (old, res) of
           (Just _,  _)    -> pure . Left $ "Already exists: " <> pack (show newname)
           (_,  Left e)    -> pure . Left $ e

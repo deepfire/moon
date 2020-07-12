@@ -20,6 +20,8 @@ module Pipe.Pipe
   , Sig(..)
   , showSig
   , showSigDotty
+  , ListSig(..)
+  , toListSig
   , Struct(..)
   , Value(..)
   , withCompatiblePipes
@@ -76,6 +78,8 @@ data Sig =
   }
   deriving (Eq, Generic, Ord)
 
+newtype ListSig = ListSig { unListSig :: [SomeType] }
+
 -- | Struct: Pipe's internal structure,
 --   as a graph of type transformations.
 newtype Struct =
@@ -104,6 +108,9 @@ pipeName _ = error "impossible pipeName"
 pipeSig :: (PipeConstr c as o) => Pipe c as o p -> Sig
 pipeSig   (PipeD _ sig _ _ _ _ _)    = sig
 pipeSig _ = error "impossible pipeSig"
+
+toListSig :: Sig -> ListSig
+toListSig Sig{..} = ListSig $ sArgs <> [sOut]
 
 pipeStruct :: (PipeConstr c as o) => Pipe c as o p -> Struct
 pipeStruct   (PipeD _ _ struct _ _ _ _) = struct

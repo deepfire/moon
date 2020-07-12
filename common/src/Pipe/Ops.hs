@@ -30,6 +30,7 @@ import Pipe.Ops.Traverse
 import Pipe.Types
 import Pipe.Zipper
 import Type
+import SomeType
 
 
 -- * Operations of pipe gut composition
@@ -58,20 +59,15 @@ opsDesc = Ops
 -- * Compiling pipe expressions
 --
 compile
-  :: forall m e p
-  . (Monad m, e ~ Text)
+  :: forall e p
+  . (e ~ Text)
   => Ops p
-  -> (QName Pipe -> m (Maybe (SomePipe p)))
+  -> (QName Pipe -> Maybe (SomePipe p))
   -> Expr (QName Pipe)
-  -> m (Either e (SomePipe p))
-compile ops lookupPipe expr =
-  (sequence <$> resolveNames lookupPipe expr)
-    <&>
-  (assemble ops <$>)
-    <&>
-  join . mapLeft failMissing
- where
-   failMissing = ("No such pipe: " <>) . showQName
+  -> Either e (SomePipe p)
+compile ops lookupPipe expr = join $
+  doCompile ops (resolveNames lookupPipe expr)
+    <&> unCPipeFailUnknown
 
 checkAndInfer
   :: forall m e p
@@ -112,37 +108,96 @@ checkAndInfer expr = go True $ fromExpr expr
      goIFA xs _ = undefined xs
 
 resolveNames
-  :: forall m e p
-  .  (Monad m, e ~ Text)
-  => (QName Pipe -> m (Maybe (SomePipe p)))
+  :: forall e p
+  .  (e ~ Text)
+  => (QName Pipe -> Maybe (SomePipe p))
   -> Expr (QName Pipe)
-  -> m (Expr (Either (QName Pipe) (SomePipe p)))
-resolveNames lookupPipe = traverse tryLookupPipe
+  -> Expr (Either (QName Pipe) (SomePipe p))
+resolveNames lookupPipe = fmap tryLookupPipe
   where
-    tryLookupPipe :: QName Pipe -> m (Either (QName Pipe) (SomePipe p))
-    tryLookupPipe name = maybeToEither name <$> lookupPipe name
+    tryLookupPipe :: QName Pipe -> Either (QName Pipe) (SomePipe p)
+    tryLookupPipe name = maybeToEither name $ lookupPipe name
 
-assemble
+doCompile
   :: forall e p. e ~ Text
   => Ops p
-  -> Expr (SomePipe p)
-  -> Either e (SomePipe p)
-assemble Ops{app, comp, trav} = go
-  where
-    go :: Expr (SomePipe p) -> Either Text (SomePipe p)
-    go (PPipe p) = Right p
+  -> Expr (Either (QName Pipe) (SomePipe p))
+  -> Either e (CPipe p)
+doCompile Ops{app, comp, trav} = go emptyPipeCtx
+ where
+   emptyPipeCtx :: PipeCtx
+   emptyPipeCtx = PipeCtx []
 
-    go (PApp    PVal{}  _)          = Left $ "Applying a value."
-    go (PApp  f           PVal{vX}) = join $ apply app <$> go f <*> pure vX
-    -- here we expect traverseP to reduce:
-    --   PApp (b -> IO c) (a -> IO b) -> (a -> IO c)
-    go (PApp  f@PPipe{} x@PPipe{})  =        traverseP trav          (pP f)    (pP x)
-    go (PApp  f@PPipe{} x@PComp{})  = join $ traverseP trav <$> pure (pP f) <*> go x
-    go (PApp  f         x)          = join $ traverseP trav <$> go f        <*> go x
+   go :: PipeCtx
+      -> Expr (Either (QName Pipe) (SomePipe p))
+      -> Either Text (CPipe p)
+   go ctx = \case
+     PPipe (Left pn)            -> Right $ CFreePipe pn ctx
+     PPipe (Right p)            -> checkPipeCtx p ctx
+     PVal{} -> Left "doCompile:  fall-through"
 
-    go (PComp   PVal{}  _)          = Left $ "Composing a value on the left."
-    go (PComp _           PVal{})   = Left $ "Composing a value on the right."
-    go (PComp l@PPipe{} r@PPipe{})  = compose comp (pP l) (pP r)
-    go (PComp l         r)          = join $ compose comp <$> (go l) <*> (go r)
+     -- PApp    PVal{}  _          -> Left $ "Applying a value."
+     -- PApp  f           PVal{vX} -> join $ apply app <$> go f <*> pure vX
+     -- -- here we expect traverseP to reduce:
+     -- --   PApp (b -> IO c) (a -> IO b) -> (a -> IO c)
+     -- PApp  f@PPipe{} x@PPipe{}  ->        traverseP trav          (pP f)    (pP x)
+     -- PApp  f@PPipe{} x@PComp{}  -> join $ traverseP trav <$> pure (pP f) <*> go x
+     -- PApp  f         x          -> join $ traverseP trav <$> go f        <*> go x
 
-    go PVal{} = Left "Processing a value should never happen."
+     -- PComp   PVal{}  _          -> Left $ "Composing a value on the left."
+     -- PComp _           PVal{}   -> Left $ "Composing a value on the right."
+     -- PComp l@PPipe{} r@PPipe{}  -> compose comp (pP l) (pP r)
+     -- PComp l         r          -> join $ compose comp <$> go l <*> go r
+
+     -- PVal{} -> Left "doCompile:  called on a value"
+
+   checkPipeCtx :: SomePipe p -> PipeCtx -> Either e (CPipe p)
+   checkPipeCtx p@(toListSig . somePipeSig -> ListSig pipeSig) = \case
+     PipeCtx []  -> Right $ CSomePipe p -- unhinged..
+     PipeCtx ctx -> checkArgs ctx pipeSig
+    where
+      checkArgs :: [Maybe SomeType] -> [SomeType] -> Either e (CPipe p)
+      checkArgs ctx pipeSig = goCheck 0 ctx pipeSig
+       where
+         goCheck :: Int -> [Maybe SomeType] -> [SomeType] -> Either e (CPipe p)
+         goCheck _ [] (_:_) = Left $ "Not enough " <> argcMiss (somePipeName p) argC paramC
+         goCheck _ (_:_) [] = Left $ "Too many "   <> argcMiss (somePipeName p) argC paramC
+         goCheck i (Nothing:ctx') (_:sig') =
+           goCheck (i + 1) ctx' sig'
+         goCheck i (Just ctxTy:ctx') (argTy:sig') =
+           if ctxTy == argTy
+           then goCheck (i + 1) ctx' sig'
+           else Left $ mconcat
+                [ "Mismatch for arg ", showT i, " "
+                , "of pipe ", showT (somePipeName p), ": "
+                , "expected: ", showT ctxTy, ", "
+                , "got: ", showT argTy]
+
+         paramC = length pipeSig - 1
+         argC   = length ctx     - 1
+
+         argcMiss :: Name Pipe -> Int -> Int -> Text
+         argcMiss name paramC argC = mconcat
+           [ "args for pipe \"", showT name, "\":  "
+           , showT paramC, " required, ", showT argC, " passed."]
+
+-- Empty list represents lack of any restraint.
+-- Completely unhinged.
+newtype PipeCtx = PipeCtx { unPipeCtx :: [Maybe SomeType] }
+
+-- Represents an unknown pipe.
+data CPipe p
+  = CFreePipe
+    { cfpName :: !(QName Pipe)
+    , cfpSig  :: !PipeCtx
+    }
+  | CSomePipe
+    { cspPipe :: !(SomePipe p)
+    }
+
+unCPipeFailUnknown :: CPipe p -> Either Text (SomePipe p)
+unCPipeFailUnknown (CSomePipe p) = Right p
+unCPipeFailUnknown CFreePipe{..} = Left $ mconcat
+  [ "Unknown pipe: ", showT cfpName ]
+
+showT = pack . show

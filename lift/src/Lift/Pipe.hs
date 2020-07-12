@@ -1,6 +1,8 @@
 module Lift.Pipe
   ( lookupPipe
+  , lookupPipeSTM
   , addPipe
+  , getState
   )
 where
 
@@ -25,12 +27,19 @@ initialPipeSpace
   <> Hackage.pipeSpace       mempty
   <> pipeSpaceMeta
 
+getState :: STM (SomePipeSpace Dynamic)
+getState = STM.readTVar mutablePipeSpace
+
 mutablePipeSpace :: TVar (SomePipeSpace Dynamic)
 mutablePipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO initialPipeSpace
 {-# NOINLINE mutablePipeSpace #-}
 
-lookupPipe :: QName Pipe -> STM (Maybe (SomePipe Dynamic))
-lookupPipe name = lookupSpace name <$> STM.readTVar mutablePipeSpace
+lookupPipe :: SomePipeSpace a -> QName Pipe -> Maybe (SomePipe a)
+lookupPipe = flip lookupSpace
+{-# INLINE lookupPipe #-}
+
+lookupPipeSTM :: QName Pipe -> STM (Maybe (SomePipe Dynamic))
+lookupPipeSTM name = flip lookupPipe name <$> getState
 
 addPipe :: e ~ Text => QName Pipe -> SomePipe Dynamic -> STM (Either e Sig)
 addPipe name pipe = do
@@ -146,7 +155,7 @@ pipeSpaceMeta =
   where
     withPipe :: QName Pipe -> (SomePipe Dynamic -> Result a) -> Result a
     withPipe name f =
-      atomically (lookupPipe name) >>= \case
+      atomically (lookupPipeSTM name) >>= \case
         Nothing -> pure . Left $ "Missing pipe: " <> pack (show name)
         Just p -> f p
 

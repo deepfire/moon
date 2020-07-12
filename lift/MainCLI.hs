@@ -117,9 +117,7 @@ spaceInteraction space = mdo
   screenLayout@ScreenLayout{..} <- computeScreenLayout
 
   assemblyD :: Reflex.Dynamic t (Maybe (SomePipe ())) <-
-    holdDyn Nothing
-      selrChoice
-      -- (traceErrEventWith (const "selrChoice fired") selrChoice)
+    holdDyn Nothing selrChoice
 
   let constraintD :: Reflex.Dynamic t (Maybe SomeTypeRep)
       constraintD =
@@ -131,11 +129,13 @@ spaceInteraction space = mdo
           <&> (pipesFromCstr space
                >>> sortBy (compare `on` somePipeName))
 
+  pipesD <- holdDyn (pipesFromCstr space Nothing) never
+
   selr@Selector{..} :: Selector t (SomePipe ()) Text <-
-    selectionUI
+    selector
       slSelector
-      mistNarrowPipes
-      pipesFromD
+      selToSelrFrameParams
+      pipesD -- pipesFromD
 
   showPane yellow slAssembly $ current assemblyD
 
@@ -182,29 +182,35 @@ spaceInteraction space = mdo
    (,,,) red blue green yellow =
     (,,,) (foregro V.red) (foregro V.blue) (foregro V.green) (foregro V.yellow)
 
-mistNarrowPipes ::
+selToSelrFrameParams ::
      (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
   => Width
   -> [SomePipe ()]
   -> Selection (SomePipe ()) Text
-  -> SelectorParams t m (SomePipe ()) Text
-mistNarrowPipes screenW
+  -> SelectorFrameParams t m (SomePipe ()) Text
+selToSelrFrameParams screenW
  allPipes selection@Selection{selColumn=Column coln, ..} =
+  -- selection
+  -- -> (string -> parse with locations) & column
+  -- -> current token
+  -- -> dumb infix subsetting
   case parseLocated selInput of
-    Left e  -> SelectorParams [] (somePipeSelectable (Width 3, Width 3))
-                              (showName . somePipeName) e
+    Left e  -> SelectorFrameParams [] (selection { selExt = e })
+                  (showName . somePipeName)
+                  (somePipeSelectable (Width 3, Width 3))
     Right expr@(indexLocated -> index) ->
       let name = case lookupLocatedQName coln index of
                    Nothing -> ""
                    Just qn -> showQName qn
           selectedPipes = infixNameFilter name `Prelude.filter` allPipes
           reservedW = Width 4
-      in SelectorParams
+      in SelectorFrameParams
            selectedPipes
-           (somePipeSelectable (presentCtx screenW reservedW selectedPipes))
+           (selection
+            { selExt =
+              T.pack $ printf "col=%s n=%s exp=%s" (show coln) name (show expr) })
            (showName . somePipeName)
-           (T.pack
-            $ printf "col=%s n=%s exp=%s" (show coln) name (show expr))
+           (somePipeSelectable (presentCtx screenW reservedW selectedPipes))
  where
    infixNameFilter hay = T.isInfixOf hay . showName . somePipeName
 
