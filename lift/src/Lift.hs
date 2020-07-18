@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
 module Lift
   ( lift
@@ -124,9 +125,7 @@ channelFromWebsocket conn =
     tracer desc x = trace (printf "%s:\n%s\n" desc (show x)) x
 
 wsServer :: Env -> IO ()
-wsServer env@Env{envConfig=Config{..},..} = forever $ do
-  -- (,) fromWebW fromWebR <- Unagi.newChan
-
+wsServer env@Env{envConfig=Config{..},..} = forever $
   WS.runServer cfWSBindHost cfWSPortOut $
     \pending-> do
       conn <- WS.acceptRequest pending
@@ -176,7 +175,7 @@ handleRequest Env{..} x = case x of
               Right x -> pure . Right . ReplyValue $ x
   -- x -> pure . Left . pack $ "Unhandled request: " <> show x
 
-compile :: QName Pipe -> Text -> Result Sig
+compile :: QName Pipe -> Text -> Result ISig
 compile newname text =
   case Pipe.parse text of
     Left e -> pure . Left $ "Parse: " <> e

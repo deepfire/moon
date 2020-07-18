@@ -1,24 +1,18 @@
-{-# LANGUAGE BangPatterns               #-}
-{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE EmptyCase                  #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PartialTypeSignatures      #-}
-{-# LANGUAGE PackageImports             #-}
 {-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Wire.Protocol
   ( Request(..)
   , Reply(..)
@@ -32,8 +26,6 @@ module Wire.Protocol
   , wireCodec
   )
 where
-
-import           GHC.Generics (Generic)
 
 import qualified Data.ByteString                  as  BS
 import qualified Data.ByteString.Builder          as  BS

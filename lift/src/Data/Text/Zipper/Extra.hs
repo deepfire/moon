@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Data.Text.Zipper.Extra
 where
@@ -13,6 +14,19 @@ import Data.Text.Zipper
 
 import Debug.TraceErr (traceErr)
 import Text.Printf (printf)
+
+
+lookCharLeft :: TextZipper -> Maybe Char
+lookCharLeft TextZipper{..}
+  | _textZipper_before == "" =
+    if _textZipper_linesBefore == [] then Nothing else Just '\n'
+  | otherwise = Just $ Data.Text.last _textZipper_before
+
+lookCharRight :: TextZipper -> Maybe Char
+lookCharRight TextZipper{..}
+  | _textZipper_after == "" =
+    if _textZipper_linesAfter == [] then Nothing else Just '\n'
+  | otherwise = Just $ Data.Text.head _textZipper_after
 
 -- | Move the cursor at the start of the previous word, if possible
 leftWord :: TextZipper -> TextZipper

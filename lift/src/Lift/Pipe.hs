@@ -42,7 +42,7 @@ lookupPipe = flip lookupSpace
 lookupPipeSTM :: QName Pipe -> STM (Maybe (SomePipe Dynamic))
 lookupPipeSTM name = flip lookupPipe name <$> getState
 
-addPipe :: e ~ Text => QName Pipe -> SomePipe Dynamic -> STM (Either e Sig)
+addPipe :: e ~ Text => QName Pipe -> SomePipe Dynamic -> STM (Either e ISig)
 addPipe name pipe = do
   space <- STM.readTVar mutablePipeSpace
   case lookupSpace name space of
@@ -105,14 +105,14 @@ pipeSpaceMeta =
          withPipePure name
          $ somePipeSig
          >>> head . sArgs &&& sOut
-         >>> join (***) tRep
+         >>> join (***) (tRep . unI)
 
      -- Listing pipes by from/to types&reps:
      --
      , linkG "to"      TPoint' TSet' $
        \name ->
          withPipe name
-         $ somePipeSig >>> sOut >>> tRep
+         $ somePipeSig >>> sOut >>> unI >>> tRep
            >>> \toRep ->
                  atomically
                  $ STM.readTVar mutablePipeSpace
@@ -126,7 +126,7 @@ pipeSpaceMeta =
                  atomically $
                  if null args
                  then pure . Left $ "Pipe has no args: " <> pack (show name)
-                 else Right . pipeNamesFrom (Just . tRep $ head args) <$> STM.readTVar mutablePipeSpace
+                 else Right . pipeNamesFrom (Just . tRep . unI $ head args) <$> STM.readTVar mutablePipeSpace
 
      , linkG "fromrep" TPoint' TSet' $
        \case

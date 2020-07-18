@@ -4,13 +4,17 @@ module Basis
   , module Control.DeepSeq
   , module Control.Monad
   , module Data.Bifunctor
+  , module Data.Bifunctor.Swap
   -- , module Data.Coerce
   , module Data.Dict
   , module Data.Dynamic
+  , module Data.Either.Combinators
   , module Data.Either.Extra
   , module Data.Foldable
   , module Data.Function
   , module Data.Functor
+  , module Data.Hashable
+  , module Data.HashMap.Strict
   , module Data.Kind
   , module Data.List
   , module Data.List.NonEmpty
@@ -45,17 +49,21 @@ import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, firs
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (join, void)
 import Data.Bifunctor             (bimap)
+import Data.Bifunctor.Swap        (swap)
 import Data.Dict                  (TyDict(..), TyDicts)
 import Data.Dynamic               (Dynamic(..), Typeable)
+import Data.Either.Combinators    (maybeToLeft, maybeToRight)
 import Data.Either.Extra          (mapLeft, mapRight, fromLeft, fromRight, eitherToMaybe, maybeToEither)
 import Data.Function              ((&), on)
-import Data.Functor               ((<&>))
+import Data.Functor               ((<&>), (<$), ($>))
 import Data.Foldable              (toList)
+import Data.Hashable              (Hashable)
+import Data.HashMap.Strict        (HashMap)
 import Data.Kind                  (Constraint)
 import Data.List                  (sortBy)
 import Data.List.NonEmpty         (NonEmpty(..), (<|))
 import Data.Map.Strict            (Map)
-import Data.Maybe                 (fromMaybe)
+import Data.Maybe                 (isJust, fromMaybe)
 import Data.Map.Monoidal.Strict   (MonoidalMap)
 import Data.Orphanage
 import Data.Proxy                 (Proxy(..))

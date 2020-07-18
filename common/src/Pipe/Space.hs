@@ -28,7 +28,7 @@ import qualified Data.Set.Monad                   as Set
 import qualified Data.Text                        as Text
 
 import Basis
-import Namespace (PointScope)
+import Namespace (PointScope, mapScope)
 import qualified Namespace
 import Pipe.Scope
 import Pipe.Types
@@ -61,7 +61,7 @@ pipesFromCstr spc (Just x) = pipesFrom spc (Just x)
 pipesFrom :: PipeSpace a -> Maybe SomeTypeRep -> [a]
 pipesFrom spc mStr = setToList (pipeNamesFrom mStr spc) &
   mapMaybe (flip lookupSpace spc . coerceQName) &
-  (\xs -> traceErr (mconcat ["pipesFrom ", show mStr, " -> ", show (length xs)])
+  (\xs -> --traceErr (mconcat ["pipesFrom ", show mStr, " -> ", show (length xs)])
     xs)
 
 pipesTo :: PipeSpace a -> SomeTypeRep -> [a]
@@ -70,7 +70,7 @@ pipesTo spc str = setToList (pipeNamesTo str spc) &
 
 pipeNamesFrom :: Maybe SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
 pipeNamesFrom str = psFrom >>> MMap.lookup str >>> fromMaybe mempty
-                    >>> (\xs -> traceErr (mconcat ["pipeNamesFrom ", show str, " -> ", show (length xs)])
+                    >>> (\xs -> --traceErr (mconcat ["pipeNamesFrom ", show str, " -> ", show (length xs)])
                           xs)
 
 pipeNamesTo :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
@@ -78,11 +78,16 @@ pipeNamesTo   str = psTo   >>> MMap.lookup str >>> fromMaybe mempty
 
 insertScope :: QName Scope -> SomePipeScope p -> SomePipeSpace p -> SomePipeSpace p
 insertScope pfx scop ps =
-  ps { psSpace = Namespace.insertScope (coerceQName pfx) scop (psSpace ps)
+  ps { psSpace = Namespace.insertScope (coerceQName pfx) scop' (psSpace ps)
      , psFrom  = psFrom ps <> fro
      , psTo    = psTo   ps <> to
      }
  where
+   scop' = mapScope
+             (\p ->somePipeSetQName (pipeQPrefix `append` somePipeName p) p)
+             scop
+   pipeQPrefix :: QName Pipe
+   pipeQPrefix = coerceQName pfx `append` coerceName (Namespace.scopeName scop)
    fro :: MonoidalMap (Maybe SomeTypeRep) (Set (QName Pipe))
    to  :: MonoidalMap        SomeTypeRep  (Set (QName Pipe))
    (,) fro to = scopeIndices (pfx <> qname (Namespace.scopeName scop)) scop
@@ -108,13 +113,13 @@ scopeIndices prefix =
   Namespace.scopeEntries
   >>> ((<&> (\sp-> pipeEdge sp prefix $ if null (sArgs $ somePipeSig sp)
                                         then const Nothing
-                                        else Just . tRep . head . sArgs))
+                                        else Just . tRep . unI . head . sArgs))
        &&&
-       (<&> (\sp-> pipeEdge sp prefix $ tRep . sOut)))
+       (<&> (\sp-> pipeEdge sp prefix $ tRep . unI . sOut)))
   >>> (mconcat *** mconcat)
  where
    pipeEdge :: Show a
-            => SomePipe p -> QName Scope -> (Sig -> a)
+            => SomePipe p -> QName Scope -> (ISig -> a)
             -> MonoidalMap a (Set (QName Pipe))
    pipeEdge sp pfx sigKey =
      sp &
@@ -140,21 +145,23 @@ lookupSpace :: QName Pipe -> PipeSpace a -> Maybe a
 lookupSpace q ps = Namespace.lookupSpace (coerceQName q) (psSpace ps)
 
 spaceAdd
-  :: forall e p. (e ~ Text, Typeable p)
+  :: forall e p. (e ~ Text, Typeable p, Ord (SomePipe p))
   => QName Pipe
   -> SomePipe p
   -> SomePipeSpace p -> Either e (SomePipeSpace p)
-spaceAdd name x ps =
-  PipeSpace
-   <$> pure (psName ps)
-   <*> Namespace.spaceAdd (coerceQName name) x (psSpace ps)
-   <*> pure (MMap.alter (alteration name)
-             (Just $ if null . sArgs $ somePipeSig x then strTo else strFrom)
-             (psFrom ps))
-   <*> pure (MMap.alter (alteration name) strTo   $ psTo ps)
+spaceAdd name x ps = do
+  spc <- Namespace.spaceAdd (coerceQName name) x' (psSpace ps)
+  pure $ PipeSpace
+    (psName ps)
+    spc
+    (MMap.alter (alteration name)
+     (Just $ if null . sArgs $ somePipeSig x then strTo else strFrom)
+     (psFrom ps))
+    (MMap.alter (alteration name) strTo   $ psTo ps)
  where
+   x' = somePipeSetQName name x
    strFrom, strTo :: SomeTypeRep
-   (,) strFrom strTo = join (***) tRep . (head . sArgs &&& sOut) $ somePipeSig x
+   (,) strFrom strTo = join (***) (tRep . unI) . (head . sArgs &&& sOut) $ somePipeSig x
 
    alteration
      :: QName Pipe

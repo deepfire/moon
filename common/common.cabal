@@ -40,6 +40,7 @@ library
                        Pipe.Ops.Internal
                        Pipe.Ops.Traverse
                        Pipe.Pipe
+                       Pipe.PipeSpace
                        Pipe.Scope
                        Pipe.SomePipe
                        Pipe.Space
@@ -66,6 +67,7 @@ library
 
   build-depends:       base
                      , algebraic-graphs
+                     , assoc
                      , binary
                      , bytestring
                      , cborg
@@ -78,6 +80,7 @@ library
                      , generic-monoid
                      , generics-sop
                      , ghc-prim
+                     , hashable
                      , megaparsec
                      , parsers-megaparsec
                      , monoidal-containers
@@ -89,6 +92,7 @@ library
                      , sop-core
                      , text
                      , text-builder
+                     , unordered-containers
                      -- , type-list
                      , witherable
                      -- , zippers

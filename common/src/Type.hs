@@ -54,6 +54,7 @@ import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
 import           Control.Monad.Fail                 (MonadFail)
 import           Data.IntervalMap.FingerTree (Interval(..))
 import qualified Data.Sequence                    as Seq
+import qualified Data.HashSet                     as HS
 import qualified Data.Set.Monad                   as S
 import qualified Data.Text                        as Text
 import           Data.Text                          (split)
@@ -87,6 +88,9 @@ data Located a
     , locVal  :: !a
     }
   deriving (Functor)
+
+instance Show a => Show (Located a) where
+  show = show . locVal
 
 instance Show (Name a)  where show = unpack . showName
 instance Show (QName a) where show = unpack . showQName
@@ -215,12 +219,12 @@ splitType _ = (,) (reifyTag $ Proxy @k) (Proxy @a)
 
 --------------------------------------------------------------------------------
 type family Repr (k :: Con) (a :: *) :: * where
-  Repr Point a =         a
-  Repr List  a =      [] a
-  Repr 'Set  a =   S.Set a
-  Repr Tree  a = G.Graph a
-  Repr Dag   a = G.Graph a
-  Repr Graph a = G.Graph a
+  Repr Point a =            a
+  Repr List  a =         [] a
+  Repr 'Set  a =      S.Set a
+  Repr Tree  a =    G.Graph a
+  Repr Dag   a =    G.Graph a
+  Repr Graph a =    G.Graph a
   -- Question:  can we somehow avoid introducing higher-kinded types,
   --            so the model can remain simple, without loss of expressivity?
   -- Example:   how do we avoid introducing Map a b?
@@ -255,6 +259,8 @@ data instance TypePair ty where
     , tpType :: Proxy a
     } -> TypePair (Type k a)
 
+deriving instance Eq       (TypePair t)
+deriving instance Ord      (TypePair t)
 deriving instance Typeable (TypePair t)
 
 instance NFData (TypePair a) where
@@ -322,9 +328,9 @@ mkValue = const $ \case
 --------------------------------------------------------------------------------
 -- * Ground
 --
-type     GCtx a = (Ord a, Typeable a, Serialise a, Parse a, Read a, Show a)
-class    GCtx a => Ground a
-instance GCtx a => Ground a
+type     GroundCtx a = (Ord a, Typeable a, Serialise a, Parse a, Read a, Show a)
+class    GroundCtx a => Ground a
+instance GroundCtx a => Ground a
 
 class    (Ground a, HasTypeData Ground a) => GroundData a
 instance (Ground a, HasTypeData Ground a) => GroundData a
@@ -396,10 +402,10 @@ instance Show (Type k a) where
   show TDag'    = "TDag"
   show TGraph'  = "TGraph"
 
-instance (Ord a, Show a) => Show (Value k a) where
+instance (Show a) => Show (Value k a) where
   show (VPoint x) = "VPoint " <> show x
   show (VList  x) = "VList "  <> show x
-  show (VSet   x) = "VSet "   <> show x
+  show (VSet   x) = "VSet "   <> show (foldMap (:[]) x)
   show (VTree  x) = "VTree "  <> show x
   show (VDag   x) = "VDag "   <> show x
   show (VGraph x) = "VGraph " <> show x
