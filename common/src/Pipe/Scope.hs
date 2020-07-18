@@ -35,12 +35,12 @@ dataProjScope
   , All2 (SOP.And Typeable Top) (SOP.Code u)
   )
   => Proxy u -> Scope Point (SomePipe Dynamic)
-dataProjScope  p = dataProjScope' p $ dataProjPipes T (Proxy @Top) p
+dataProjScope  p = dataProjScope' p $ dataProjPipes (T mempty) (Proxy @Top) p
 
 dataProjScopeG
   :: forall u. (GroundData u)
   => Proxy u -> Scope Point (SomePipe Dynamic)
-dataProjScopeG p = dataProjScope' p $ dataProjPipes G (Proxy @Ground) p
+dataProjScopeG p = dataProjScope' p $ dataProjPipes (G mempty) (Proxy @Ground) p
 
 dataProjScope'
   :: forall u. Typeable u

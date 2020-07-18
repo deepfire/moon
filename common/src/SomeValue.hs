@@ -53,7 +53,7 @@ someValueSomeType (SomeValue (SomeKindValue tag (_ :: Value k a))) =
   tagSomeType tag (Proxy @a)
 
 
-instance (Ord a, Show a) => Show (SomeKindValue a) where
+instance (Show a) => Show (SomeKindValue a) where
   show (SomeKindValue _ x) = "(SKV "<>show x<>")"
 
 instance Show SomeValue where

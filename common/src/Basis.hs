@@ -1,16 +1,22 @@
 module Basis
   ( module Control.Applicative
   , module Control.Arrow
+  , module Control.Concurrent.STM
   , module Control.DeepSeq
   , module Control.Monad
+  , module Control.Tracer
   , module Data.Bifunctor
+  , module Data.Bifunctor.Swap
   -- , module Data.Coerce
   , module Data.Dict
   , module Data.Dynamic
+  , module Data.Either.Combinators
   , module Data.Either.Extra
   , module Data.Foldable
   , module Data.Function
   , module Data.Functor
+  , module Data.Hashable
+  , module Data.HashMap.Strict
   , module Data.Kind
   , module Data.List
   , module Data.List.NonEmpty
@@ -42,20 +48,26 @@ where
 
 import Control.Applicative        ((<|>), liftA2)
 import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, first, second)
+import Control.Concurrent.STM     (STM, atomically)
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (join, void)
+import Control.Tracer             (Tracer(..), traceWith)
 import Data.Bifunctor             (bimap)
+import Data.Bifunctor.Swap        (swap)
 import Data.Dict                  (TyDict(..), TyDicts)
 import Data.Dynamic               (Dynamic(..), Typeable)
+import Data.Either.Combinators    (maybeToLeft, maybeToRight)
 import Data.Either.Extra          (mapLeft, mapRight, fromLeft, fromRight, eitherToMaybe, maybeToEither)
 import Data.Function              ((&), on)
-import Data.Functor               ((<&>))
+import Data.Functor               ((<&>), (<$), ($>))
 import Data.Foldable              (toList)
+import Data.Hashable              (Hashable)
+import Data.HashMap.Strict        (HashMap)
 import Data.Kind                  (Constraint)
 import Data.List                  (sortBy)
 import Data.List.NonEmpty         (NonEmpty(..), (<|))
 import Data.Map.Strict            (Map)
-import Data.Maybe                 (fromMaybe)
+import Data.Maybe                 (isJust, fromMaybe)
 import Data.Map.Monoidal.Strict   (MonoidalMap)
 import Data.Orphanage
 import Data.Proxy                 (Proxy(..))
@@ -70,7 +82,7 @@ import Data.Type.List             (spineConstraint)
 import Data.TypeRep               (showSomeTypeRep, showTypeRep)
 import Data.Witherable            (catMaybes, mapMaybe, wither)
 import Debug.Trace                (trace)
-import Debug.TraceErr             (traceErr)
+import Debug.TraceErr             (traceErr, traceIOErr)
 import Generics.SOP               (All, All2, Compose, NP(..), NS, Top
                                   , I(..), unI, K(..), unK)
 import Text.Printf                (printf)
@@ -81,6 +93,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Map.Monoidal.Strict as MMap
 import qualified Data.Set.Monad  as Set
 import qualified Data.Set        as Set'
+import qualified Data.Text       as T
 import qualified GHC.Types       as GHC
 import qualified Text.Builder    as TB
 import qualified Type.Reflection as R
@@ -225,3 +238,6 @@ listTyCon   = R.typeRepTyCon $ typeRep @[()]
 tuple2TyCon = R.typeRepTyCon $ typeRep @((),())
 tuple3TyCon = R.typeRepTyCon $ typeRep @((),(),())
 charTyCon   = R.typeRepTyCon $ typeRep @Char
+
+stderr :: Tracer IO Text
+stderr = Tracer $ traceIOErr . T.unpack

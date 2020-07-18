@@ -46,7 +46,7 @@ data Expr p where
 parse :: Text -> Either Text (Expr (Located (QName Pipe)))
 parse = parse' parseQName'
 
-indexLocated :: Expr (Located a)
+indexLocated :: Foldable f => f (Located a)
              -> IMap.IntervalMap Int a
 indexLocated =
   foldMap (\Locn{locSpan, locVal} ->

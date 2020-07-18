@@ -19,6 +19,7 @@ module Pipe.Pipe
   , pattern PipeD
   , Sig(..)
   , ISig
+  , MSig
   , showSig
   , showSigDotty
   , ListSig(..)
@@ -59,6 +60,9 @@ data Pipe (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) where
     , p     :: p
     } -> Pipe c as o p
 
+deriving instance Eq  p => Eq  (Pipe c as o p)
+deriving instance Ord p => Ord (Pipe c as o p)
+
 -- | Everything there is to be said about a pipe,
 --   except for its representation.
 data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
@@ -66,7 +70,7 @@ data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
   { pdName   :: !(Name Pipe)
   , pdSig    :: !ISig
   , pdStruct :: !Struct
-  , pdRep    :: !SomeTypeRep -- ^ Full type of the pipe, App4-style.
+  , pdRep    :: !SomeTypeRep           -- ^ Full type of the pipe.
   , pdArgs   :: !(NP TypePair kas)
   , pdOut    :: !(TypePair o)
   }
@@ -74,6 +78,7 @@ data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
 
 -- | Sig:  serialisable type signature
 type ISig = Sig I
+type MSig = Sig Maybe
 
 data Sig f =
   Sig
@@ -197,14 +202,6 @@ type PipeConstr (c :: * -> Constraint) (kas :: [*]) (o :: *)
     , All Typeable kas -- why do we need this, when we have IsType?
     )
 
-instance Eq (Pipe c as o ()) where
-  -- XXX: potentially problematic instance
-  (==) = (==) `on` pDesc
-
-instance Ord (Pipe c as o ()) where
-  -- XXX: potentially problematic instance
-  compare = compare `on` pDesc
-
 instance Functor (Pipe c as o) where
   fmap f (Pipe d x) = Pipe d (f x)
 
@@ -238,10 +235,10 @@ instance NFData (Desc c as o) where
 -- * Sig
 --
 showSig :: ISig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSig (Sig as o) = T.intercalate " ⇨  " $ showSomeType False . unI <$> (as <> [o])
+showSig (Sig as o) = T.intercalate " → " $ showSomeType False . unI <$> (as <> [o])
 
 showSigDotty :: ISig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSigDotty (Sig as o) = T.intercalate " ⇨  " $ showSomeType True . unI <$> (as <> [o])
+showSigDotty (Sig as o) = T.intercalate " → " $ showSomeType True . unI <$> (as <> [o])
 
 instance NFData (f SomeType) => NFData (Sig f)
 

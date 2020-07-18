@@ -1,6 +1,7 @@
 --{-# OPTIONS_GHC -Wno-unused-imports #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
-module Main (main) where
+module Main (main, fetchPSpace) where
 
 import           Safe
 
@@ -11,13 +12,15 @@ import           Control.Monad
 import           Control.Monad.Fix
 import           Control.Monad.NodeId
 import           Control.Tracer
-                 (Tracer, stdoutTracer, showTracing, traceWith)
+                 (Tracer(..), stdoutTracer, showTracing, traceWith)
 import qualified Control.Zipper                         as Zip
 import           Data.Functor.Misc
 import qualified Data.IntervalMap.FingerTree            as IMap
 import qualified Data.List                              as List
 import           Data.Map (Map)
-import           Data.Maybe
+import qualified Data.Set.Monad                         as Set
+import qualified Data.Set                               as SSet
+import qualified Data.Sequence                          as Seq
 import           Data.Text (Text)
 import           Data.Tuple.All
 import qualified Type.Reflection                        as R
@@ -73,106 +76,171 @@ import Debug.TraceErr
 import Text.Printf
 
 
-main :: IO ()
-main = do
-  timestamp <- Shelly.shelly $ Shelly.run "date" []
-  mreq <- execParser $ (info $ optional Wire.parseRequest <**> helper) (traceErr ("MainCLI::main: " <> unpack timestamp) fullDesc)
+fetchPSpace :: IO (PipeSpace (SomePipe ()))
+fetchPSpace =
   WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
     \conn -> do
-      let tracer = stdoutTracer
-          req    = fromMaybe (Wire.Run "meta.space") mreq
-          -- chan   = channelFromWebsocket conn
-      Wire.runClient tracer (client tracer [Wire.Run "meta.dump", req]) $
-        channelFromWebsocket conn
+      Wire.ReplyValue sv <- Wire.runClient stderr (channelFromWebsocket conn)
+                              (pure fetcherClient)
+      case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) sv
+           (\(VPoint space) -> space) of
+        Right x -> pure x
+        Left  e -> fail (unpack e)
+ where
+   fetcherClient :: Wire.ClientState Text IO Wire.Reply
+   fetcherClient = Wire.ClientRequesting fetchPSpaceReq handleReply
 
-client :: forall rej m a
+   fetchPSpaceReq = Wire.Run "space"
+
+   handleReply (Left rej) = do
+     putStrLn $ "error: " <> unpack rej
+     pure (Wire.ClientDone undefined)
+   handleReply (Right r@(Wire.ReplyValue rep)) = do
+     print rep
+     case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep
+          (\(VPoint space) -> space) of
+       Right _ -> pure $ Wire.ClientDone r
+       Left  e -> fail (unpack e)
+
+main :: IO ()
+main = mainWidget $ do
+  postBuild <- getPostBuild
+  spaceE <- performEventAsync $ ffor postBuild $
+    \_ cb -> doSetup cb
+  spaceD <- holdDyn mempty spaceE
+  spaceInteraction spaceD
+ where
+   doSetup fire = Shelly.liftIO $ do
+     timestamp <- Shelly.shelly $ Shelly.run "date" []
+     mreq <- execParser $ (info $ optional Wire.parseRequest <**> helper) (traceErr ("MainCLI::main: " <> unpack timestamp) fullDesc)
+     WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
+       \conn -> do
+         let req = fromMaybe (Wire.Run "space") mreq
+             -- chan   = channelFromWebsocket conn
+         void $ Wire.runClient stderr (channelFromWebsocket conn) $
+           client fire [Wire.Run "dump", req]
+
+client :: forall rej m a b
           . (rej ~ Text, m ~ IO, a ~ Wire.Reply)
-       => Tracer m String
+       => (PipeSpace (SomePipe ()) -> IO ())
        -> [Wire.Request]
        -> m (Wire.ClientState rej m a)
-client tracer (r0:rs) = pure $
+client fire (r0:rs) = pure $
   Wire.ClientRequesting r0 (handleReply rs)
  where
    handleReply _ (Left rej) = do
      putStrLn $ "error: " <> unpack rej
-     pure Wire.ClientDone
+     pure (Wire.ClientDone $ error $ "error: " <> unpack rej)
    handleReply (r:rs') _ =
      pure $ Wire.ClientRequesting r (handleReply rs')
-   handleReply []  (Right (Wire.ReplyValue rep)) = do
-     print rep
-     case
-       withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep
-       (\(VPoint space) -> do
-           traceWith tracer "Got pipes.."
-           mainWidget $ spaceInteraction space
-       ) of
-       Right x -> x
-       Left  e -> fail (unpack e)
-     pure Wire.ClientDone
+   handleReply []  (Right r@(Wire.ReplyValue rep)) = do
+     traceIOErr $ "reply: " <> show rep
+     res <- case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep $
+                 \(VPoint space) -> do
+                   fire space
+                   pure r of
+              Right x -> x
+              Left  e -> fail (unpack e)
+     pure $ Wire.ClientDone res
+
+data Acceptable
+  = APipe  { unAPipe  :: !(SomePipe ()) }
+  | AScope { unAScope :: !(Namespace.PointScope (SomePipe ())) }
+  deriving (Eq)
+
+instance Show Acceptable where
+  show = \case
+    APipe  x -> show x
+    AScope x -> "Scope " <> T.unpack (showName (Namespace.scopeName x))
+
+acceptablePresent :: Acceptable -> Text
+acceptablePresent = \case
+  APipe  x -> showQName . somePipeQName $ x
+  AScope x -> showName . Namespace.scopeName $ x
+
+acceptableName :: Acceptable -> Name Pipe
+acceptableName = \case
+  APipe  x -> somePipeName x
+  AScope x -> coerceName . Namespace.scopeName $ x
+
+type Acceptance
+  = Either Text (Expr (QName Pipe), Expr (Located (CPipe ())))
+
+acceptablePipe :: Acceptable -> Maybe (SomePipe ())
+acceptablePipe = \case
+  APipe x -> Just x
+  _       -> Nothing
 
 spaceInteraction ::
      forall    t m
   .  ReflexVty t m
-  => PipeSpace (SomePipe ())
+  => Reflex.Dynamic t (PipeSpace (SomePipe ()))
   -> VtyWidget t m (Event t ())
-spaceInteraction space = mdo
+spaceInteraction spaceD = mdo
   screenLayout@ScreenLayout{..} <- computeScreenLayout
 
   assemblyD :: Reflex.Dynamic t (Maybe (SomePipe ())) <-
-    holdDyn Nothing selrChoice
+    -- XXX:  what do we want to see here>?
+    --       not the individual components, like now..
+    holdDyn Nothing (Just <$> fmapMaybe acceptablePipe selrChoice)
+    >>= holdUniqDyn
 
   let constraintD :: Reflex.Dynamic t (Maybe SomeTypeRep)
-      constraintD =
-        assemblyD
-          <&> fmap (somePipeOutSomeTagType >>> snd)
+      constraintD = trdyn (\c-> mconcat ["choice: ", show c])
+                    assemblyD
+                    <&> fmap (somePipeOutSomeTagType >>> snd)
       pipesFromD :: Reflex.Dynamic t [SomePipe ()]
-      pipesFromD =
-        constraintD
-          <&> (pipesFromCstr space
-               >>> sortBy (compare `on` somePipeName))
+      pipesFromD  = zipDynWith pipesFromCstr spaceD constraintD
+                    <&> (sortBy (compare `on` somePipeName))
 
-  pipesD <- holdDyn (pipesFromCstr space Nothing) never
+  sfp0 :: SelectorFrameParams t m Acceptable Acceptance <-
+          selToSelrFrameParams
+            <$> sample (current spaceD)
+            <*> (Width <$> sample (current $ _dynRegion_width slaySelector))
+            <*> pure (emptySelection $ Left mempty)
+  sfpD :: Reflex.Dynamic t (SelectorFrameParams t m Acceptable Acceptance) <- holdDyn sfp0 $
+            attachPromptlyDynWith rcons2
+              (zipDyn
+                spaceD
+                (Width <$> _dynRegion_width slaySelector))
+              selrSelection
+            <&> uncurry3 selToSelrFrameParams
 
-  selr@Selector{..} :: Selector t (SomePipe ()) Text <-
-    selector
-      slSelector
-      (selToSelrFrameParams space)
-      pipesD -- pipesFromD
+  Selector{..} :: Selector t m Acceptable Acceptance <-
+    (selector slaySelector sfpD
+     :: VtyWidget t m (Selector t m Acceptable Acceptance))
 
-  showPane yellow slAssembly $ current assemblyD
+  let astExpE = selExt . sfpSelection <$> updated sfpD
 
-  debugVisuals screenLayout selr constraintD pipesFromD
+  visD <- holdDyn "" (either id (pack . show) . fmap snd <$> astExpE)
+  textPane yellow slayAssembly $ current visD
 
-  input <&> fmapMaybe
-    (\case
-        V.EvKey (V.KChar 'c') [V.MCtrl]
-          -> Just () -- terminate
-        _ -> Nothing)
+  debugVisuals screenLayout astExpE constraintD pipesFromD
+
+  input <&>
+    fmapMaybe
+      (\case
+          V.EvKey (V.KChar 'c') [V.MCtrl]
+            -> Just () -- terminate
+          _ -> Nothing)
 
  where
    debugVisuals ::
      ScreenLayout t ->
-     Selector t (SomePipe ()) Text ->
+     Event t Acceptance ->
      Reflex.Dynamic t (Maybe SomeTypeRep) ->
      Reflex.Dynamic t [SomePipe ()] ->
      VtyWidget t m ()
-   debugVisuals ScreenLayout{..} Selector{..} cstrD pipesD = do
-     err  <- hold "" $ selExt <$> selrSelection
+   debugVisuals ScreenLayout{..} selExt cstrD pipesD = do
+     redD <- hold "" $ either id (pack . show) . fmap fst <$> selExt
      let showCstrEnv cstr pipes =
            mconcat [ "pipes matching ", pack $ show cstr
                    , ": ", pack $ show (length pipes)]
-     dbg1 <- pure . current $ zipDynWith showCstrEnv cstrD pipesD
-     dbg2 <- hold (emptySelection "")
-       selrSelection
-       -- (traceErrEventWith (const "selrSelection fired") selrSelection)
-     showPane red   slErrors err
-     showPane blue  slDebug1 dbg1
-     showPane green slDebug2 $ dbg2 <&>
-       \s@Selection{..}-> (,) s $
-       let strIx = unColumn selColumn - 1
-       in if strIx < T.length selInput && strIx >= 0
-          then T.index selInput strIx
-          else '*'
+     blueD  <- pure . current $ zipDynWith showCstrEnv cstrD pipesD
+     greenD <- hold "" (either id (pack . show) <$> selExt)
+     textPane red   slayErrors redD
+     showPane blue  slayDebug1 blueD
+     showPane green slayDebug2 greenD
 
    showPane :: (CWidget t m, Show a)
             => V.Attr -> DynRegion t -> Behavior t a -> VtyWidget t m ()
@@ -180,59 +248,128 @@ spaceInteraction space = mdo
      pane region (pure False) $
      richTextStatic attr (T.pack . show <$> bx)
 
+   textPane :: (CWidget t m)
+            => V.Attr -> DynRegion t -> Behavior t Text -> VtyWidget t m ()
+   textPane attr region bx =
+     pane region (pure False) $
+     richTextStatic attr bx
+
    red, blue, green, yellow :: V.Attr
    (,,,) red blue green yellow =
     (,,,) (foregro V.red) (foregro V.blue) (foregro V.green) (foregro V.yellow)
 
-selToSelrFrameParams ::
-     (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
+selToSelrFrameParams :: forall t m
+   . (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
   => SomePipeSpace ()
   -> Width
-  -> [SomePipe ()]
-  -> Selection (SomePipe ()) Text
-  -> SelectorFrameParams t m (SomePipe ()) Text
-selToSelrFrameParams spc screenW
- allPipes selection@Selection{selColumn=Column coln, ..} =
-  -- selection
-  -- -> (string -> parse with locations) & column
-  -- -> current token
-  -- -> dumb infix subsetting
-  case join $ analyse (\n ->
-                         traceErr (mconcat
-                                   ["looking up pipe: "
-                                   , unpack $ showQName n
-                                   , " -> "
-                                   , show $ lookupPipe spc n
-                                   , " -- of "
-                                   , show $ length $ Namespace.spaceEntries $ psSpace spc])
-                         $ lookupPipe spc n) <$> parse selInput of
-    Left e  -> SelectorFrameParams [] (selection { selExt = e })
-                  (showName . somePipeName)
-                  (somePipeSelectable (Width 3, Width 3))
-    Right expr@(indexLocated -> index) ->
-      let name = case lookupLocated coln index of
-                   Nothing -> ""
-                   Just (CSomePipe p) -> showName (somePipeName p)
-                   Just (CFreePipe n _) -> showQName n
-          selectedPipes = infixNameFilter name `Prelude.filter` allPipes
-          reservedW = Width 4
-      in SelectorFrameParams
-           selectedPipes
-           (selection
-            { selExt =
-              T.pack $ printf "col=%s n=%s exp=%s" (show coln) name (show $ locVal <$> expr) })
-           (showName . somePipeName)
-           (somePipeSelectable (presentCtx screenW reservedW selectedPipes))
+  -> Selection
+       Acceptable
+       (Either Text ( Expr (QName Pipe)
+                    , Expr (Located (CPipe ()))))
+  -> SelectorFrameParams t m Acceptable Acceptance
+selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} = either errFrameParams id $ do
+
+  let focusChar = if T.length selInput >= coln && coln > 0 then T.index selInput (coln - 1) else 'Ø'
+      look = lookupPipe spc
+
+  ast :: Expr (Located (QName Pipe)) <- parse selInput
+  cpipe <- analyse look ast
+
+  let -- determine the completable
+      indexAst = indexLocated ast
+      indexCPipe = indexLocated cpipe
+      inputName = fromMaybe mempty $ lookupLocated coln indexAst
+      inputCPipe = lookupLocated coln indexCPipe
+      -- componentise into scope name and tail
+      (scopeName, Name rawName) = unconsQName inputName &
+                                  fromMaybe (mempty, Name "")
+      -- determine the current scope
+      mScope = Namespace.lookupSpaceScope (coerceQName scopeName) (psSpace spc)
+      -- determine immediate children of named scope, matching the stem restriction
+      subScNames = childScopeQNamesAt (coerceQName scopeName) spc
+                   & Prelude.filter (T.isInfixOf rawName . showName . lastQName)
+      -- determine pipes within named scope
+      scPipes = Namespace.selectFromScope
+                  (\k _ -> rawName `T.isInfixOf` showName k)
+                  <$> mScope
+                & fromMaybe mempty
+                & restrictByCPipe inputCPipe
+      subScopes = catMaybes $ flip scopeAt spc <$> subScNames
+      --
+      sels = (APipe <$> scPipes) <> (AScope <$> subScopes)
+      --
+      compR = compile opsDesc look ast
+
+  pure $ computeFrameParams (locVal <$> ast) cpipe sels
+
  where
-   infixNameFilter hay = T.isInfixOf hay . showName . somePipeName
+   -- | Given a set of available pipes,
+   --   restrict that,
+   --   by matching them against the pipe signature provided by type checker
+   --   for the current input context (position inside partially resolved AST).
+   restrictByCPipe :: Maybe (CPipe ()) -> [SomePipe ()] -> [SomePipe ()]
+   restrictByCPipe Nothing  xs = xs
+   restrictByCPipe (Just p) xs = Prelude.filter (matchMSig $ cpArgs p) xs
+    where
+      matchMSig :: MSig -> SomePipe () -> Bool
+      matchMSig sig sp =
+        traceErr ("verdict on " <> spname <> "::" <> show spsig <> " vs " <> show msig <> ": " <> show r) r
+       where
+         msig = sOut sig   : sArgs sig
+         psig = sOut spsig : sArgs spsig
+         r =
+           (msig == [Nothing] || length msig == length psig)
+           && go (zip msig psig)
+         spsig = somePipeSig sp
+         go :: [(Maybe SomeType, I SomeType)] -> Bool
+         go = foldl (\acc x -> acc && uncurry tyMatch x) True
+         spname = unpack $ showName $ somePipeName sp
+         tyMatch :: Maybe SomeType -> I SomeType -> Bool
+         tyMatch Nothing   _    = traceErr ("match " <> spname <> ": *")
+                                  True
+         tyMatch (Just x) (I y) =
+           traceErr ("match " <> spname <> ":" <> show x <> "|" <> show y <>
+                     ": " <> show (x == y))
+           $ x == y
+
+   computeFrameParams
+     :: Expr (QName Pipe)
+     -> Expr (Located (CPipe ()))
+     -> [Acceptable]
+     -> SelectorFrameParams t m Acceptable Acceptance
+   computeFrameParams ast expr@(indexLocated -> index) sels =
+     SelectorFrameParams
+       sels
+       charCompletionP
+       (selection { selExt =
+                    -- traceErr (mconcat
+                    --           [ show coln, " "
+                    --           , show focusChar, " "
+                    --           , unpack selInput, " -> "
+                    --           , show exp
+                    --           ]) $
+                    Right (ast, expr) })
+       acceptablePresent
+       (somePipeSelectable (presentCtx screenW reservedW sels))
+
+   errFrameParams err =
+     SelectorFrameParams []
+       charCompletionP
+       (selection { selExt = Left err })
+       (showName . acceptableName)
+       (somePipeSelectable (reservedW, reservedW))
+   reservedW = Width 4
+   charCompletionP leftC newC =
+     newC == ' ' || newC == '\t' || (newC == '.' && isJust leftC && leftC /= Just ' ')
+   infixNameFilter needle = T.isInfixOf needle . showName . somePipeName
 
    somePipeSelectable
      :: (MonadFix m, MonadHold t m, PostBuild t m, MonadNodeId m, Reflex t)
      => (Width, Width)
-     -> SomePipe ()
+     -> Acceptable
      -> Behavior t Bool
-     -> VtyWidget t m (SomePipe ())
-   somePipeSelectable (Width nameW, Width sigW) sp focusB =
+     -> VtyWidget t m Acceptable
+   somePipeSelectable (Width nameW, Width sigW) x@(APipe sp) focusB =
     row $ withSomePipe sp $ \(Pipe pd _) -> do
      fixed (pure nameW) $
        richText (textFocusStyle (foregro V.green) focusB)
@@ -246,44 +383,48 @@ selToSelrFrameParams spc screenW
                 >>> showSig
                 >>> T.justifyLeft  sigW ' '
                 >>> pure))
-     pure sp
-    where
-      textFocusStyle attr focB =
-        RichTextConfig $
-          selecting (flip V.withBackColor $ V.rgbColor @Integer 1 1 1)
-                    (pure attr)
-                    focB
+     pure x
+   somePipeSelectable (Width nameW, Width sigW) x@(AScope scope) focusB =
+    row $ do
+     fixed (pure nameW) $
+       richText (textFocusStyle (foregro V.green) focusB)
+         (pure $ T.justifyRight nameW ' ' . showName $ Namespace.scopeName scope)
+     fixed 4 $
+       richText (textFocusStyle V.defAttr focusB)
+         (pure " :: ")
+     fixed (pure sigW) $
+       richText (textFocusStyle (foregro V.blue) focusB)
+         (pure . pack . show $ Namespace.scopeSize scope)
+     pure x
 
-   presentCtx :: Width -> Width -> [SomePipe p] -> (Width, Width)
+   textFocusStyle attr focB =
+     RichTextConfig $
+       selecting (flip V.withBackColor $ V.rgbColor @Integer 1 1 1)
+                 (pure attr)
+                 focB
+
+   presentCtx ::
+     Width
+     -> Width
+     -> [Acceptable]
+     -> (Width, Width)
    presentCtx (Width total) (Width reserved) =
-     (showName . somePipeName <$>)
+     fmap acceptablePresent
      >>> (Prelude.maximum . (T.length <$>))
      >>> (\nameWi -> ( Width nameWi
                      , Width $ total - reserved - nameWi))
-   -- showSignature :: Sig -> Text
-   -- showSignature (Sig as o) = T.intercalate " ⇨ " $ showType <$> (as <> [o])
-   --  where showType SomeType{tName=(showName -> n), tCon} =
-   --          case R.tyConName tCon of
-   --            "'Point" -> n
-   --            "'List"  -> "["<>n<>"]"
-   --            "'Set"   -> "{"<>n<>"}"
-   --            "'Tree"  -> "♆⇊ "<>n
-   --            "'Dag"   -> "♆⇄ "<>n
-   --            "'Graph" -> "☸ "<>n
-   --            _        -> "??? "<>n
-   -- TODO:  ugly as sin.
 
 -- * Boring
 --
 data ScreenLayout t =
   ScreenLayout
-  { slScreenWi      :: !(Reflex.Dynamic t Width)
-  , slScreenHe      :: !(Reflex.Dynamic t Height)
-  , slSelector      :: !(DynRegion t)
-  , slAssembly      :: !(DynRegion t)
-  , slErrors        :: !(DynRegion t)
-  , slDebug1        :: !(DynRegion t)
-  , slDebug2        :: !(DynRegion t)
+  { slayScreenWi      :: !(Reflex.Dynamic t Width)
+  , slayScreenHe      :: !(Reflex.Dynamic t Height)
+  , slaySelector      :: !(DynRegion t)
+  , slayAssembly      :: !(DynRegion t)
+  , slayErrors        :: !(DynRegion t)
+  , slayDebug1        :: !(DynRegion t)
+  , slayDebug2        :: !(DynRegion t)
   }
 
 computeScreenLayout ::
@@ -295,13 +436,13 @@ computeScreenLayout = do
 
   pure $
     ScreenLayout
-    { slScreenWi    = Width <$> wi
-    , slScreenHe    = Height <$> he
-    , slSelector    = DynRegion 0  0       wi (he - 8)
-    , slAssembly    = DynRegion 0 (he - 7) wi  1
-    , slErrors      = DynRegion 0 (he - 5) wi  3
-    , slDebug1      = DynRegion 0 (he - 2) wi  1
-    , slDebug2      = DynRegion 0 (he - 1) wi  1
+    { slayScreenWi    = Width <$> wi
+    , slayScreenHe    = Height <$> he
+    , slaySelector    = DynRegion 0  0       wi (he - 8)
+    , slayAssembly    = DynRegion 0 (he - 7) wi  1
+    , slayErrors      = DynRegion 0 (he - 5) wi  3
+    , slayDebug1      = DynRegion 0 (he - 2) wi  1
+    , slayDebug2      = DynRegion 0 (he - 1) wi  1
     }
 
 -- * UI
@@ -332,8 +473,8 @@ computeScreenLayout = do
    --             Left e -> Cons.outputStrLn $ "Compile:  " ++ unpack e
    --             Right pipe -> Cons.outputStrLn $ "OK:  " <> show pipe
    --       loop
-   -- case (,) (lookupSpace "meta.fromrep" space)
-   --            (lookupSpace "meta.unit" space)
+   -- case (,) (lookupSpace "fromrep" space)
+   --            (lookupSpace "unit" space)
    --     of (,) (Just fromrep)
    --            (Just unit) -> do
    --          case apply (app opsDesc) fromrep

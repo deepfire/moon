@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Data.Text.Zipper.Extra
 where
@@ -13,6 +14,19 @@ import Data.Text.Zipper
 
 import Debug.TraceErr (traceErr)
 import Text.Printf (printf)
+
+
+lookCharLeft :: TextZipper -> Maybe Char
+lookCharLeft TextZipper{..}
+  | _textZipper_before == "" =
+    if _textZipper_linesBefore == [] then Nothing else Just '\n'
+  | otherwise = Just $ Data.Text.last _textZipper_before
+
+lookCharRight :: TextZipper -> Maybe Char
+lookCharRight TextZipper{..}
+  | _textZipper_after == "" =
+    if _textZipper_linesAfter == [] then Nothing else Just '\n'
+  | otherwise = Just $ Data.Text.head _textZipper_after
 
 -- | Move the cursor at the start of the previous word, if possible
 leftWord :: TextZipper -> TextZipper
@@ -49,19 +63,20 @@ deleteRightWord (TextZipper lb b a la) =
 killLine :: TextZipper -> TextZipper
 killLine (TextZipper lb b _ la) = TextZipper lb b "" la
 
-complete :: Maybe Text -> TextZipper -> TextZipper
-complete mText tz@(TextZipper _ b _ _) =
+complete :: Char -> Maybe Text -> TextZipper -> TextZipper
+complete compChar mText tz@(TextZipper _ b _ _) =
   let lastW = lastWord b
       nonNull = not (null lastW)
       lastCompletible = nonNull && all isAlphaNum (lastWord b)
-      lastIsSpace     = nonNull && last b == ' '
+      lastIsSpace     = nonNull && last b == compChar
   in case (lastCompletible, lastIsSpace || not nonNull, mText) of
     (True,  False, Just x) ->
       case ( lastW `isPrefixOf` x
            , commonPrefixes x (takeEnd (lastWordLen b) b)
            ) of
-        (True,  Nothing)           -> insert (x <> " ") tz
-        (True,  Just (_, tail, _)) -> insert (tail <> " ") tz
-        (False, _)                 -> insert (x <> " ") $ deleteLeftWord tz
-    (_,     True,  Just x) -> insert  (x <> " ") tz
-    _                      -> insertChar ' ' tz
+        (True,  Nothing)         -> insert   (x  `snoc` compChar) tz
+        (True,  Just (_, tl, _)) -> insert   (tl `snoc` compChar) tz
+        (False, _)               -> deleteLeftWord tz
+                                    & insert (x  `snoc` compChar)
+    (_,     True,  Just x) -> insert (x  `snoc` compChar) tz
+    _                      -> insertChar compChar tz

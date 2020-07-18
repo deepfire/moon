@@ -186,15 +186,17 @@ mkSaturatedPipe _c out name sig struct rep =
       case typeRep @b' `eqTypeRep` typeRep @(TypeOf out) of
         Nothing -> nondescript
         Just HRefl ->
-          G (Pipe (Desc name sig struct rep SOP.Nil out :: Desc Ground '[] out) () :: Pipe Ground '[] out ())
+          G mempty (Pipe (Desc name sig struct rep SOP.Nil out :: Desc Ground '[] out) () :: Pipe Ground '[] out ())
  where
    -- Non-ground (unknown) type, nothing useful we can recapture about it.
    nondescript =
-     T $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top '[] out) ()
+     T mempty $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top '[] out) ()
 
 instance Serialise (SomePipe ()) where
-  encode p = withSomePipe p $
-    \(Pipe (Desc name sig struct rep args out :: Desc c args out) _) ->
+  encode p =
+    (encode (somePipeQName p) <>) $
+    withSomePipe p $
+     \(Pipe (Desc name sig struct rep args out :: Desc c args out) _) ->
       let nArgs = fromIntegral . SOP.lengthSList $ Proxy @args
       in encodeListLen ((1 + nArgs) * 3 + 4)
          <> mconcat (encodeTypePairs $ out SOP.:* args)
@@ -210,6 +212,7 @@ instance Serialise (SomePipe ()) where
                   <> encode (typeRep @k)
                   <> encode (someTypeRep a))
   decode = do
+    qName <- decode
     len <- decodeListLen
     let arity' = len - 4
         (arity, err) = arity' `divMod` 3
@@ -222,7 +225,7 @@ instance Serialise (SomePipe ()) where
     sig    :: ISig        <- decode
     struct :: Struct      <- decode
     rep    :: SomeTypeRep <- decode
-    pure $ withRecoveredTypePair (head xs) $
+    pure $ somePipeSetQName qName $ withRecoveredTypePair (head xs) $
       -- Start with a saturated pipe, and then build it up with arguments.
       \out _ _ -> go xs $
         mkSaturatedPipe (Proxy @Top) out name sig struct rep
@@ -235,7 +238,7 @@ instance Serialise (SomePipe ()) where
        withRecoveredTypePair x $
          \(tip :: TypePair ka)
           (_ :: Proxy (TagOf ka)) (_ :: Proxy (TypeOf ka))
-         -> go xs $ T $ Pipe
+         -> go xs $ T mempty $ Pipe
             (Desc pdName pdSig pdStruct pdRep (tip SOP.:* pdArgs) pdOut
              :: Desc Top (ka:kas) o) ()
 
@@ -306,6 +309,7 @@ groundTypes = Dict.empty
   & Dict.insert "NamePipe"        # Proxy @(Name Pipe)
   & Dict.insert "QNamePipe"       # Proxy @(QName Pipe)
   & Dict.insert "QNameScope"      # Proxy @(QName Scope)
+  -- OMG, Ord on PipeSpace..
   & Dict.insert "PipeSpace"       # Proxy @(PipeSpace (SomePipe ()))
   -- Atom
   & Dict.insert "Int"             # Proxy @Int

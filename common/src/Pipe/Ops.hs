@@ -27,7 +27,6 @@ where
 import qualified Data.Text as T
 
 import Basis
-import Ground.Parser
 import Pipe.Expr
 import Pipe.Ops.Base
 import Pipe.Ops.Apply
@@ -36,16 +35,37 @@ import Pipe.Ops.Traverse
 import Pipe.Types
 import Pipe.Zipper
 import Type
-import SomeType
 
 
 -- * Operations of pipe gut composition
 --
-instance PipeOps Dynamic where
-  pipeOps = opsFull
-
-instance PipeOps () where
-  pipeOps = opsDesc
+data Ops p where
+  Ops ::
+    { app
+      :: forall c kas kas' o ka
+      . ( PipeConstr c kas  o
+        , PipeConstr c kas' o
+        , kas ~ (ka : kas')
+        )
+      => Desc c kas o -> Value (TagOf ka) (TypeOf ka) -> p -> Either Text p
+    , comp
+      :: forall cf cv vas vo fas fass ras fo
+      . ( PipeConstr cv vas vo
+        , PipeConstr cf fas fo
+        , fas ~ (vo:fass)
+        , ras ~ fass
+        )
+      => Desc cv vas vo -> p -> Desc cf fas fo -> p -> Either Text p
+    , trav
+      :: forall cf ct fas fo a tas to
+      . ( PipeConstr cf fas fo
+        , PipeConstr ct tas to
+        , fas ~ (Type 'Point a ': '[])
+        , tas ~ '[]
+        , TypeOf to ~ a
+        , TagOf fo ~ 'Point)
+      => Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p
+    } -> Ops p
 
 opsFull :: Ops Dynamic
 opsFull = Ops
@@ -175,76 +195,79 @@ doAnalyse
   -> Either e (Expr (Located (CPipe p)))
 doAnalyse = go emptyPipeCtx
  where
-   emptyPipeCtx :: PipeCtx
-   emptyPipeCtx = PipeCtx [] Nothing
+   emptyPipeCtx :: MSig
+   emptyPipeCtx = Sig [] Nothing
 
-   go :: PipeCtx
+   go :: MSig
       -> Expr (Located (Either (QName Pipe) (SomePipe p)))
-      -> Either Text (Expr (Located (CPipe p)))
-   go ctx@(PipeCtx args out) = \case
-     PPipe (Locn l (Left pn)) -> Right . PPipe . Locn l $ CFreePipe pn (PipeCtx (reverse args) out)
-     PPipe (Locn l (Right p)) -> PPipe . Locn l <$> checkPipeCtx p (PipeCtx (reverse args) out)
+      -> Either e (Expr (Located (CPipe p)))
+   go (Sig args out) = \case
+     PPipe (Locn l (Left pn)) -> Right . PPipe . Locn l $ CFreePipe (Sig (reverse args) out) pn
+     PPipe (Locn l (Right p)) -> PPipe . Locn l <$> checkApply p (Sig (reverse args) out)
 
-     PApp  PVal{} _           -> Left $ "Applying a value."
+     PApp  PVal{} _           -> Left "Applying a value."
      PApp  f      PVal{vX}    ->
-       go (PipeCtx (Just (someValueSomeType vX) : args) out) f
+       go (Sig (Just (someValueSomeType vX) : args) out) f
      PVal{vX} -> Left $ "doCompile:  " <> pack (show vX)
 
-   checkPipeCtx :: SomePipe p -> PipeCtx -> Either e (CPipe p)
-   checkPipeCtx p@(toListSig . somePipeSig -> ListSig sig) = \case
-     PipeCtx [] Nothing  -> Right $ CSomePipe p -- unhinged..
-     PipeCtx ctx -> checkArgs ctx sig
+   checkApply :: SomePipe p -> MSig -> Either e (CPipe p)
+   checkApply p@(somePipeSig -> Sig params (I out)) args = case args of
+     Sig []     Nothing    -> Right $ CSomePipe args p -- special case: unhinged..
+     Sig eArgs  Nothing    -> maybeToLeft (CSomePipe args p) $
+                                checkArgs eArgs params
+     Sig eArgs (Just eRet) -> maybeToLeft (CSomePipe args p) $
+                                checkTy "return value" p eRet out
+                                  (checkArgs eArgs params)
     where
-      checkArgs :: [Maybe SomeType] -> [SomeType] -> Either e (CPipe p)
+      checkArgs :: [Maybe SomeType] -> [I SomeType] -> Maybe e
       checkArgs ctx sig = goCheck 0 ctx sig
        where
-         goCheck :: Int -> [Maybe SomeType] -> [SomeType] -> Either e (CPipe p)
-         goCheck _ [] (_:_) = Left $ "Too many "   <> argcMiss (somePipeName p) argC paramC
-         goCheck _ (_:_) [] = Left $ "Not enough " <> argcMiss (somePipeName p) argC paramC
+         goCheck :: Int -> [Maybe SomeType] -> [I SomeType] -> Maybe e
+         goCheck _ []    [] = Nothing -- success
+         goCheck _ [] (_:_) = Just $ "Too many "   <> argcMiss (somePipeName p) argC paramC
+         goCheck _ (_:_) [] = Just $ "Not enough " <> argcMiss (somePipeName p) argC paramC
          goCheck i (Nothing:ctx') (_:sig') =
            goCheck (i + 1) ctx' sig'
-         goCheck i (Just ctxTy:ctx') (argTy:sig') =
-           if ctxTy == argTy
-           then goCheck (i + 1) ctx' sig'
-           else Left $ mconcat
-                [ "Mismatch for arg ", showT i, " "
-                , "of pipe ", showT (somePipeName p), ": "
-                , "expected: ", showT ctxTy, ", "
-                , "got: ", showT argTy]
+         goCheck i (Just argTy:ctx') (I paramTy:sig') =
+           checkTy ("arg " <> showT i) p argTy paramTy
+             (goCheck (i + 1) ctx' sig')
 
          paramC = length sig - 1
          argC   = length ctx - 1
 
-         argcMiss :: Name Pipe -> Int -> Int -> Text
+         argcMiss :: Name Pipe -> Int -> Int -> e
          argcMiss name _paramC _argC = mconcat
            [ "args for pipe \"", showT name, "\":  "
            , showT paramC, " required, ", showT argC, " passed."]
+      checkTy :: Text -> SomePipe p -> SomeType -> SomeType -> Maybe e -> Maybe e
+      checkTy desc p act exp k
+        | exp == act = k
+        | otherwise = Just $ mconcat
+          [ "Mismatch for ", desc, " "
+          , "of pipe ", showT (somePipeName p), ": "
+          , "expected: ", showT exp, ", "
+          , "got: ", showT act
+          ]
 
--- Empty list represents lack of any restraint.
--- Completely unhinged.
-data PipeCtx =
-  PipeCtx
-  { pcArgs :: [Maybe SomeType]
-  , psRet  :: Maybe SomeType
-  }
-
--- Represents an unknown pipe.
+-- Represents a pipe, known or not.
 data CPipe p
   = CFreePipe
-    { cfpName :: !(QName Pipe)
-    , cfpSig  :: !PipeCtx
+    { cpArgs  :: !MSig
+    , cfpName :: !(QName Pipe)
     }
   | CSomePipe
-    { cspPipe :: !(SomePipe p)
+    { cpArgs  :: !MSig
+    , cspPipe :: !(SomePipe p)
     }
 
 instance Show (CPipe p) where
-  show (CFreePipe name ctx) =
-    "UnkPipe "<>(show name <>" :: "
-              <>(T.unpack $ T.intercalate " ⇨  "
-                  (maybe "???" (showSomeType False) <$> unPipeCtx ctx)))
-  show (CSomePipe (G p))    = "GPipe "<>unpack (showPipe p)
-  show (CSomePipe (T p))    = "TPipe "<>unpack (showPipe p)
+  show (CFreePipe args name) = mconcat
+    [ show name
+    , " :?: "
+    , T.unpack $ T.intercalate " ⇨ "
+      (maybe "(?)" (showSomeType False) <$> unListSig (toListSig args))]
+  show (CSomePipe args G{..}) = unpack (showPipe gPipe)
+  show (CSomePipe args T{..}) = unpack (showPipe tPipe)
 
 showT :: Show a => a -> Text
 showT = pack . show

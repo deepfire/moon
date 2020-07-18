@@ -141,7 +141,12 @@ executable lift
   main-is:             MainLift.hs
   build-depends:       common
                      , lift
+
                      , base
+                     , containers
+                     , monoidal-containers
+                     , parsec
+                     , reflex-vty
 
 executable cli
   default-language:    Haskell2010
@@ -156,12 +161,14 @@ executable cli
                      , contra-tracer
                      , fingertree
                      , io-sim-classes
+                     , monoidal-containers
                      , optparse-applicative
                      , parsec
                      , reflex
                      , reflex-vty
                      , safe
                      , serialise
+                     , set-monad
                      , shelly
                      , text
                      , tuple

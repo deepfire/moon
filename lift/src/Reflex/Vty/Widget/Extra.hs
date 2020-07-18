@@ -19,7 +19,6 @@ import           Data.Functor ((<&>))
 import           Data.List                             as List
 import           Data.Maybe (fromMaybe)
 import           Data.Text (Text, pack, unpack)
-import qualified Data.Text as T
 import           Data.Text.Zipper
 import           Data.Text.Zipper.Extra
 
@@ -31,7 +30,9 @@ import           Reflex.Vty.Widget.Layout
 
 import qualified Graphics.Vty as V
 
-import           Basis (lcons2, uncurry3)
+import           Basis hiding (Dynamic, left, right)
+
+import Debug.Reflex
 
 
 type ReflexVty t m =
@@ -49,153 +50,149 @@ newtype Height = Height { unHeight :: Int }
 newtype Index  = Index  { unIndex  :: Int } deriving Show
 newtype Column = Column { unColumn :: Int } deriving Show
 
+instance (Show a, Show b) => Show (Selection a b) where
+  show Selection{..} = unpack $ mconcat
+    [ "#<Sel "
+    , "i", pack . show $ unIndex selIndex, " "
+    , "c", pack . show $ unColumn selColumn, " "
+    , "v:", pack $ show selValue, " "
+    , "e:", pack $ show selExt
+    , ">"
+    ]
+
 data Selection a b
   = Selection
   { selValue     :: !(Maybe a)
   , selIndex     :: !Index
   , selColumn    :: !Column
-  , selCompleted :: !Bool
+  , selCompleted :: !(Maybe Char)
   , selInput     :: !Text
   , selExt       :: !b
   }
-instance Show a => Show (Selection a b) where
-  show Selection{..} = unpack $ mconcat
-    [ "#<Sel "
-    , "_", selInput, "_ "
-    , "ix=", pack . show $ unIndex selIndex, " "
-    , "col=", pack . show $ unColumn selColumn, " "
-    , "cmp=", pack . show $ selCompleted, " "
-    , "val=", pack $ show selValue
-    , ">"
-    ]
 
 data SelectorFrameParams t m a b =
   SelectorFrameParams
   { sfpElems     :: ![a]
+  , sfpCompletep :: !(Maybe Char -> Char -> Bool)
   , sfpSelection :: !(Selection a b)
   , sfpShow      :: !(a -> Text)
   , sfpPresent   :: !(a -> Behavior t Bool -> VtyWidget t m a)
   }
 
-data Selector t a b =
+data Selector t m a b =
   Selector
-  { selrSelection :: !(Event t (Selection a b))
-  , selrChoice    :: !(Event t (Maybe a))
+  { selrSelection :: !(Event t (Selection a b)) --(SelectorFrameParams t m a b)
+  , selrChoice    :: !(Event t a)
   }
 
 type CWidget t m = (Reflex t, Adjustable t m, NotReady t m, PostBuild t m, MonadHold t m, MonadFix m, MonadNodeId m)
 
 emptySelection :: b -> Selection a b
-emptySelection = Selection Nothing (Index 0) (Column 0) False ""
+emptySelection = Selection Nothing (Index 0) (Column 0) Nothing ""
 
 selector ::
   forall t m a b
-  . (CWidget t m, Eq a, Show a, Monoid b)
+  . (CWidget t m, Eq a, Show a, Show b)
   => DynRegion t
-  -> (Width -> [a] -> Selection a b -> SelectorFrameParams t m a b)
-  -> Reflex.Dynamic t [a]
-  -> VtyWidget t m (Selector t a b)
-selector region@(DynRegion l u w h) computeSelectorFrameParams xsD = mdo
-  let noSelection = emptySelection mempty
-  sfp0 <-
-    computeSelectorFrameParams
-      <$> (Width <$> sample (current $ _dynRegion_width region))
-      <*> sample (current xsD)
-      <*> pure noSelection
+  -> Reflex.Dynamic t (SelectorFrameParams t m a b)
+  -> VtyWidget t m (Selector t m a b)
+selector (DynRegion l u w h) sfpD = mdo
+  sfp0 <- sample (current sfpD)
 
   selectE <-
     switchDyn
       <$> (networkHold
             (selectorFrame sfp0)
-            (selectorFrame . uncurry3 computeSelectorFrameParams
-              <$> attachPromptlyDynWith lcons2
-                  (Width <$> _dynRegion_width region)
-                  (attachPromptlyDynWith (,)
-                   xsD
-                   selectE))
+            (selectorFrame <$> updated sfpD)
             :: VtyWidget t m (Dynamic t (Event t (Selection a b))))
     :: VtyWidget t m (Event t (Selection a b))
 
   pure Selector
     { selrSelection = selectE
-    -- XXX: we don't have nice text input facilities yet (that tell us about completion),
-    --      and so we must detect if it happened
-    , selrChoice    = fforMaybe selectE $
-                      \Selection{..}->
-                        if selCompleted
-                        then Just selValue
-                        else Nothing
+    , selrChoice    = fmapMaybe id $
+                      selectE <&>
+                        \Selection{..}->
+                          join $ selCompleted $> selValue
     }
  where
-   selectorFrame :: SelectorFrameParams t m a b
-                 -> VtyWidget t m (Event t (Selection a b))
+   selectorFrame ::
+     SelectorFrameParams t m a b ->
+     VtyWidget t m (Event t (Selection a b))
    selectorFrame SelectorFrameParams{sfpSelection=Selection{..}, ..} = do
-     let menuH    = pure $ List.length sfpElems + 2
-         menuReg  = DynRegion l (u + h - menuH - 1) (w - 2) menuH
-         inputReg = DynRegion l (u + h - 1)          w      1
 
      menuChoiceD :: Dynamic t (Maybe a) <-
        menu menuReg (fmap fbFocused . focusButton sfpPresent)
-                     selIndex sfpElems
-     offtInputE :: Event t (Column, Text) <-
-       completingInput inputReg ((sfpShow <$>) <$> current menuChoiceD)
+            selIndex sfpElems
+
+     offtInputE :: Event t (Column, Text, Maybe Char) <-
+       completingInput inputReg
+                       sfpCompletep
+                       ((sfpShow <$>) <$> current menuChoiceD)
                        "> " selInput selColumn
 
-     let selectionE = attachPromptlyDyn menuChoiceD offtInputE
-           <&> \(val, (newCol, newInput)) ->
-                 Selection
-                 { selValue  = val
-                 , selColumn = newCol
-                 , selInput  = newInput
-                 , selIndex  = val <&>
-                               (flip List.elemIndex sfpElems
-                                >>> fmap Index)
-                               & join
-                               & fromMaybe (Index 0)
-                 , selExt    = selExt
-                 , selCompleted =
-                   let strIx = unColumn newCol - 1
-                   in if strIx < T.length newInput && strIx >= 0
-                      then T.index newInput strIx == ' '
-                      else False
-                 }
-     pure selectionE
+     pure $
+       attachPromptlyDyn menuChoiceD offtInputE
+         <&> \(menuChoice, (newCol, newInput, maybeCompl)) ->
+              Selection
+              { selValue  = menuChoice
+              , selColumn = newCol
+              , selInput  = newInput
+              , selIndex  = menuChoice  <&>
+                            (flip List.elemIndex sfpElems
+                             >>> fmap Index)
+                            & join
+                            & fromMaybe (Index 0)
+              , selExt    = selExt
+              , selCompleted = maybeCompl
+              }
+    where
+      menuH    = pure $ List.length sfpElems + 2
+      menuReg  = DynRegion l (u + h - menuH - 1) (w - 2) menuH
+      inputReg = DynRegion l (u + h - 1)          w      1
 
 completingInput
   :: ReflexVty t m
-  => DynRegion t             -- ^ Widget's region
-  -> Behavior t (Maybe Text) -- ^ If user requests completion, that's what to.
-  -> Text                    -- ^ Prompt.
-  -> Text                    -- ^ Initial value.
-  -> Column                  -- ^ Initial position.
-  -> VtyWidget t m (Event t (Column, Text))
-completingInput r@(DynRegion _ _ rw _) completion prompt text0 (Column col0) = do
-  TextInput txtD _ xyD <-
+  => DynRegion t                  -- ^ Widget's region
+  -> (Maybe Char -> Char -> Bool) -- ^ Are we completing?
+  -> Behavior t (Maybe Text)      -- ^ If user requests completion, that's what to.
+  -> Text                         -- ^ Prompt.
+  -> Text                         -- ^ Initial value.
+  -> Column                       -- ^ Initial position.
+  -> VtyWidget t m (Event t (Column, Text, Maybe Char))
+completingInput r@(DynRegion _ _ rw _)
+ completep completion prompt text0 (Column col0) = do
+  TextInput sTxtD _ xyD <-
     pane r (pure True) $ row $ do
       fixedInert 2 $
         richTextStatic (foregro V.blue) (pure prompt)
       fixed (rw - 2) $
         textInput completion $
-          def
-          { _textInputConfig_initialValue = fromText text0 & top & rightN col0
+          (defaultTextInputConfig Nothing)
+          { _textInputConfig_initialValue = fromText text0 & top & rightN col0 & (Nothing,)
           , _textInputConfig_handler = interactorEventHandler
           }
-  utxtD <- holdUniqDyn txtD
-  pure $ updated $ zipDyn (Column . fst <$> xyD) utxtD
+  uSTxtD <- holdUniqDyn sTxtD
+    -- ..now.. how does it change our model?
+    -- ..as it probably fires coincidentally with txtD
+    -- ..should it be an event, or should the TextZipper be just extended?
+  pure . updated $
+    zipDynWith lcons2
+      (Column . fst <$> xyD)
+      (swap <$> uSTxtD)
  where
    interactorEventHandler
-     :: TextInputConfig t (Maybe Text)
+     :: TextInputConfig t (Maybe Char) (Maybe Text)
      -> Int
      -> Maybe Text
      -> V.Event
-     -> TextZipper -> TextZipper
+     -> TextZipper -> (Maybe Char, TextZipper)
    interactorEventHandler TextInputConfig{..} pageSize mText = \case
      -- Special characters
-     V.EvKey (V.KChar '\t') [] -> complete mText
-     V.EvKey (V.KChar  ' ') [] -> complete mText
-     ev -> case ev of
-       -- Regular characters
-       V.EvKey (V.KChar k) [] -> insertChar k
+     V.EvKey (V.KChar c) [] ->
+       \z -> if completep (lookCharLeft z) c
+             then (Just c, complete c mText z)
+             else (Nothing, insertChar c z)
+     ev -> ((Nothing,) .) $ case ev of
        -- Deletion buttons
        V.EvKey V.KBS [] -> deleteLeft
        V.EvKey V.KDel [] -> deleteRight

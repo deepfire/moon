@@ -14,8 +14,8 @@ import Pipe.Ops.Internal
 -- * Running
 --
 runPipe :: SomePipe Dynamic -> Result SomeValue
-runPipe (T p) = pure . Left $ "runPipe:  non-Ground pipe: " <> showPipe p
-runPipe (G Pipe{pDesc, p}) = runPipe' pDesc p
+runPipe T{tPipe=t@Pipe{pDesc, p}} = pure . Left $ "runPipe:  non-Ground pipe: " <> showPipe t
+runPipe G{gPipe=  Pipe{pDesc, p}} = runPipe' pDesc p
 
 runPipe'
   :: forall c (as :: [*]) o. PipeConstr c as o
@@ -38,7 +38,7 @@ genG
   -> Type kt tt
   -> Result (Repr kt tt)
   -> SomePipe Dynamic
-genG n to pf = G $ gen' n to pf
+genG n to pf = G mempty $ gen' n to pf
 
 gen
   :: forall kt tt
@@ -47,7 +47,7 @@ gen
   -> Type kt tt
   -> Result (Repr kt tt)
   -> SomePipe Dynamic
-gen n to pf = T $ gen' n to pf
+gen n to pf = T mempty $ gen' n to pf
 
 linkG
   :: forall kf tf kt tt
@@ -59,7 +59,7 @@ linkG
   -> Type kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> SomePipe Dynamic
-linkG n from to pf = G $ link' n from to pf
+linkG n from to pf = G mempty $ link' n from to pf
 
 link
   :: forall kf tf kt tt
@@ -71,7 +71,7 @@ link
   -> Type kt tt
   -> (Repr kf tf -> Result (Repr kt tt))
   -> SomePipe Dynamic
-link n from to pf = T $ link' n from to pf
+link n from to pf = T mempty $ link' n from to pf
 
 gen'
   :: forall kf tf kt tt c

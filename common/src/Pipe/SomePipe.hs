@@ -3,6 +3,8 @@
 {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls -Wno-orphans -Wno-unticked-promoted-constructors #-}
 module Pipe.SomePipe
   ( SomePipe(..)
+  , somePipeSetQName
+  , somePipeQName
   , somePipeName
   , somePipeSig
   , withSomePipe
@@ -27,12 +29,16 @@ import Pipe.Pipe
 --   - wire-transportable types (constrained 'Ground') vs. 'Top'-(un-)constrained
 --   - saturated vs. unsaturated.
 data SomePipe (p :: *)
-  = forall (kas :: [*]) (o :: *)
-    .     (PipeConstr  Ground kas o)
-    => G  (Pipe        Ground (kas :: [*]) (o :: *) (p :: *))
-  | forall (kas :: [*]) (o :: *)
-    .     (PipeConstr  Top    kas o)
-    => T  (Pipe        Top    (kas :: [*]) (o :: *) (p :: *))
+  = forall (kas :: [*]) (o :: *). (PipeConstr  Ground kas o) =>
+    G
+    { spQName :: !(QName Pipe)
+    , gPipe   :: !(Pipe Ground (kas :: [*]) (o :: *) (p :: *))
+    }
+  | forall (kas :: [*]) (o :: *). (PipeConstr  Top    kas o) =>
+    T
+    { spQName :: !(QName Pipe)
+    , tPipe   :: !(Pipe Top    (kas :: [*]) (o :: *) (p :: *))
+    }
 
 -- | Result of running a pipe.
 type Result a = IO (Either Text a)
@@ -41,8 +47,15 @@ type Result a = IO (Either Text a)
 -- * SomePipe
 --
 pattern GPipeD, TPipeD :: Name Pipe -> ISig -> Struct -> SomeTypeRep -> SomePipe p
-pattern GPipeD name sig str rep <- G (PipeD name sig str rep _ _ _)
-pattern TPipeD name sig str rep <- T (PipeD name sig str rep _ _ _)
+pattern GPipeD name sig str rep <- G _ (PipeD name sig str rep _ _ _)
+pattern TPipeD name sig str rep <- T _ (PipeD name sig str rep _ _ _)
+
+somePipeSetQName :: QName Pipe -> SomePipe p -> SomePipe p
+somePipeSetQName x (G _ p) = G x p
+somePipeSetQName x (T _ p) = T x p
+
+somePipeQName :: SomePipe p -> QName Pipe
+somePipeQName = spQName
 
 somePipeName :: SomePipe p -> Name Pipe
 somePipeName (GPipeD name _ _ _) = coerceName name
@@ -64,8 +77,8 @@ withSomePipe
       . (PipeConstr c kas o)
       => Pipe c kas  o  p -> a)
   -> a
-withSomePipe (G x) = ($ x)
-withSomePipe (T x) = ($ x)
+withSomePipe G{..} = ($ gPipe)
+withSomePipe T{..} = ($ tPipe)
 
 somePipeUncons
   :: forall (p :: *) (e :: *)
@@ -79,20 +92,17 @@ somePipeUncons
       . (PipeConstr c (ka:kas') o, PipeConstr c kas' o)
       => Pipe c (ka:kas') o p -> Either e (Pipe c kas' o p))
   -> Either e (SomePipe p)
-somePipeUncons (G p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
-somePipeUncons (G p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = G <$> cons p
-somePipeUncons (T p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
-somePipeUncons (T p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = T <$> cons p
+somePipeUncons (G _ p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
+somePipeUncons (G h p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = G h <$> cons p
+somePipeUncons (T _ p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
+somePipeUncons (T h p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = T h <$> cons p
 
 somePipeOutSomeTagType :: SomePipe p -> (SomeTag, SomeTypeRep)
 somePipeOutSomeTagType p =
   withSomePipe p pipeOutSomeTagType
 
-instance Read (SomePipe ()) where
-  readPrec = failRead
-
-instance Eq (SomePipe ()) where
-  -- XXX: potentially problematic instance
+-- XXX: We risk equating different pipes with same names and types.
+instance Eq (SomePipe p) where
   l' == r' =
     withSomePipe l' $ \(pDesc -> l) ->
     withSomePipe r' $ \(pDesc -> r) ->
@@ -100,20 +110,23 @@ instance Eq (SomePipe ()) where
       (pdName   l  == pdName     r) &&
       (pdStruct l  == pdStruct   r)
 
-instance Functor SomePipe where
-  fmap f (G x) = G (f <$> x)
-  fmap f (T x) = T (f <$> x)
-
-instance Ord (SomePipe ()) where
-  -- XXX: potentially problematic instance
+-- XXX: We risk equating different pipes with same names and types.
+instance Ord (SomePipe p) where
   l' `compare` r' =
     withSomePipe l' $ \(pDesc -> l) ->
     withSomePipe r' $ \(pDesc -> r) ->
       pdRep l `compare` pdRep    r
 
+instance Read (SomePipe ()) where
+  readPrec = failRead
+
+instance Functor SomePipe where
+  fmap f (G h x) = G h (f <$> x)
+  fmap f (T h x) = T h (f <$> x)
+
 instance Show (SomePipe p) where
-  show (G p) = "GPipe "<>unpack (showPipe p)
-  show (T p) = "TPipe "<>unpack (showPipe p)
+  show (G _ p) = "GPipe "<>unpack (showPipe p)
+  show (T _ p) = "TPipe "<>unpack (showPipe p)
 
 --------------------------------------------------------------------------------
 -- * Result

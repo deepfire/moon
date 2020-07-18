@@ -4,8 +4,16 @@
 import           Control.Applicative                ((<|>))
 
 import "common" Type as T hiding ((<|>))
-import Ground.Parser as G
+
+import Basis
+import Pipe
+import Namespace
+
 import Pipe.Expr as Pipe
-import Text.Parsec as P hiding ((<|>))
-import Text.Parsec.Expr as P hiding ((<|>))
+import Data.Sequence as Seq
 import Data.Text.Zipper as TZ
+import Data.Map.Monoidal.Strict as MMap
+
+-- import Ground.Parser as G
+-- import Text.Parsec as P hiding ((<|>))
+-- import Text.Parsec.Expr as P hiding ((<|>))
