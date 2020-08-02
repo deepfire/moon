@@ -8,7 +8,11 @@ import           Safe
 import           Codec.Serialise                          (Serialise)
 import           Control.Applicative
 import           Control.Concurrent
+import           Control.Concurrent.Chan.Unagi
+                 (Element, InChan, OutChan)
+import qualified Control.Concurrent.Chan.Unagi          as Unagi
 import           Control.Monad
+import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Fix
 import           Control.Monad.NodeId
 import           Control.Tracer
@@ -103,45 +107,45 @@ fetchPSpace =
        Left  e -> fail (unpack e)
 
 main :: IO ()
-main = mainWidget $ do
-  postBuild <- getPostBuild
-  spaceE <- performEventAsync $ ffor postBuild $
-    \_ cb -> doSetup cb
-  spaceD <- holdDyn mempty spaceE
-  spaceInteraction spaceD
- where
-   doSetup fire = Shelly.liftIO $ do
-     timestamp <- Shelly.shelly $ Shelly.run "date" []
-     mreq <- execParser $ (info $ optional Wire.parseRequest <**> helper) (traceErr ("MainCLI::main: " <> unpack timestamp) fullDesc)
-     WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
-       \conn -> do
-         let req = fromMaybe (Wire.Run "space") mreq
-             -- chan   = channelFromWebsocket conn
-         void $ Wire.runClient stderr (channelFromWebsocket conn) $
-           client fire [Wire.Run "dump", req]
+main = do
+  (reqSubmitW, reqSubmitR) :: (InChan Wire.Request, OutChan Wire.Request) <- Unagi.newChan
+  let postRequest :: Wire.Request -> IO ()
+      postRequest = Unagi.writeChan reqSubmitW
+  mainWidget $ do
+    postBuild <- getPostBuild
+    spaceE <- performEventAsync $ ffor postBuild $ \_ fire -> Shelly.liftIO $
+      void $ forkIO $ WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
+        \(channelFromWebsocket -> webSockChan) -> void $
+          Wire.runClient stderr webSockChan $ client reqSubmitR fire
+    spaceD <- holdDyn mempty spaceE
+    spaceInteraction postRequest spaceD
 
-client :: forall rej m a b
+client :: forall rej m a
           . (rej ~ Text, m ~ IO, a ~ Wire.Reply)
-       => (PipeSpace (SomePipe ()) -> IO ())
-       -> [Wire.Request]
+       => OutChan Wire.Request
+       -> (PipeSpace (SomePipe ()) -> IO ())
        -> m (Wire.ClientState rej m a)
-client fire (r0:rs) = pure $
-  Wire.ClientRequesting r0 (handleReply rs)
+client reqsChan postAsEvent =
+  Wire.ClientRequesting
+    <$> Unagi.readChan reqsChan
+    <*> pure handleReply
  where
-   handleReply _ (Left rej) = do
-     putStrLn $ "error: " <> unpack rej
-     pure (Wire.ClientDone $ error $ "error: " <> unpack rej)
-   handleReply (r:rs') _ =
-     pure $ Wire.ClientRequesting r (handleReply rs')
-   handleReply []  (Right r@(Wire.ReplyValue rep)) = do
-     traceIOErr $ "reply: " <> show rep
-     res <- case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep $
-                 \(VPoint space) -> do
-                   fire space
-                   pure r of
-              Right x -> x
+   handleReply
+     :: Either Text Wire.Reply
+     -> IO (Wire.ClientState Text IO Wire.Reply)
+   handleReply (Left rej) = do
+     traceWith stderr $ "error: " <> rej
+     pure . Wire.ClientDone . error $ "error: " <> unpack rej
+   handleReply (Right r@(Wire.ReplyValue rep)) = do
+     traceWith stderr $ "reply: " <> pack (show rep)
+     spc <- case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep $
+                 \(VPoint space) -> space of
+              Right x -> pure x
               Left  e -> fail (unpack e)
-     pure $ Wire.ClientDone res
+     postAsEvent spc
+     Wire.ClientRequesting
+       <$> Unagi.readChan reqsChan
+       <*> pure handleReply
 
 data Acceptable
   = APipe  { unAPipe  :: !(SomePipe ()) }
@@ -173,11 +177,16 @@ acceptablePipe = \case
 
 spaceInteraction ::
      forall    t m
-  .  ReflexVty t m
-  => Reflex.Dynamic t (PipeSpace (SomePipe ()))
+  .  (ReflexVty t m, PerformEvent t m, MonadIO (Performable m))
+  => (Wire.Request -> IO ())
+  -> Reflex.Dynamic t (PipeSpace (SomePipe ()))
   -> VtyWidget t m (Event t ())
-spaceInteraction spaceD = mdo
+spaceInteraction postReq spaceD = mdo
   screenLayout@ScreenLayout{..} <- computeScreenLayout
+
+  postBuild <- getPostBuild
+  void $ performEvent . ffor postBuild . const . liftIO $
+    postReq $ Wire.Run "space"
 
   assemblyD :: Reflex.Dynamic t (Maybe (SomePipe ())) <-
     -- XXX:  what do we want to see here>?
