@@ -44,7 +44,7 @@
         "rollup-plugin-commonjs": "^10.0.1",
         "rollup-plugin-node-builtins": "^2.1.2",
         "rollup-plugin-node-resolve": "^5.2.0",
-        "showdown": "1.8.x",
+        "showdown": "1.9.x",
         "sub-atom": "1.0.x",
         "underscore": "1.8.x",
         "unzipper": "0.9.x",
