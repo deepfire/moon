@@ -16,10 +16,9 @@ module Type
   , coerceName
   , coerceQName
   , Con(..)
-  , Tag(..)
-  , withReifyTag
-  , SomeTag(..)
-  , ReifyTag(..)
+  , CTag(..)
+  , withReifyCTag
+  , ReifyCTag(..)
   , Type(..)
   , splitType
   , Repr
@@ -27,10 +26,10 @@ module Type
   , TypePair(..)
   , OnArg1
   , Arg1
-  , Arg1Tag
+  , Arg1CTag
   , Arg1Ty
   , WithPair
-  , TagOf
+  , CTagOf
   , TypeOf
   , ReprOf
   , Value(..)
@@ -51,8 +50,6 @@ where
 
 import qualified Algebra.Graph                    as G
 import           Codec.Serialise
-import qualified Codec.CBOR.Decoding              as CBOR (decodeWord)
-import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
 import           Control.Monad.Fail                 (MonadFail)
 import           Data.IntervalMap.FingerTree (Interval(..))
 import qualified Data.Sequence                    as Seq
@@ -151,30 +148,30 @@ data Con
   deriving (Eq, Generic, Ord, Read, Show, Typeable)
 
 --------------------------------------------------------------------------------
-data Tag (k :: Con) where
-  TPoint :: Tag Point
-  TList  :: Tag List
-  TSet   :: Tag 'Set
-  TTree  :: Tag Tree
-  TDag   :: Tag Dag
-  TGraph :: Tag Graph
+data CTag (c :: Con) where
+  TPoint :: CTag Point
+  TList  :: CTag List
+  TSet   :: CTag 'Set
+  TTree  :: CTag Tree
+  TDag   :: CTag Dag
+  TGraph :: CTag Graph
   deriving (Typeable)
 
-class ReifyTag (k :: Con) where
-  reifyTag :: Proxy k -> Tag k
+class ReifyCTag (c :: Con) where
+  reifyCTag :: Proxy c -> CTag c
 
-instance ReifyTag Point where reifyTag = const TPoint
-instance ReifyTag List  where reifyTag = const TList
-instance ReifyTag 'Set  where reifyTag = const TSet
-instance ReifyTag Tree  where reifyTag = const TTree
-instance ReifyTag Dag   where reifyTag = const TDag
-instance ReifyTag Graph where reifyTag = const TGraph
+instance ReifyCTag Point where reifyCTag = const TPoint
+instance ReifyCTag List  where reifyCTag = const TList
+instance ReifyCTag 'Set  where reifyCTag = const TSet
+instance ReifyCTag Tree  where reifyCTag = const TTree
+instance ReifyCTag Dag   where reifyCTag = const TDag
+instance ReifyCTag Graph where reifyCTag = const TGraph
 
-instance NFData (Tag k) where
+instance NFData (CTag c) where
   rnf TPoint = ()
   rnf _      = ()
 
-instance Eq (Tag k) where
+instance Eq (CTag c) where
   TPoint == TPoint = True
   TList  == TList  = True
   TSet   == TSet   = True
@@ -182,7 +179,7 @@ instance Eq (Tag k) where
   TDag   == TDag   = True
   TGraph == TGraph = True
 
-instance Ord (Tag k) where
+instance Ord (CTag c) where
   compare TPoint TPoint = EQ
   compare TList  TList  = EQ
   compare TSet   TSet   = EQ
@@ -191,32 +188,7 @@ instance Ord (Tag k) where
   compare TGraph TGraph = EQ
 
 --------------------------------------------------------------------------------
-data SomeTag where
-  SomeTag
-    :: (ReifyTag k, Typeable k)
-    => Tag (k :: Con) -> SomeTag
-
-instance Serialise SomeTag where
-  encode = CBOR.encodeWord . \(SomeTag tag) -> case tag of
-    TPoint -> 1
-    TList  -> 2
-    TSet   -> 3
-    TTree  -> 4
-    TDag   -> 5
-    TGraph -> 6
-  decode = do
-    tag <- CBOR.decodeWord
-    case tag of
-      1 -> pure $ SomeTag TPoint
-      2 -> pure $ SomeTag TList
-      3 -> pure $ SomeTag TSet
-      4 -> pure $ SomeTag TTree
-      5 -> pure $ SomeTag TDag
-      6 -> pure $ SomeTag TGraph
-      _ -> fail $ "invalid SomeTag encoding: tag="<>show tag
-
---------------------------------------------------------------------------------
-data Type (k :: Con) (a :: *) where
+data Type (c :: Con) (a :: *) where
   TPoint'  :: Type Point a
   TList'   :: Type List  a
   TSet'    :: Type 'Set  a
@@ -225,8 +197,8 @@ data Type (k :: Con) (a :: *) where
   TGraph'  :: Type Graph a
   deriving (Typeable)
 
-splitType :: forall k a. ReifyTag k => Type k a -> (Tag k, Proxy a)
-splitType _ = (,) (reifyTag $ Proxy @k) (Proxy @a)
+splitType :: forall c a. ReifyCTag c => Type c a -> (CTag c, Proxy a)
+splitType _ = (,) (reifyCTag $ Proxy @c) (Proxy @a)
 
 --------------------------------------------------------------------------------
 type family Repr (k :: Con) (a :: *) :: * where
@@ -244,7 +216,7 @@ type family Repr (k :: Con) (a :: *) :: * where
   --            that which already exists?
   -- Option:    Set of pairs with enforced left hand uniqueness?
 
-mapRepr :: Tag k -> (a -> b) -> Repr k a -> Repr k b
+mapRepr :: CTag k -> (a -> b) -> Repr k a -> Repr k b
 mapRepr TPoint f = f
 mapRepr TList  f = fmap f
 mapRepr TSet   f = fmap f
@@ -252,8 +224,8 @@ mapRepr TTree  f = fmap f
 mapRepr TDag   f = fmap f
 mapRepr TGraph f = fmap f
 
-withReifyTag :: Tag k -> (ReifyTag k => r) -> r
-withReifyTag = \case
+withReifyCTag :: CTag k -> (ReifyCTag k => r) -> r
+withReifyCTag = \case
   TPoint -> id
   TList  -> id
   TSet   -> id
@@ -265,8 +237,8 @@ withReifyTag = \case
 data family TypePair t :: *
 
 data instance TypePair ty where
-  TypePair :: (ty ~ Type k a, ReifyTag k, Typeable k, Typeable a) =>
-    { tpTag  :: Tag k
+  TypePair :: (ty ~ Type k a, ReifyCTag k, Typeable k, Typeable a) =>
+    { tpCTag :: CTag k
     , tpType :: Proxy a
     } -> TypePair (Type k a)
 
@@ -289,20 +261,20 @@ type family Arg1Ty (arg1ty :: [*]) :: * where
   Arg1Ty (Type _ a:_) = a
   Arg1Ty xs = TypeError (Ty.Text "Arg1Ty: no argument: " :<>: ShowType xs)
 
-type family Arg1Tag (arg1tag :: [*]) :: Con where
-  Arg1Tag (Type k _:_) = k
-  Arg1Tag xs = TypeError (Ty.Text "Arg1Tag: no argument: " :<>: ShowType xs)
+type family Arg1CTag (arg1ctag :: [*]) :: Con where
+  Arg1CTag (Type k _:_) = k
+  Arg1CTag xs = TypeError (Ty.Text "Arg1CTag: no argument: " :<>: ShowType xs)
 
 type family TypeOf (typeof :: *) :: * where
   TypeOf (Type _ a) = a
   TypeOf x = TypeError (Ty.Text "TypeOf: invalid argument: " :<>: ShowType x)
 
-type family TagOf (tagof :: *) :: Con where
-  TagOf (Type k _) = k
-  TagOf  x = TypeError (Ty.Text "TagOf: invalid argument: " :<>: ShowType x)
+type family CTagOf (tagof :: *) :: Con where
+  CTagOf (Type c _) = c
+  CTagOf  x = TypeError (Ty.Text "CTagOf: invalid argument: " :<>: ShowType x)
 
 type WithPair (ty :: *) (k :: Con) (a :: *)
-  = (TagOf ty ~ k, TypeOf ty ~ a)
+  = (CTagOf ty ~ k, TypeOf ty ~ a)
 
 type family ReprOf (reprof :: *) :: * where
   ReprOf (Type k a) = Repr k a
@@ -318,7 +290,7 @@ data Value (k :: Con) a where
   VGraph  :: Repr Graph a -> Value Graph a
   deriving (Typeable)
 
-mkValue' :: Proxy a -> Tag k -> Repr k a -> Value k a
+mkValue' :: Proxy a -> CTag k -> Repr k a -> Value k a
 mkValue' = const $ \case
   TPoint -> VPoint
   TList  -> VList
@@ -327,7 +299,7 @@ mkValue' = const $ \case
   TDag   -> VDag
   TGraph -> VGraph
 
-mkValue :: Proxy a -> Tag k -> Repr k a -> Value k a
+mkValue :: Proxy a -> CTag k -> Repr k a -> Value k a
 mkValue = const $ \case
   TPoint -> VPoint
   TList  -> VList
@@ -384,7 +356,7 @@ instance SOP.Generic         Con
 instance SOP.HasDatatypeInfo Con
 instance Serialise           Con
 
-instance Read (Some Tag) where
+instance Read (Some CTag) where
   readPrec = do
     con <- lexP
     case con of
@@ -394,10 +366,10 @@ instance Read (Some Tag) where
       Ident "Tree"  -> pure . Exists $ TTree
       Ident "Dag"   -> pure . Exists $ TDag
       Ident "Graph" -> pure . Exists $ TGraph
-      _ -> trace (printf "Unknown Tag: %s" (show con))
+      _ -> trace (printf "Unknown CTag: %s" (show con))
                  (fail "")
 
-instance Show (Tag k) where
+instance Show (CTag k) where
   show TPoint = "TPoint"
   show TList  = "TList"
   show TSet   = "TSet"

@@ -22,96 +22,96 @@ runPipe'
   => Desc c as o
   -> Dynamic
   -> Result SomeValue
-runPipe' pd@Desc{pdOut=TypePair{tpTag, tpType}} dyn =
+runPipe' pd@Desc{pdOut=TypePair{tpCTag, tpType}} dyn =
   case fromDynamic dyn :: Maybe (IOA Ground '[] o) of
     Nothing -> pure . Left $ "Incomplete pipe: " <> showDesc pd
     Just (IOA io _c _as _o) ->
-      (SomeValue . SomeKindValue tpTag . mkValue tpType tpTag <$>) <$> io
+      (SomeValue tpCTag . SomeValueKinded . mkValue tpType tpCTag <$>) <$> io
 
 
 -- * Constructors
 --
 genG
-  :: forall kt tt
-  .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Ground tt)
+  :: forall ct tt
+  .  (ReifyCTag ct, Typeable (Repr ct tt), Typeable ct, Ground tt)
   => Name Pipe
-  -> Type kt tt
-  -> Result (Repr kt tt)
+  -> Type ct tt
+  -> Result (Repr ct tt)
   -> SomePipe Dynamic
 genG n to pf = G mempty $ gen' n to pf
 
 gen
-  :: forall kt tt
-  .  (ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt)
+  :: forall ct tt
+  .  (ReifyCTag ct, Typeable (Repr ct tt), Typeable ct, Typeable tt)
   => Name Pipe
-  -> Type kt tt
-  -> Result (Repr kt tt)
+  -> Type ct tt
+  -> Result (Repr ct tt)
   -> SomePipe Dynamic
 gen n to pf = T mempty $ gen' n to pf
 
 linkG
-  :: forall kf tf kt tt
-  . ( ReifyTag kf,ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
-    , Typeable kf, Typeable tf, Typeable kt
+  :: forall cf tf ct tt
+  . ( ReifyCTag cf,ReifyCTag ct, Typeable (Repr cf tf), Typeable (Repr ct tt)
+    , Typeable cf, Typeable tf, Typeable ct
     , Ground tt)
   => Name Pipe
-  -> Type kf tf
-  -> Type kt tt
-  -> (Repr kf tf -> Result (Repr kt tt))
+  -> Type cf tf
+  -> Type ct tt
+  -> (Repr cf tf -> Result (Repr ct tt))
   -> SomePipe Dynamic
 linkG n from to pf = G mempty $ link' n from to pf
 
 link
-  :: forall kf tf kt tt
-  . ( ReifyTag kf, ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
-    , Typeable kf, Typeable tf, Typeable kt
+  :: forall cf tf ct tt
+  . ( ReifyCTag cf, ReifyCTag ct, Typeable (Repr cf tf), Typeable (Repr ct tt)
+    , Typeable cf, Typeable tf, Typeable ct
     , Typeable tt)
   => Name Pipe
-  -> Type kf tf
-  -> Type kt tt
-  -> (Repr kf tf -> Result (Repr kt tt))
+  -> Type cf tf
+  -> Type ct tt
+  -> (Repr cf tf -> Result (Repr ct tt))
   -> SomePipe Dynamic
 link n from to pf = T mempty $ link' n from to pf
 
 gen'
-  :: forall kf tf kt tt c
-  .  ( kf ~ 'Point, tf ~ ()
-     , ReifyTag kt, Typeable (Repr kt tt), Typeable kt, Typeable tt, Typeable c
+  :: forall cf tf ct tt c
+  .  ( cf ~ 'Point, tf ~ ()
+     , ReifyCTag ct, Typeable (Repr ct tt), Typeable ct, Typeable tt, Typeable c
      , c tt)
   => Name Pipe
-  -> Type kt tt
-  -> Result (Repr kt tt)
-  -> Pipe c '[] (Type kt tt) Dynamic
+  -> Type ct tt
+  -> Result (Repr ct tt)
+  -> Pipe c '[] (Type ct tt) Dynamic
 gen' name (splitType -> (tagTo, pTo)) mv
   -- TODO: validate types against the typerep/dynamic
                 = Pipe desc dyn
-  where ty      = tagSomeType tagTo pTo
+  where ty      = ctagSomeType tagTo pTo
         desc    = Desc name sig struct (dynRep dyn) Nil (TypePair tagTo pTo)
         sig     = Sig [] (I ty)
         struct  = Struct graph
         graph   = G.vertex ty
         dyn     = Dynamic typeRep pipeFun
-        pipeFun = IOA mv Proxy Proxy Proxy :: IOA c '[] (Type kt tt)
+        pipeFun = IOA mv Proxy Proxy Proxy :: IOA c '[] (Type ct tt)
 
 link'
-  :: forall kf tf kt tt c
-  . ( ReifyTag kf, ReifyTag kt, Typeable (Repr kf tf), Typeable (Repr kt tt)
-    , Typeable kf, Typeable tf, Typeable kt, Typeable tt, Typeable c
+  :: forall cf tf ct tt c
+  . ( ReifyCTag cf, ReifyCTag ct, Typeable (Repr cf tf), Typeable (Repr ct tt)
+    , Typeable cf, Typeable tf, Typeable ct, Typeable tt, Typeable c
     , c tt)
   => Name Pipe
-  -> Type kf tf
-  -> Type kt tt
-  -> (Repr kf tf -> Result (Repr kt tt))
-  -> Pipe c '[Type kf tf] (Type kt tt) Dynamic
-link' name (splitType -> (kf, tf)) (splitType -> (kt, tt)) mf
+  -> Type cf tf
+  -> Type ct tt
+  -> (Repr cf tf -> Result (Repr ct tt))
+  -> Pipe c '[Type cf tf] (Type ct tt) Dynamic
+link' name (splitType -> (cf, tf)) (splitType -> (ct, tt)) mf
                 = Pipe desc dyn
-  where desc    = Desc name sig struct (dynRep dyn) (TypePair kf tf :* Nil) (TypePair kt tt)
-        sig     = Sig [I $ tagSomeType kf tf] (I $ tagSomeType kt tt)
+  where desc    = Desc name sig struct (dynRep dyn) (TypePair cf tf :* Nil) (TypePair ct tt)
+        sig     = Sig [I $ ctagSomeType cf tf] (I $ ctagSomeType ct tt)
         struct  = Struct G.empty
           -- G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
         ---------
         dyn     = Dynamic typeRep pipeFun
-        pipeFun = IOA mf Proxy Proxy Proxy :: IOA c '[Type kf tf] (Type kt tt)
+        pipeFun = IOA mf Proxy Proxy Proxy :: IOA c '[Type cf tf] (Type ct tt)
 
 -- emptyDesc :: Name Pipe -> Desc Ground '[] ()
 -- emptyDesc name = Desc

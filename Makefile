@@ -32,6 +32,6 @@ GRAPH_IGNORES += --remove-qual Reflex
 GRAPH_IGNORES += --remove-module Basis
 ${GRAPH}:
 	graphmod --no-cabal ${ENTRY} ${GRAPH_IGNORES} -ilift/src -icommon/src | dot -Tpdf > $@
-	evince ${GRAPH} 2>/dev/null
+	evince $@ 2>/dev/null
 
 .PHONY: ${GRAPH}

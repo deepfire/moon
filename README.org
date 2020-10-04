@@ -1,4 +1,53 @@
+* Genesis
+
+The brief description: this is an RPC-based continuation of =holotype=:
+
+   https://github.com/deepfire/holotype
+
 The visualisation part of this project is based on =luna-studio=:
 
    https://github.com/luna/luna-studio
 
+* Ground type pipeline
+
+  - Type
+    - Ground         = Ord, Typeable, Serialise, Parse, Read, Show
+    - GroundData     = Ground a, HasTypeData Ground a
+    - GroundDataFull = Ground a, HasTypeData Ground a, All2 Ground (Code a)
+  - SomeValue
+    - SomeValueKinded -- avoidable, just needs a Ground-free variant
+    - readSomeValue <- TyDictGround -- for Read
+  - Ground
+    - Hask
+      - URL, FileName, Loc, Index, Repo, Package, Module, Def, DefType
+    - Table
+      - groundTypes :: TyDicts Ground
+      - lookupRep, lookupName, lookupNameRep -> groundTypes
+      - groundTypeReps, groundTypeNames      -> groundTypes
+      - withRepGroundType, withNameGroundType -> lookup*
+      - parseDict, Read (TyDict Ground) -> lookupName
+      - parseSomeValue
+        - Text, Integer, Double,
+        - Point, List, Set
+      - Read SomeValue -> readSomeValue
+      - Parse (TyDict Ground) -> parseDict
+      - Parse SomeValue -> parseSomeValue
+      - mkSaturatedPipe
+        - lookupRep (someTypeRep $ Proxy @out)
+          1. Pipe Ground xs out a
+          2. Pipe Top    xs out a
+      - Serialise (SomePipe ()) -> mkSaturatedPipe
+  - Pipe
+    - Expr
+      - parseExpr -> parseSomeValue <= Ground
+    - Scope
+      - dataProjScopeG
+    - SomePipe -- G :: SomePipe obv. carries Ground
+  - Wire
+    - Protocol
+      - withRepGroundType -> lookupRep
+      - groundTypeReps
+      - Serialise SomeValue -> withRepGroundType, groundTypeReps
+  - Lift
+    - Pipe
+      - rootScope pulls in groundTypeNames & lookupNameRep

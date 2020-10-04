@@ -63,9 +63,9 @@ dataProjPipes
     , SOP.HasTypeData c u, SOP.Generic u
     , All2 (SOP.And Typeable c) (SOP.Code u)
     , c u)
-  => (forall (kas :: [*]) (o :: *)
-      .  PipeConstr c kas o
-      => Pipe c (kas :: [*]) (o :: *) Dynamic
+  => (forall (cas :: [*]) (o :: *)
+      .  PipeConstr c cas o
+      => Pipe c (cas :: [*]) (o :: *) Dynamic
       -> SomePipe Dynamic)
   -> Proxy c -> Proxy u -> [SomePipe Dynamic]
 dataProjPipes ctor c u =

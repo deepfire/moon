@@ -47,10 +47,10 @@ compose
 compose pf f v =
   somePipeUncons f
   (const "Cannot apply value to a saturated pipe.") $
-  \(f' :: Pipe cf (ka : kas) fo p) ->
+  \(f' :: Pipe cf (ca : cas) fo p) ->
     withSomePipe v $
     \(v' :: Pipe cv _vas vo p) ->
-    case typeRep @ka  `eqTypeRep` typeRep @vo of
+    case typeRep @ca  `eqTypeRep` typeRep @vo of
       Just HRefl -> compose'' pf f' v'
       _ -> error "compose"
 
@@ -72,7 +72,7 @@ compose''
   -> Pipe cv vas vo p
   -> Either Text (Pipe cf ras fo p)
 compose'' pf
-  -- | Just HRefl <- typeRep @kt2 `eqTypeRep` typeRep @kf1
+  -- | Just HRefl <- typeRep @ct2 `eqTypeRep` typeRep @cf1
   -- , Just HRefl <- typeRep @tt2 `eqTypeRep` typeRep @tf1
   | True
   = compose' pf
@@ -179,7 +179,7 @@ compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
                 --        fo
                 --        :: IOA cf (va : ras) fo)
                 _ -> Left . pack $ printf
-                     "compDyn: unhandled value arity >f: kasf %s"
+                     "compDyn: unhandled value arity >f: casf %s"
                      (show $ typeRep @vas)
             _ ->
               Left . pack $ printf

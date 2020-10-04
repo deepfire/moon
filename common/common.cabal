@@ -31,6 +31,7 @@ library
                        Ground.Parser
                        -- Ground.Reflection
                        Ground.Table
+                       Ground.TH
 
                        Pipe.Expr
                        Pipe.Ops
@@ -73,6 +74,8 @@ library
                      , cborg
                      , containers
                      , deepseq
+                     , dependent-map
+                     , dependent-sum
                      , either
                      , extra
                      , fclabels
@@ -91,6 +94,7 @@ library
                      , set-monad
                      , sop-core
                      , stm
+                     , template-haskell
                      , text
                      , text-builder
                      , unordered-containers

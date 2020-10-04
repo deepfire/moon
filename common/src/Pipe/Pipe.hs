@@ -8,7 +8,7 @@ module Pipe.Pipe
   , pipeName
   , pipeStruct
   , pipeRep
-  , pipeOutSomeTagType
+  , pipeOutSomeCTagType
   , showPipe
   , showPipeP
   , pipeArityCase
@@ -44,12 +44,12 @@ import SomeType
 
 
 --------------------------------------------------------------------------------
--- * Key types
+-- * cey types
 --
 
 -- | Pipe: component of a computation.  Characterised by:
 --   c  -- either 'Ground' (wire-transportable) or 'Top' (not so)
---   as -- a type-level list of its argument specs, (TypePair (Type k a))
+--   as -- a type-level list of its argument specs, (TypePair (Type c a))
 --   o  -- output type, a single 'TypeSpec' type.
 --   p  -- pipe's representation:
 --           - Dynamic wrapping a function of matching type, or
@@ -65,13 +65,13 @@ deriving instance Ord p => Ord (Pipe c as o p)
 
 -- | Everything there is to be said about a pipe,
 --   except for its representation.
-data Desc (c :: * -> Constraint) (kas :: [*]) (o :: *) =
+data Desc (c :: * -> Constraint) (cas :: [*]) (o :: *) =
   Desc
   { pdName   :: !(Name Pipe)
   , pdSig    :: !ISig
   , pdStruct :: !Struct
   , pdRep    :: !SomeTypeRep           -- ^ Full type of the pipe.
-  , pdArgs   :: !(NP TypePair kas)
+  , pdArgs   :: !(NP TypePair cas)
   , pdOut    :: !(TypePair o)
   }
   deriving (Generic)
@@ -99,15 +99,15 @@ newtype Struct =
 -- * Pipe
 --
 pattern PipeD :: ( ArgConstr c o
-                 , All Typeable kas
-                 , All IsType kas
-                 , All Top (kas :: [*])
+                 , All Typeable cas
+                 , All IsType cas
+                 , All Top (cas :: [*])
                  )
               => Name Pipe -> ISig -> Struct -> SomeTypeRep
-              -> NP TypePair kas
+              -> NP TypePair cas
               -> TypePair o
               -> p
-              -> Pipe c kas o p
+              -> Pipe c cas o p
 -- TODO:  get rid of this, the added benefit is too small.
 pattern PipeD name sig str rep args out p
               <- Pipe (Desc name sig str rep args out) p
@@ -137,18 +137,18 @@ pipeRep   (PipeD _ _ _ rep _ _ _)    = rep
 pipeRep _ = error "impossible pipeRep"
 
 pipeArityCase
-  :: forall (c :: * -> Constraint) (kas :: [*]) (o :: *) (p :: *) (a :: *)
-  .  (PipeConstr c kas o)
-  => Pipe c kas o p
+  :: forall (c :: * -> Constraint) (cas :: [*]) (o :: *) (p :: *) (a :: *)
+  .  (PipeConstr c cas o)
+  => Pipe c cas o p
   -> (forall
-      . (kas ~ '[])
-      => Pipe c kas o p -> a)
-  -> (forall (ka :: *) (kas' :: [*])
-      . (kas ~ (ka:kas'), PipeConstr c kas' o)
-      => Pipe c kas o p -> a)
-  -> (forall (ka :: *) (kas' :: [*])
-      . (kas ~ (ka:kas'), PipeConstr c kas' o, kas' ~ '[])
-      => Pipe c kas o p -> a)
+      . (cas ~ '[])
+      => Pipe c cas o p -> a)
+  -> (forall (ca :: *) (cas' :: [*])
+      . (cas ~ (ca:cas'), PipeConstr c cas' o)
+      => Pipe c cas o p -> a)
+  -> (forall (ca :: *) (cas' :: [*])
+      . (cas ~ (ca:cas'), PipeConstr c cas' o, cas' ~ '[])
+      => Pipe c cas o p -> a)
   -> a
 pipeArityCase p@(Pipe Desc {pdArgs =      Nil} _) nil _ _  = nil p
 pipeArityCase p@(Pipe Desc {pdArgs = _ :* Nil} _) _ _ si   = si p
@@ -174,32 +174,32 @@ showPipe, showPipeP :: Pipe c as o p -> Text
 showPipe  Pipe{pDesc} = showDesc  pDesc
 showPipeP Pipe{pDesc} = showDescP pDesc
 
-pipeOutSomeTagType ::
-  forall c as o ko to p
+pipeOutSomeCTagType ::
+  forall c as o co to p
   . ( PipeConstr c as o
-    , ReifyTag ko
-    , o ~ Type ko to)
-  => Pipe c as o p -> (SomeTag, SomeTypeRep)
-pipeOutSomeTagType PipeD{} =
-  ( SomeTag $ reifyTag $ Proxy @ko
+    , ReifyCTag co
+    , o ~ Type co to)
+  => Pipe c as o p -> (SomeCTag, SomeTypeRep)
+pipeOutSomeCTagType PipeD{} =
+  ( SomeCTag $ reifyCTag $ Proxy @co
   , someTypeRep $ Proxy @to)
-pipeOutSomeTagType _ = error "pipeOutSomeTagType: impossible"
+pipeOutSomeCTagType _ = error "pipeOutSomeCTagType: impossible"
 
-class    ( Typeable (TagOf ct), Typeable (TypeOf ct), Typeable ct
+class    ( Typeable (CTagOf ct), Typeable (TypeOf ct), Typeable ct
          , Top ct
-         , ct ~ Type (TagOf ct) (TypeOf ct)
+         , ct ~ Type (CTagOf ct) (TypeOf ct)
          ) => IsType (ct :: *)
-instance ( Typeable (TagOf ct), Typeable (TypeOf ct), Typeable ct
+instance ( Typeable (CTagOf ct), Typeable (TypeOf ct), Typeable ct
          , Top ct
-         , ct ~ Type (TagOf ct) (TypeOf ct)
+         , ct ~ Type (CTagOf ct) (TypeOf ct)
          ) => IsType (ct :: *)
 
 type ArgConstr (c :: * -> Constraint) (ct :: *)
-  = ( IsType ct, Typeable c, ReifyTag (TagOf ct), c (TypeOf ct))
+  = ( IsType ct, Typeable c, ReifyCTag (CTagOf ct), c (TypeOf ct))
 
-type PipeConstr (c :: * -> Constraint) (kas :: [*]) (o :: *)
-  = ( All IsType kas, ArgConstr c o
-    , All Typeable kas -- why do we need this, when we have IsType?
+type PipeConstr (c :: * -> Constraint) (cas :: [*]) (o :: *)
+  = ( All IsType cas, ArgConstr c o
+    , All Typeable cas -- why do we need this, when we have IsType?
     )
 
 instance Functor (Pipe c as o) where
@@ -208,10 +208,10 @@ instance Functor (Pipe c as o) where
 --------------------------------------------------------------------------------
 -- * Desc
 --
-descOutTag :: Desc c kas (Type to o) -> Tag to
-descOutTag = tpTag . pdOut
+descOutTag :: Desc c cas (Type to o) -> CTag to
+descOutTag = tpCTag . pdOut
 
-descOutType :: Desc c kas (Type to o) -> Proxy o
+descOutType :: Desc c cas (Type to o) -> Proxy o
 descOutType = tpType . pdOut
 
 showDesc, showDescP :: Desc c as o -> Text

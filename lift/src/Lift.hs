@@ -51,9 +51,7 @@ import qualified Generics.SOP.Some                as SOP
 
 
 import Basis
-import Ground
 import Ground.Hask
-import Ground.Parser
 import qualified Ground.Hask as Hask
 import Lift.Pipe
 import Pipe
@@ -156,9 +154,9 @@ haskellServer env@Env{..} =
 
 handleRequest :: Env -> Request -> IO (Either Text Reply)
 handleRequest Env{..} x = case x of
-  Compile name text ->
-    Lift.compile name text
-    <&> (ReplyValue . SomeValue . SomeKindValue TPoint . VPoint <$>)
+  Compile name pipe ->
+    Lift.compile name pipe
+    <&> (ReplyValue . SomeValue TPoint . SomeValueKinded . VPoint <$>)
   Run text ->
     case Pipe.parse text of
       Left e -> pure . Left $ "Parse: " <> e
@@ -173,7 +171,7 @@ handleRequest Env{..} x = case x of
             case res of
               Left e -> pure . Left $ "Runtime: " <> e
               Right x -> pure . Right . ReplyValue $ x
-  -- x -> pure . Left . pack $ "Unhandled request: " <> show x
+  -- req -> pure . Left . pack $ "Unhandled request: " <> show req
 
 compile :: QName Pipe -> Text -> Result ISig
 compile newname text =

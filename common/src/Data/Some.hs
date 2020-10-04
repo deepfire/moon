@@ -5,18 +5,27 @@
 {-# LANGUAGE TypeInType #-}
 
 module Data.Some
-  ( Some(..), Some2(..)
+  ( Some(..)
+  , CSome(..)
+  , mkCSome
+  , withCSome
+  , mapCSome
   )
 where
 
--- import Data.Kind (Constraint)
+import Data.Kind (Constraint)
 
+data Some :: (tag -> *) -> * where
+  Exists :: forall f x. f x -> Some f
 
-data Some  :: (k -> *) -> * where
-  Exists   :: forall f x.   f x   -> Some f
+data CSome :: (tag -> Constraint) -> (tag -> *) -> * where
+  CSome :: forall c f x. c x => f x -> CSome c f
 
-data Some2 :: (k1 -> k2 -> *) -> * where
-  Exists2  :: forall f x y. f x y -> Some2 f
+mkCSome :: c a => tag a -> CSome c tag
+mkCSome = CSome
 
--- data CFSome :: (k -> Constraint) -> (k -> *) -> * where
---   ExistsCF  :: forall c f x. c f => f x   -> CFSome c f
+withCSome :: CSome c tag -> (forall a. c a => tag a -> b) -> b
+withCSome (CSome x) f = f x
+
+mapCSome :: forall c f g. (forall t. c t => f t -> g t) -> CSome c f -> CSome c g
+mapCSome f (CSome x) = CSome (f x)

@@ -42,12 +42,12 @@ import Type
 data Ops p where
   Ops ::
     { app
-      :: forall c kas kas' o ka
-      . ( PipeConstr c kas  o
-        , PipeConstr c kas' o
-        , kas ~ (ka : kas')
+      :: forall c cas cas' o ca
+      . ( PipeConstr c cas  o
+        , PipeConstr c cas' o
+        , cas ~ (ca : cas')
         )
-      => Desc c kas o -> Value (TagOf ka) (TypeOf ka) -> p -> Either Text p
+      => Desc c cas o -> Value (CTagOf ca) (TypeOf ca) -> p -> Either Text p
     , comp
       :: forall cf cv vas vo fas fass ras fo
       . ( PipeConstr cv vas vo
@@ -63,7 +63,7 @@ data Ops p where
         , fas ~ (Type 'Point a ': '[])
         , tas ~ '[]
         , TypeOf to ~ a
-        , TagOf fo ~ 'Point)
+        , CTagOf fo ~ 'Point)
       => Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p
     } -> Ops p
 
@@ -84,8 +84,8 @@ opsDesc = Ops
 
 -- * Processing pipe expressions
 --
-compile
-  :: forall e p
+compile ::
+  forall e p
   . (e ~ Text)
   => Ops p
   -> (QName Pipe -> Maybe (SomePipe p))
@@ -100,8 +100,8 @@ compile ops lookupPipe expr =
  where
    failMissing = ("No such pipe: " <>) . showQName
 
-analyse
-  :: forall e p
+analyse ::
+  forall e p
   . (e ~ Text)
   => (QName Pipe -> Maybe (SomePipe p))
   -> Expr (Located (QName Pipe))
@@ -110,8 +110,8 @@ analyse lookupPipe expr =
   resolveNames lookupPipe expr
   & doAnalyse
 
-checkAndInfer
-  :: forall m e p
+checkAndInfer ::
+  forall m e p
   .  (Monad m, e ~ Text)
   => Expr (Either (QName Pipe) (SomePipe p))
   -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))
@@ -149,8 +149,8 @@ checkAndInfer expr = go True $ fromExpr expr
      goIFA xs _ = undefined xs
 
 resolveNames ::
-     forall e f p
-  .  (Functor f, e ~ Text)
+  forall e f p
+  . (Functor f, e ~ Text)
   => (QName Pipe -> Maybe (SomePipe p))
   -> Expr (f (QName Pipe))
   -> Expr (f (Either (QName Pipe) (SomePipe p)))
@@ -159,8 +159,8 @@ resolveNames lookupPipe = fmap (fmap tryLookupPipe)
     tryLookupPipe :: QName Pipe -> Either (QName Pipe) (SomePipe p)
     tryLookupPipe name = maybeToEither name $ lookupPipe name
 
-doCompile
-  :: forall e p. (e ~ Text)
+doCompile ::
+  forall e p. (e ~ Text)
   => Ops p
   -> Expr (SomePipe p)
   -> Either e (SomePipe p)
@@ -189,8 +189,8 @@ doCompile Ops{app, comp, trav} = go
    goComp l@PPipe{} r@PPipe{} = compose comp (pP l) (pP r)
    goComp l         r         = join $ compose comp <$> go l <*> go r
 
-doAnalyse
-  :: forall e p. e ~ Text
+doAnalyse ::
+  forall e p. e ~ Text
   => Expr (Located (Either (QName Pipe) (SomePipe p)))
   -> Either e (Expr (Located (CPipe p)))
 doAnalyse = go emptyPipeCtx
@@ -240,8 +240,8 @@ doAnalyse = go emptyPipeCtx
            [ "args for pipe \"", showT name, "\":  "
            , showT paramC, " required, ", showT argC, " passed."]
       checkTy :: Text -> SomePipe p -> SomeType -> SomeType -> Maybe e -> Maybe e
-      checkTy desc p act exp k
-        | exp == act = k
+      checkTy desc p act exp c
+        | exp == act = c
         | otherwise = Just $ mconcat
           [ "Mismatch for ", desc, " "
           , "of pipe ", showT (somePipeName p), ": "

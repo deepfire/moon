@@ -21,7 +21,9 @@ import Text.Parser.Token
 import Data.Parsing
 -- import Debug.TraceErr
 import Basis
-import Ground
+import Type
+import Ground.Parser (parseQName', holeToken) -- No Ground needed.
+import Ground.Table (parseSomeValue)          -- Needs Ground.
 import Pipe.Types
 
 
@@ -78,10 +80,13 @@ parse' nameParser = tryParse True
             "" s)
           mayExtend
      of
+       -- If parse succeeds, then propagate immediately.
        (Right (Right x), _)     -> Right x
+       -- If we don't parse, and we can't extend, then fail immediately.
        (Left         e,  False) -> Left $ "Pipe expr parser: " <> pack (show e)
        (Right (Left  e), False) -> Left $ pack (show e)
-       (_,               True)  -> tryParse False (s <> magicToken)
+       -- If we don't parse, and we can extend, then retry with extension allowed.
+       (_,               True)  -> tryParse False (s <> holeToken)
 
 parseExpr
   :: forall e n

@@ -10,7 +10,7 @@ module Pipe.SomePipe
   , withSomePipe
   , somePipeRep
   , somePipeUncons
-  , somePipeOutSomeTagType
+  , somePipeOutSomeCTagType
   , Result
   , PipeFunTy
   )
@@ -20,6 +20,7 @@ import qualified Data.SOP                         as SOP
 
 import Basis
 import Type
+import SomeType
 import Pipe.Pipe
 
 --------------------------------------------------------------------------------
@@ -97,9 +98,9 @@ somePipeUncons (G h p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = G h <$> cons
 somePipeUncons (T _ p@(Pipe Desc {pdArgs = SOP.Nil   } _)) nil _  = Left $ nil p
 somePipeUncons (T h p@(Pipe Desc {pdArgs = _ SOP.:* _} _)) _ cons = T h <$> cons p
 
-somePipeOutSomeTagType :: SomePipe p -> (SomeTag, SomeTypeRep)
-somePipeOutSomeTagType p =
-  withSomePipe p pipeOutSomeTagType
+somePipeOutSomeCTagType :: SomePipe p -> (SomeCTag, SomeTypeRep)
+somePipeOutSomeCTagType p =
+  withSomePipe p pipeOutSomeCTagType
 
 -- XXX: We risk equating different pipes with same names and types.
 instance Eq (SomePipe p) where

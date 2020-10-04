@@ -27,7 +27,6 @@ import qualified Distribution.PackageDescription.Parsec as Cabal
 import qualified Distribution.Types.GenericPackageDescription as Cabal
 
 import Basis
-import Ground
 import Ground.Hask
 import Pipe.Scope
 import Pipe.Space

@@ -54,31 +54,31 @@ import Basis
 import Type
 
 
-data Space k a = Space
+data Space c a = Space
   { nsTree :: !(GA.AdjacencyMap (QName Scope))
-  , nsMap  :: !(MonoidalMap     (QName Scope) (Scope k a))
+  , nsMap  :: !(MonoidalMap     (QName Scope) (Scope c a))
   } deriving Generic
 
 type PointSpace a = Space 'Point a
 
-instance ReifyTag k => Functor (Space k) where
+instance ReifyCTag c => Functor (Space c) where
   fmap f s@Space{nsMap} = s { nsMap = (f <$>) <$> nsMap }
 
-deriving instance Eq (Repr k a) => Eq (Space k a)
-deriving instance Ord (Repr k a) => Ord (Space k a)
+deriving instance Eq (Repr c a) => Eq (Space c a)
+deriving instance Ord (Repr c a) => Ord (Space c a)
 
-instance Semigroup (Space k a) where
+instance Semigroup (Space c a) where
   Space{nsTree=lt, nsMap=lm} <> Space{nsTree=rt, nsMap=rm}
     = Space (lt `GA.overlay` rt) (lm <> rm)
 
-instance Monoid (Space k a) where
+instance Monoid (Space c a) where
   mempty = emptySpace
 
-instance Serialise (Repr k a) => Serialise (Space k a)
+instance Serialise (Repr c a) => Serialise (Space c a)
 
 -- XXX: inefficient
-spaceQNameRMap :: (Eq (Repr k a), Hashable (Repr k a))
-               => Space k a -> HashMap (Repr k a) (QName a)
+spaceQNameRMap :: (Eq (Repr c a), Hashable (Repr c a))
+               => Space c a -> HashMap (Repr c a) (QName a)
 spaceQNameRMap Space{..} =
   HashMap.fromList . concat $
   MMap.toList nsMap
@@ -86,18 +86,18 @@ spaceQNameRMap Space{..} =
         Map.toList sMap
           <&> swap . first (coerceQName . append scName . coerceName)
 
-emptySpace :: Space k a
+emptySpace :: Space c a
 emptySpace = Space
   { nsTree = GA.vertex mempty
   , nsMap  = mempty
   }
 
-insertScope :: QName Scope -> Scope k a -> Space k a -> Space k a
+insertScope :: QName Scope -> Scope c a -> Space c a -> Space c a
 insertScope prefix sc ns = insertScopeAt fqname sc ns
  where
    fqname = prefix `append` coerceName (sName sc)
 
-insertScopeAt :: QName Scope -> Scope k a -> Space k a -> Space k a
+insertScopeAt :: QName Scope -> Scope c a -> Space c a -> Space c a
 insertScopeAt name sc ns =
   ns { nsMap  = MMap.insert (coerceQName name) sc $ nsMap ns
      , nsTree = nsTree ns
@@ -113,32 +113,32 @@ insertScopeAt name sc ns =
      }
 
 attachScopes
-  :: forall k a
+  :: forall c a
   . QName Scope
-  -> [Scope k a]
-  -> Space k a
-  -> Space k a
+  -> [Scope c a]
+  -> Space c a
+  -> Space c a
 attachScopes sub scopes ns =
   foldr (insertScope sub) ns scopes
 
-scopeAt :: QName Scope -> Space k a -> Maybe (Scope k a)
+scopeAt :: QName Scope -> Space c a -> Maybe (Scope c a)
 scopeAt q ns = MMap.lookup q (nsMap ns)
 
 updateSpaceScope
   :: (e ~ Text, Typeable a)
-  => (Scope k a -> Scope k a)
+  => (Scope c a -> Scope c a)
   -> QName Scope
-  -> Space k a
-  -> Space k a
+  -> Space c a
+  -> Space c a
 updateSpaceScope f name ns =
   ns { nsMap  = MMap.update (Just . f) name (nsMap ns) }
 
 alterSpaceScope
   :: (e ~ Text, Typeable a)
-  => (Maybe (Scope k a) -> Either e (Maybe (Scope k a)))
+  => (Maybe (Scope c a) -> Either e (Maybe (Scope c a)))
   -> QName Scope
-  -> Space k a
-  -> Either e (Space k a)
+  -> Space c a
+  -> Either e (Space c a)
 alterSpaceScope f name ns =
   (\m -> ns { nsMap = m }) <$> alterFMonoidalMap f name (nsMap ns)
 
@@ -152,42 +152,42 @@ failNoEntity ty name _  Nothing = Left $ "No such "<>ty<>": " <> showQName name
 failNoEntity _  _    f (Just x) = f x
 
 _failHasEntity
-  :: forall k a (f :: Con -> * -> *) e. (e ~ Text)
+  :: forall c a (f :: Con -> * -> *) e. (e ~ Text)
   => Text
   -> QName         a
-  -> Either e (f k a)
-  -> (Maybe   (f k a) -> Either e (Maybe (f k a)))
+  -> Either e (f c a)
+  -> (Maybe   (f c a) -> Either e (Maybe (f c a)))
 _failHasEntity ty name _ (Just _) = Left $ "Already has "<>ty<>": " <> showQName name
 _failHasEntity _  _    x  Nothing = Just <$> x
 
-childScopeQNamesAt :: QName Scope -> Space k a -> [QName Scope]
+childScopeQNamesAt :: QName Scope -> Space c a -> [QName Scope]
 childScopeQNamesAt q ns =
   Set'.toList (GA.postSet q (nsTree ns))
 
-_checkBusy :: QName Scope -> Space k a -> Bool
+_checkBusy :: QName Scope -> Space c a -> Bool
 _checkBusy name ns = MMap.member name (nsMap ns)
 
-lookupSpace :: QName a -> Space k a -> Maybe (Repr k a)
+lookupSpace :: QName a -> Space c a -> Maybe (Repr c a)
 lookupSpace n s = withQName n $
   \scName -> \case
     Nothing   -> Nothing
     Just name -> scopeAt scName s >>= lookupScope name
 
-lookupSpaceScope :: QName Scope -> Space k a -> Maybe (Scope k a)
+lookupSpaceScope :: QName Scope -> Space c a -> Maybe (Scope c a)
 lookupSpaceScope n s = MMap.lookup n (nsMap s)
 
-spaceEntries :: Space k a -> [Repr k a]
+spaceEntries :: Space c a -> [Repr c a]
 spaceEntries ns = concatMap scopeEntries $ MMap.elems (nsMap ns)
 
-spaceScopes :: Space k a -> [(QName Scope, Scope k a)]
+spaceScopes :: Space c a -> [(QName Scope, Scope c a)]
 spaceScopes ns = MMap.toList (nsMap ns)
 
 alterSpace
   :: (e ~ Text, Typeable a)
   => QName a
-  -> Space k a
-  -> (Maybe (Repr k a) -> Either e (Maybe (Repr k a)))
-  -> Either e (Space k a)
+  -> Space c a
+  -> (Maybe (Repr c a) -> Either e (Maybe (Repr c a)))
+  -> Either e (Space c a)
 alterSpace fqname ns f =
   withQName fqname $
     \scName -> \case
@@ -200,10 +200,10 @@ alterSpace fqname ns f =
         scName ns
 
 spaceAdd
-  :: forall k a e. (e ~ Text, Typeable a)
+  :: forall c a e. (e ~ Text, Typeable a)
   => QName a
-  -> Repr k a
-  -> Space k a -> Either e (Space k a)
+  -> Repr c a
+  -> Space c a -> Either e (Space c a)
 spaceAdd name x ns =
   alterSpace name ns
   (\case
@@ -211,10 +211,10 @@ spaceAdd name x ns =
       Just  _ -> Left $ "Already has element: " <> showQName name)
 
 spaceUpdate
-  :: forall k a e. (e ~ Text, Typeable a)
+  :: forall c a e. (e ~ Text, Typeable a)
   => QName a
-  -> (Repr k a -> Repr k a)
-  -> Space k a -> Either e (Space k a)
+  -> (Repr c a -> Repr c a)
+  -> Space c a -> Either e (Space c a)
 spaceUpdate name f ns =
   alterSpace name ns
   (\case
@@ -222,54 +222,54 @@ spaceUpdate name f ns =
       Just  x -> Right . Just . f $ x)
 
 
-data Scope k a = Scope
+data Scope c a = Scope
   { sName :: !(Name Scope)
-  , sMap  :: !(Map (Name a) (Repr k a))
+  , sMap  :: !(Map (Name a) (Repr c a))
   } deriving Generic
-deriving instance Eq (Repr k a) => Eq (Scope k a)
-deriving instance Ord (Repr k a) => Ord (Scope k a)
+deriving instance Eq (Repr c a) => Eq (Scope c a)
+deriving instance Ord (Repr c a) => Ord (Scope c a)
 -- (Eq, Generic, Ord, Show)
 
 type PointScope a = Scope 'Point a
 
-instance ReifyTag k => Functor (Scope k) where
+instance ReifyCTag c => Functor (Scope c) where
   fmap f s@Scope{sMap} =
-    s { sMap  = Unsafe.unsafeCoerce $ mapRepr (reifyTag $ Proxy @k) f <$> sMap }
+    s { sMap  = Unsafe.unsafeCoerce $ mapRepr (reifyCTag $ Proxy @c) f <$> sMap }
 
-instance Serialise (Repr k a) => Serialise (Scope k a)
+instance Serialise (Repr c a) => Serialise (Scope c a)
 
-scopeName :: Scope k a -> Name Scope
+scopeName :: Scope c a -> Name Scope
 scopeName = sName
 
-instance Semigroup (Scope k a) where
+instance Semigroup (Scope c a) where
   Scope{sName, sMap=l} <> Scope{sMap=r}
     = Scope sName (l <> r)
 
-emptyScope :: Name Scope -> Scope k a
+emptyScope :: Name Scope -> Scope c a
 emptyScope = flip Scope mempty
 
-scope :: Name Scope -> [(Name a, Repr k a)] -> Scope k a
+scope :: Name Scope -> [(Name a, Repr c a)] -> Scope c a
 scope name = Scope name . Map.fromList
 
-scopeSize :: Scope k a -> Int
+scopeSize :: Scope c a -> Int
 scopeSize s = Map.size (sMap s)
 
-lookupScope :: Name a -> Scope k a -> Maybe (Repr k a)
+lookupScope :: Name a -> Scope c a -> Maybe (Repr c a)
 lookupScope n s = Map.lookup n (sMap s)
 
-selectFromScope :: (Name a -> Repr k a -> Bool) -> Scope k a -> [Repr k a]
+selectFromScope :: (Name a -> Repr c a -> Bool) -> Scope c a -> [Repr c a]
 selectFromScope f s =
   [ v
   | (k, v) <- Map.toList (sMap s)
   , f k v ]
 
-scopeNames :: Scope k a -> Set (Name a)
+scopeNames :: Scope c a -> Set (Name a)
 scopeNames = keysSet . sMap
 
-scopeEntries :: Scope k a -> [Repr k a]
+scopeEntries :: Scope c a -> [Repr c a]
 scopeEntries = Map.elems . sMap
 
-mapScope :: (Repr k a -> Repr k a) -> Scope k a -> Scope k a
+mapScope :: (Repr c a -> Repr c a) -> Scope c a -> Scope c a
 mapScope f Scope{..} =
   Scope sName $ f <$> sMap
 
@@ -282,22 +282,22 @@ withQName (QName ns) f
 
 updateScope
   :: Typeable a
-  => (Repr k a -> Maybe (Repr k a))
+  => (Repr c a -> Maybe (Repr c a))
   -> Name a
-  -> Scope k a -> Scope k a
+  -> Scope c a -> Scope c a
 updateScope f name s =
   s { sMap = Map.update f name (sMap s) }
 
 alterScope
   :: (e ~ Text, Typeable a)
-  => (Maybe (Repr k a) -> Either e (Maybe (Repr k a)))
+  => (Maybe (Repr c a) -> Either e (Maybe (Repr c a)))
   -> Name a
-  -> Scope k a -> Either e (Scope k a)
+  -> Scope c a -> Either e (Scope c a)
 alterScope f name s =
   (\m -> s { sMap = m }) <$> Map.alterF f name (sMap s)
 
-alterFMonoidalMap    :: forall f k a e. (Functor f, Ord k, f ~ Either e) =>
-                        (Maybe a -> f (Maybe a)) -> k -> MonoidalMap k a -> f (MonoidalMap k a)
+alterFMonoidalMap    :: forall f c a e. (Functor f, Ord c, f ~ Either e) =>
+                        (Maybe a -> f (Maybe a)) -> c -> MonoidalMap c a -> f (MonoidalMap c a)
 alterFMonoidalMap =
-  coerce (Map.alterF :: (Maybe a -> f (Maybe a)) -> k -> Map         k a -> f (Map         k a))
+  coerce (Map.alterF :: (Maybe a -> f (Maybe a)) -> c -> Map         c a -> f (Map         c a))
 {-# INLINE alterFMonoidalMap #-}

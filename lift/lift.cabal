@@ -34,6 +34,8 @@ library
                      , Cabal
                      , containers
                      , data-default
+                     , dependent-map
+                     , dependent-sum
                      , extra
                      , filepath
                      , fingertree
@@ -160,6 +162,8 @@ executable cli
                      , bytestring
                      , containers
                      , contra-tracer
+                     , dependent-map
+                     , dependent-sum
                      , fingertree
                      , io-sim-classes
                      , monoidal-containers

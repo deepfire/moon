@@ -1,4 +1,7 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls -Wno-unticked-promoted-constructors -Wno-orphans #-}
+--{-# OPTIONS_GHC -ddump-splices -ddump-to-file #-}
+{-# OPTIONS_GHC -dth-dec-file #-}
 
 module Ground.Table
   ( lookupRep
@@ -11,6 +14,8 @@ module Ground.Table
   --
   , parseDict
   , parseSomeValue
+  --
+  , VTag(..)
   )
 where
 
@@ -37,9 +42,57 @@ import SomeValue
 
 import Data.Parsing
 import Ground.Parser ()
+import Ground.TH
 import qualified Ground.Hask as Hask
 import Namespace
 import Pipe.Types
+
+
+-- * Tables
+--
+deriving instance Typeable Pipe
+deriving instance Typeable Scope
+deriving instance Typeable Type
+
+defineGroundTypes [d|
+  data VTag a where
+    -- Meta
+    -- VGround       :: Dict Ground
+    VCon             :: Con
+    VSomeType        :: SomeType
+    VSig             :: ISig
+    VStruct          :: Struct
+    VPipe            :: SomePipe ()
+    VTypeRep         :: SomeTypeRep
+    VTypeRep2        :: (SomeTypeRep, SomeTypeRep)
+    VNameType        :: Name Type
+    VNamePipe        :: Name Pipe
+    VQNamePipe       :: QName Pipe
+    VQNameScope      :: QName Scope
+    -- OMG, Ord on PipeSpace..
+    VPipeSpace       :: PipeSpace (SomePipe ())
+    -- Atom
+    VInt             :: Int
+    VInteger         :: Integer
+    VFloat           :: Float
+    VDouble          :: Double
+    VString          :: String
+    VText            :: Text
+    VUnit            :: ()
+    -- Plain
+    VFileName        :: Hask.FileName
+    VLoc             :: Hask.Loc
+    VURL             :: Hask.URL
+    -- Hask
+    VNameHaskIndex   :: Name Hask.Index
+    VHaskIndex       :: Hask.Index
+    VNameHaskRepo    :: Name Hask.Repo
+    VNameHaskPackage :: Name Hask.Package
+    VNameHaskModule  :: Name Hask.Module
+    VNameHaskDef     :: Name Hask.Def
+    VHaskDef         :: Hask.Def
+    VHaskDefType     :: Hask.DefType
+   |]
 
 
 -- * Ground API
@@ -100,6 +153,13 @@ instance Read (TyDict Ground) where
                          (fail $ "Unknown ground: " <> i)
       x -> fail $ "Unexpected construct: " <> show x
 
+instance Read SomeValue where
+  readPrec = do
+    tag :: Some CTag <- readPrec
+    dict :: TyDict Ground <- readPrec
+    case tag of
+      Exists tag' -> readSomeValue tag' dict
+
 
 -- * SomeValue
 --
@@ -108,55 +168,33 @@ instance Parse SomeValue where
 
 parseSomeValue :: Parser SomeValue
 parseSomeValue =
-  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Text) TPoint <$> stringLiteral)
+  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Text) TPoint <$> stringLiteral)
   <|>
-  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Integer) TPoint <$> integer)
+  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Integer) TPoint <$> integer)
   <|>
-  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Integer) TPoint <$> hexadecimal)
+  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Integer) TPoint <$> hexadecimal)
   <|>
-  (SomeValue . SomeKindValue TPoint . mkValue' (Proxy @Double) TPoint <$> double)
+  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Double) TPoint <$> double)
   <|>
-  braces   (parseSV . reifyTag $ Proxy @Point)
+  braces   (parseSV . reifyCTag $ Proxy @Point)
   <|>
-  brackets (parseSV . reifyTag $ Proxy @List)
+  brackets (parseSV . reifyCTag $ Proxy @List)
  where
-  parseSV :: Tag k -> Parser SomeValue
+  parseSV :: CTag c -> Parser SomeValue
   parseSV tag = do
     TyDict a :: TyDict Ground <- parser
     case tag of
       TPoint -> do
         v :: a <- parser
-        pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
+        pure $ SomeValue tag $ SomeValueKinded $ mkValue' a tag v
       TList -> do
         v :: [a] <- commaSep parser
-        pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
+        pure $ SomeValue tag $ SomeValueKinded $ mkValue' a tag v
       TSet -> do
         v :: [a] <- commaSep parser
-        pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag $ Set.fromList v
+        pure $ SomeValue tag $ SomeValueKinded $ mkValue' a tag $ Set.fromList v
       _ -> trace (printf "No parser for structures outside of Point/List/Set.")
                  (fail "")
-
-readValue :: forall (k :: Con). Tag k -> TyDict Ground -> ReadPrec SomeValue
-readValue tag (TyDict (a :: Proxy a)) =
-  case tag of
-    TPoint -> do
-      v :: a <- readPrec
-      pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
-    TList -> do
-      v :: [a] <- readListPrec
-      pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag v
-    TSet -> do
-      v :: [a] <- readListPrec
-      pure $ SomeValue $ SomeKindValue tag $ mkValue' a tag $ Set.fromList v
-    _ -> trace (printf "No parser for structures outside of Point/List/Set.")
-               (fail "")
-
-instance Read SomeValue where
-  readPrec = do
-    tag :: Some Tag <- readPrec
-    dict :: TyDict Ground <- readPrec
-    case tag of
-      Exists tag' -> readValue tag' dict
 
 
 _withGroundTop
@@ -181,16 +219,20 @@ mkSaturatedPipe
   => Proxy c -> TypePair out -> Name Pipe -> ISig -> Struct -> SomeTypeRep -> SomePipe ()
 mkSaturatedPipe _c out name sig struct rep =
   case lookupRep (someTypeRep $ Proxy @out) of
-    Nothing -> nondescript
+    Nothing ->
+      -- Non-ground (unknown) type, nothing useful we can recapture about it.
+      T mempty $
+      Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top '[] out)
+           ()
     Just (TyDict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @(TypeOf out) of
-        Nothing -> nondescript
         Just HRefl ->
-          G mempty (Pipe (Desc name sig struct rep SOP.Nil out :: Desc Ground '[] out) () :: Pipe Ground '[] out ())
- where
-   -- Non-ground (unknown) type, nothing useful we can recapture about it.
-   nondescript =
-     T mempty $ Pipe (Desc name sig struct rep SOP.Nil out :: Desc Top '[] out) ()
+          G mempty
+          (Pipe (Desc name sig struct rep SOP.Nil out :: Desc Ground '[] out)
+                () :: Pipe Ground '[] out ())
+        Nothing -> error $
+          "mkSaturatedPipe:  internal inconsistency while looking up Dict for type "
+          <> unpack (showName name)
 
 instance Serialise (SomePipe ()) where
   encode p =
@@ -207,9 +249,9 @@ instance Serialise (SomePipe ()) where
    where
      encodeTypePairs :: All Top xs => NP TypePair xs -> [Encoding]
      encodeTypePairs = SOP.hcollapse . SOP.hliftA
-       (\(TypePair (t :: Tag k) (a :: Proxy a))
-         -> SOP.K $  encode (SomeTag t)
-                  <> encode (typeRep @k)
+       (\(TypePair (t :: CTag c) (a :: Proxy a))
+         -> SOP.K $  encode (SomeCTag t)
+                  <> encode (typeRep @c)
                   <> encode (someTypeRep a))
   decode = do
     qName <- decode
@@ -218,7 +260,7 @@ instance Serialise (SomePipe ()) where
         (arity, err) = arity' `divMod` 3
     unless (err == 0 && arity > 0)
       (fail $ "decode SomePipe: expected list len=4+3x && >= 7, got: " <> show len)
-    xs :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
+    xs :: [(SomeCTag, SomeTypeRep, SomeTypeRep)]
       <- forM [0..(arity - 1)] $ const $
          (,,) <$> decode <*> decode <*> decode
     name   :: Name Pipe   <- decode
@@ -230,42 +272,42 @@ instance Serialise (SomePipe ()) where
       \out _ _ -> go xs $
         mkSaturatedPipe (Proxy @Top) out name sig struct rep
    where
-     go :: [(SomeTag, SomeTypeRep, SomeTypeRep)]
+     go :: [(SomeCTag, SomeTypeRep, SomeTypeRep)]
         -> SomePipe () -> SomePipe ()
      go []     p = p
      go (x:xs) p =
-       withSomePipe p $ \(Pipe (Desc{..} :: Desc c kas o) _) ->
+       withSomePipe p $ \(Pipe (Desc{..} :: Desc c cas o) _) ->
        withRecoveredTypePair x $
-         \(tip :: TypePair ka)
-          (_ :: Proxy (TagOf ka)) (_ :: Proxy (TypeOf ka))
+         \(tip :: TypePair ca)
+          (_ :: Proxy (CTagOf ca)) (_ :: Proxy (TypeOf ca))
          -> go xs $ T mempty $ Pipe
             (Desc pdName pdSig pdStruct pdRep (tip SOP.:* pdArgs) pdOut
-             :: Desc Top (ka:kas) o) ()
+             :: Desc Top (ca:cas) o) ()
 
      withRecoveredTypePair
        :: forall b
-       . (SomeTag, SomeTypeRep, SomeTypeRep)
-       -> (forall (k1 :: Con) (a1 :: *) ty
-           . ( Typeable (Type k1 a1), Typeable k1, Typeable a1
-             , ReifyTag k1
-             , ty ~ Type k1 a1)
-           => TypePair ty -> Proxy k1 -> Proxy a1 -> b)
+       . (SomeCTag, SomeTypeRep, SomeTypeRep)
+       -> (forall (c1 :: Con) (a1 :: *) ty
+           . ( Typeable (Type c1 a1), Typeable c1, Typeable a1
+             , ReifyCTag c1
+             , ty ~ Type c1 a1)
+           => TypePair ty -> Proxy c1 -> Proxy a1 -> b)
        -> b
      withRecoveredTypePair
-       ( SomeTag     (ta :: Tag     k)
-       , SomeTypeRep (ka :: TypeRep ka)
+       ( SomeCTag    (ta :: CTag     c)
+       , SomeTypeRep (ca :: TypeRep ca)
        , SomeTypeRep  (a :: TypeRep  a)
        ) f =
        case (,,)
-            (typeRepKind ka `eqTypeRep` typeRep @Con)
-            (ka             `eqTypeRep` typeRep @k)
+            (typeRepKind ca `eqTypeRep` typeRep @Con)
+            (ca             `eqTypeRep` typeRep @c)
             (typeRepKind a  `eqTypeRep` typeRep @K.Type)
        of
          (Just HRefl, Just HRefl, Just HRefl) ->
-           withTypeable ka $ withTypeable  a $ withReifyTag ta $
-             f (TypePair (reifyTag (Proxy @ka)) (Proxy @a)
-                 :: TypePair (Type k a))
-               (Proxy @ka) (Proxy @a)
+           withTypeable ca $ withTypeable  a $ withReifyCTag ta $
+             f (TypePair (reifyCTag (Proxy @ca)) (Proxy @a)
+                 :: TypePair (Type c a))
+               (Proxy @ca) (Proxy @a)
          _ -> error "withRecoveredTypePair"
 
 -- instance Serialise (SomePipe ()) where
@@ -282,53 +324,3 @@ instance Serialise (SomePipe ()) where
 --             <>" eqTypeRep @c @Ground="<>show eg
 --             <>" eqTypeRep @c @Top="<>show et
 --             <>" rep:\n"<>unpack (showDesc d)
-
-
--- * Tables
---
-infixr 2 #
-(#) :: (a -> b) -> a -> b
-(#) = ($)
-
-deriving instance Typeable Pipe
-deriving instance Typeable Scope
-deriving instance Typeable Type
-
-groundTypes :: TyDicts Ground
-groundTypes = Dict.empty
-  -- Meta
-  -- & Dict.insert "Ground"          # Proxy @(Dict Ground)
-  & Dict.insert "Con"             # Proxy @Con
-  & Dict.insert "SomeType"        # Proxy @SomeType
-  & Dict.insert "Sig"             # Proxy @ISig
-  & Dict.insert "Struct"          # Proxy @Struct
-  & Dict.insert "Pipe"            # Proxy @(SomePipe ())
-  & Dict.insert "TypeRep"         # Proxy @SomeTypeRep
-  & Dict.insert "TypeRep2"        # Proxy @(SomeTypeRep, SomeTypeRep)
-  & Dict.insert "NameType"        # Proxy @(Name Type)
-  & Dict.insert "NamePipe"        # Proxy @(Name Pipe)
-  & Dict.insert "QNamePipe"       # Proxy @(QName Pipe)
-  & Dict.insert "QNameScope"      # Proxy @(QName Scope)
-  -- OMG, Ord on PipeSpace..
-  & Dict.insert "PipeSpace"       # Proxy @(PipeSpace (SomePipe ()))
-  -- Atom
-  & Dict.insert "Int"             # Proxy @Int
-  & Dict.insert "Integer"         # Proxy @Integer
-  & Dict.insert "Float"           # Proxy @Float
-  & Dict.insert "Double"          # Proxy @Double
-  & Dict.insert "String"          # Proxy @String
-  & Dict.insert "Text"            # Proxy @Text
-  & Dict.insert "Unit"            # Proxy @()
-  -- Plain
-  & Dict.insert "FileName"        # Proxy @Hask.FileName
-  & Dict.insert "Loc"             # Proxy @Hask.Loc
-  & Dict.insert "URL"             # Proxy @Hask.URL
-  -- Hask
-  & Dict.insert "NameHaskIndex"   # Proxy @(Name Hask.Index)
-  & Dict.insert "HaskIndex"       # Proxy @Hask.Index
-  & Dict.insert "NameHaskRepo"    # Proxy @(Name Hask.Repo)
-  & Dict.insert "NameHaskPackage" # Proxy @(Name Hask.Package)
-  & Dict.insert "NameHaskModule"  # Proxy @(Name Hask.Module)
-  & Dict.insert "NameHaskDef"     # Proxy @(Name Hask.Def)
-  & Dict.insert "HaskDef"         # Proxy @Hask.Def
-  & Dict.insert "HaskDefType"     # Proxy @Hask.DefType

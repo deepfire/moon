@@ -1,3 +1,4 @@
+{-# LANGUAGE Arrows                     #-}
 {-# LANGUAGE EmptyCase                  #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -33,6 +34,7 @@ import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
 import           Options.Applicative hiding (Parser)
+import           Options.Applicative.Arrows
 import qualified Options.Applicative              as Opt
 import           Type.Reflection
 
@@ -51,7 +53,7 @@ import           Network.TypedProtocol.Codec  hiding (encode, decode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
 import Basis
-import Ground
+import Ground (withRepGroundType, groundTypeReps)
 import Pipe
 
 --------------------------------------------------------------------------------
@@ -64,15 +66,23 @@ data Reply
   = ReplyValue SomeValue
 
 instance Show Request where
-  show (Run       text) = "Run "                      <> unpack text
+  show (Run       pipe) = "Run "                      <> show pipe
   show (Compile n text) = "Compile " <> show n <> " " <> unpack text
 instance Show Reply where show (ReplyValue n) = "ReplyValue " <> show n
 
+parseSomePipe :: (QName Pipe -> Maybe (SomePipe ())) -> Opt.Parser (SomePipe ())
+parseSomePipe lookupPipe =
+  runA $ proc () -> do
+    p <- asA (strArgument (metavar "PIPEDESC")) -< ()
+    returnA -< case do
+      ast <- parse p
+      compile opsDesc lookupPipe ast of
+      Left  e -> error (unpack e)
+      Right x -> x
+
 parseRequest :: Opt.Parser Request
 parseRequest = subparser $ mconcat
-  [ cmd "run" $
-    Run
-      <$> strArgument (metavar "PIPEDESC")
+  [ cmd "run" $ Run <$> strArgument (metavar "PIPEDESC")
   , cmd "compile" $
     Compile
       <$> (QName <$> argument auto (metavar "NAME"))
@@ -91,19 +101,19 @@ tagSomeValue = 16--180339887
 
 instance Serialise Request where
   encode x = case x of
-    Run       text -> encodeListLen 3 <> encodeWord (tagRequest + 0) <> encode text
-    Compile x text -> encodeListLen 3 <> encodeWord (tagRequest + 1) <> encode x <> encode text
+    Run pipe -> encodeListLen 2 <> encodeWord (tagRequest + 0) <> encode pipe
+    Compile nam expr -> encodeListLen 3 <> encodeWord (tagRequest + 1) <> encode nam <> encode expr
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (3, 31) -> Run     <$> decode
+      (2, 31) -> Run     <$> decode
       (3, 32) -> Compile <$> decode <*> decode
       _ -> failLenTag len tag
 
 instance Serialise Reply where
   encode x = case x of
-    ReplyValue x -> encodeListLen 2 <> encodeWord tagReply <> encode (x :: SomeValue)
+    ReplyValue v -> encodeListLen 2 <> encodeWord tagReply <> encode (v :: SomeValue)
   decode = do
     len <- decodeListLen
     tag <- decodeWord
@@ -115,46 +125,48 @@ failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
 failLenTag len tag = fail $ "invalid "<>show (typeRep @a)<>" encoding: len="<>show len<>" tag="<>show tag
 
 instance Serialise SomeValue where
-  encode sv@(SomeValue x) =
+  encode sv@(SomeValue k (SomeValueKinded x)) =
     encodeListLen 3
     <> encodeWord tagSomeValue
-    <> encode (someValueSomeTypeRep sv :: SomeTypeRep)
-    <> encode x
+    <> encode (SomeCTag k)
+    <> encode (someValueSomeTypeRep sv)
+    <> encodeValue x
+   where
+     encodeValue :: Ground a => Value k a -> Encoding
+     encodeValue = \case
+       VPoint x -> encode x
+       VList  x -> encode x
+       VSet   x -> encode x
+       VTree  x -> encode x
+       VDag   x -> encode x
+       VGraph x -> encode x
   decode = do
     len <- decodeListLen
     tag <- decodeWord
-    case (len, tag) of
-      (3, _tagSomeValue) -> do
+    someCTag <- decode
+    case (len, tag == tagSomeValue) of
+      (3, True) -> do
         str :: SomeTypeRep <- decode
-        case Ground.withRepGroundType str decodeSomeValue of
+        case Ground.withRepGroundType str (decodeSomeValue someCTag) of
           Nothing -> fail $ mconcat
             ["Not a ground type: ", show str, "\n"
             ,"Ground types: ", show groundTypeReps]
           Just x -> x
-        where decodeSomeValue :: TyDict Ground -> Decoder s SomeValue
-              decodeSomeValue (TyDict (_a :: Proxy a)) =
-                SomeValue <$> (decode :: Decoder s (SomeKindValue a))
-
-      _ -> failLenTag len tag
-
-instance (Ord a, Typeable a, Serialise a) => Serialise (SomeKindValue a) where
-  encode (SomeKindValue _ x) = case x of
-    VPoint x -> encodeListLen 2 <> encodeWord 2 <> encode x
-    VList  x -> encodeListLen 2 <> encodeWord 3 <> encode x
-    VSet   x -> encodeListLen 2 <> encodeWord 4 <> encode x
-    VTree  x -> encodeListLen 2 <> encodeWord 5 <> encode x
-    VDag   x -> encodeListLen 2 <> encodeWord 6 <> encode x
-    VGraph x -> encodeListLen 2 <> encodeWord 7 <> encode x
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (2, 2) -> SomeKindValue TPoint . VPoint <$> decode
-      (2, 3) -> SomeKindValue TList  . VList  <$> decode
-      (2, 4) -> SomeKindValue TSet   . VSet   <$> decode
-      (2, 5) -> SomeKindValue TTree  . VTree  <$> decode
-      (2, 6) -> SomeKindValue TDag   . VDag   <$> decode
-      (2, 7) -> SomeKindValue TGraph . VGraph <$> decode
+        where decodeSomeValue ::
+                SomeCTag -> TyDict Ground -> Decoder s SomeValue
+              decodeSomeValue (SomeCTag ctag) (TyDict (a :: Proxy a)) =
+                SomeValue
+                  <$> pure ctag
+                  <*> (SomeValueKinded <$> decodeValue a ctag)
+              decodeValue :: forall s (k :: Con) a
+                . Ground a => Proxy a -> CTag k -> Decoder s (Value k a)
+              decodeValue _ = \case
+                TPoint -> VPoint <$> decode
+                TList  -> VList  <$> decode
+                TSet   -> VSet   <$> decode
+                TTree  -> VTree  <$> decode
+                TDag   -> VDag   <$> decode
+                TGraph -> VGraph <$> decode
       _ -> failLenTag len tag
 
 --------------------------------------------------------------------------------

@@ -19,7 +19,7 @@ import           Control.Concurrent.STM             (STM, TVar, atomically)
 import qualified System.IO.Unsafe                 as Unsafe
 
 import Basis
-import Ground
+import Ground (groundTypeNames, lookupNameRep)
 import Pipe
 
 import Lift.Hackage as Hackage

@@ -37,11 +37,11 @@ traverseP _ _ = undefined
   --       (const $ Left "Cannot traverse with a pipe of arity above one.") $
   --       \(f'' :: Pipe cf fa fo p) ->
   --         case t of
-  --           -- traverseP'' => o == ka
-  --           -- forall ka (kas' :: [*]) k3.
-  --           -- ((kas :: [*]) ~ ((':) @* ka kas' :: [*]), PipeConstr Ground kas' o,
-  --           --  (kas' :: [*]) ~ ('[] @* :: [*])) =>
-  --           -- Pipe Ground kas o p -> Either Text (SomePipe p)
+  --           -- traverseP'' => o == ca
+  --           -- forall ca (cas' :: [*]) c3.
+  --           -- ((cas :: [*]) ~ ((':) @* ca cas' :: [*]), PipeConstr Ground cas' o,
+  --           --  (cas' :: [*]) ~ ('[] @* :: [*])) =>
+  --           -- Pipe Ground cas o p -> Either Text (SomePipe p)
   --           G t' -> G <$> traverseP'' Proxy pf f' t'
   --           T t' -> G <$> traverseP'' Proxy pf f' t'
     -- T f' ->
@@ -67,7 +67,7 @@ traverseP''
      , fo ~ Type ft fa
      , to ~ Type ttr tr
      )
-  => proxy (Type (TagOf to) (TypeOf fo))
+  => proxy (Type (CTagOf to) (TypeOf fo))
   -> (forall cf' ct' fas' fo' tas' to'
       . ( PipeConstr cf' fas' fo'
         , PipeConstr ct' tas' to')
@@ -79,9 +79,9 @@ traverseP'' _p pf f@P{pPipeRep=fioa} t@P{pPipeRep=tioa}
   | Just e <- ioaTySingletonInvalidity fioa = Left $ "Traverse: funty: " <> e
   | Just e <- ioaTyNilInvalidity tioa = Left $ "Traverse: traversablety: " <> e
   | Just HRefl <- typeRep @tr          `eqTypeRep` typeRep @(TypeOf fa)
-  , Just HRefl <- typeRep @(TagOf ro)  `eqTypeRep` typeRep @ttr
+  , Just HRefl <- typeRep @(CTagOf ro)  `eqTypeRep` typeRep @ttr
   , Just HRefl <- typeRep @(TypeOf ro) `eqTypeRep` typeRep @(TypeOf fo)
-  , Just HRefl <- typeRep @(TagOf fa)  `eqTypeRep` typeRep @Point
+  , Just HRefl <- typeRep @(CTagOf fa)  `eqTypeRep` typeRep @Point
   , Just HRefl <- typeRep @ft          `eqTypeRep` typeRep @Point
   , Just HRefl <- case spineConstraint of
                     (Dict :: Dict Typeable tas) -> typeRepNull $ typeRep @tas
@@ -139,11 +139,11 @@ doTraverse
   -> Either Text (Pipe cf ras ro p)
 doTraverse pf
   P{ pDesc_=df, pName=Name fn, pOutSty=fosty, pStruct=Struct fg
-   , pArgs=(_fka SOP.:* Nil), pOut=TypePair{tpType=fty}, pPipe=f}
+   , pArgs=(_fca SOP.:* Nil), pOut=TypePair{tpType=fty}, pPipe=f}
   P{ pDesc_=dt, pName=Name tn, pOutSty=tosty, pStruct=Struct tg
-   , pArgs=(_tka SOP.:* Nil), pOut=TypePair{tpTag=ttag}, pPipe=t}
+   , pArgs=(_tca SOP.:* Nil), pOut=TypePair{tpCTag=ttag}, pPipe=t}
   -- (Pipe df@(Desc (Name fn) _ (Struct fg) _  _ _  _ c) f)
-  -- (Pipe dt@(Desc (Name fn) _ (Struct fg) _ ka a kb _) t)
+  -- (Pipe dt@(Desc (Name fn) _ (Struct fg) _ ca a cb _) t)
   = Pipe desc <$> (pf df f dt t)
   where desc    = Desc name sig struct (SomeTypeRep rep) ras ro
         ras     = Nil
@@ -210,7 +210,7 @@ traversePipes0
   . ( Typeable tr, Typeable fr
     )
   -- TODO:  see if we can just pass a TypePair here
-  => Tag ttr -> Proxy tr -> Proxy fr
+  => CTag ttr -> Proxy tr -> Proxy fr
   -> (Repr Point tr -> Result (Repr Point fr))
   -> Result (Repr ttr tr)
   -> Result (Repr ttr fr)
@@ -231,16 +231,16 @@ traversePipes1
   :: forall tta ta ttr tr fr
   . ( Typeable ta, Typeable tr, Typeable fr
     )
-  => Tag tta -> Proxy ta -> Tag ttr -> Proxy tr -> Proxy fr
+  => CTag tta -> Proxy ta -> CTag ttr -> Proxy tr -> Proxy fr
   -> (tr -> Result fr)
   -> (Repr tta ta -> Result (Repr ttr tr))
   -> (Repr tta ta -> Result (Repr ttr fr))
-traversePipes1 _ _ kb _ _ f t = \ra -> do
+traversePipes1 _ _ cb _ _ f t = \ra -> do
   tv <- t ra
   case tv :: Either Text (Repr ttr tr) of
     Left e -> pure $ Left e
     Right (x :: Repr ttr tr) ->
-      case kb of
+      case cb of
         TPoint -> f x
         TList  -> sequence <$> traverse f x
         TSet   -> pure $ Left "traverse: Set unsupported"

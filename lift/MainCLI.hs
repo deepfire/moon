@@ -18,7 +18,11 @@ import           Control.Monad.NodeId
 import           Control.Tracer
                  (Tracer(..), stdoutTracer, showTracing, traceWith)
 import qualified Control.Zipper                         as Zip
+import           Data.Dependent.Map (DMap, DSum)
+import qualified Data.Dependent.Map                     as DMap
+import           Data.Functor.Identity
 import           Data.Functor.Misc
+import           Data.GADT.Compare
 import qualified Data.IntervalMap.FingerTree            as IMap
 import qualified Data.List                              as List
 import           Data.Map (Map)
@@ -63,6 +67,7 @@ import Basis hiding (Dynamic)
 import Data.Text.Extra
 import qualified Data.Text.Zipper.Extra as TZ
 
+import           Ground.Table                        (VTag(..))
 import qualified Ground.Hask                      as Hask
 import qualified Wire.Peer                        as Wire
 import qualified Wire.Protocol                    as Wire
@@ -108,44 +113,86 @@ fetchPSpace =
 
 main :: IO ()
 main = do
-  (reqSubmitW, reqSubmitR) :: (InChan Wire.Request, OutChan Wire.Request) <- Unagi.newChan
-  let postRequest :: Wire.Request -> IO ()
-      postRequest = Unagi.writeChan reqSubmitW
-  mainWidget $ do
-    postBuild <- getPostBuild
-    spaceE <- performEventAsync $ ffor postBuild $ \_ fire -> Shelly.liftIO $
-      void $ forkIO $ WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
-        \(channelFromWebsocket -> webSockChan) -> void $
-          Wire.runClient stderr webSockChan $ client reqSubmitR fire
-    spaceD <- holdDyn mempty spaceE
-    spaceInteraction postRequest spaceD
+  (exeSendW, exeSendR) :: (InChan Execution, OutChan Execution) <- Unagi.newChan
+  mainWidget $ reflexVtyApp (exeSendW, exeSendR)
+
+reflexVtyApp :: forall t m.
+  (MonadIO (Performable m), ReflexVty t m, PerformEvent t m, PostBuild t m, TriggerEvent t m)
+  => (InChan Execution, OutChan Execution)
+  -> VtyWidget t m (Event t ())
+reflexVtyApp (exeSendW, exeSendR)
+  =   getPostBuild
+  >>= spawnHostChatterThread hostAddr stderr
+  >>= spaceInteraction postExec
+ where
+   hostAddr = WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
+
+   postExec :: Execution -> IO ()
+   postExec = Unagi.writeChan exeSendW
+
+   spawnHostChatterThread :: WSAddr -> Tracer IO Text -> Event t () -> VtyWidget t m (Event t SomeValue)
+   spawnHostChatterThread WSAddr{..} logfd postBuild = performEventAsync $
+     ffor postBuild $ \_ fire -> liftIO $ do
+       postExec (Execution "space" TPoint (Proxy @(PipeSpace (SomePipe ()))))
+       void $ forkIO $ WS.runClient wsaHost wsaPort wsaPath $
+         \(channelFromWebsocket -> webSockChan) ->
+           void $ Wire.runClient logfd webSockChan $
+             client stderr fire exeSendR
+
+data WSAddr
+  = WSAddr
+  { wsaHost :: String
+  , wsaPort :: Int
+  , wsaPath :: String
+  }
+
+instance GEq CTag
+instance GCompare CTag
+
+data Execution where
+  Execution :: (ReifyCTag c, Typeable c, Typeable a, Ord a, Ground a) =>
+    { eText        :: Text
+    , eResultCTag  :: CTag c
+    , eResultRep   :: Proxy a
+    } -> Execution
 
 client :: forall rej m a
           . (rej ~ Text, m ~ IO, a ~ Wire.Reply)
-       => OutChan Wire.Request
-       -> (PipeSpace (SomePipe ()) -> IO ())
+       => Tracer m Text
+       -> (SomeValue -> IO ())
+       -> OutChan Execution
        -> m (Wire.ClientState rej m a)
-client reqsChan postAsEvent =
-  Wire.ClientRequesting
-    <$> Unagi.readChan reqsChan
-    <*> pure handleReply
+client tr fire reqsChan =
+  go
  where
+   go :: m (Wire.ClientState rej m a)
+   go = do
+     exe <- Unagi.readChan reqsChan
+     pure . Wire.ClientRequesting (Wire.Run $ eText exe)
+          . handleReply $ handler exe
+
+   handler :: Execution -> Wire.Reply -> IO ()
+   handler Execution{..} (Wire.ReplyValue rep) =
+     case withSomeValue eResultCTag eResultRep rep stripValue of
+       Right{} -> fire rep
+       Left  e -> fail . unpack $
+         "Server response doesn't match Execution: " <> e
+
    handleReply
-     :: Either Text Wire.Reply
+     :: (Wire.Reply -> IO ())
+     -> Either Text Wire.Reply
      -> IO (Wire.ClientState Text IO Wire.Reply)
-   handleReply (Left rej) = do
-     traceWith stderr $ "error: " <> rej
-     pure . Wire.ClientDone . error $ "error: " <> unpack rej
-   handleReply (Right r@(Wire.ReplyValue rep)) = do
-     traceWith stderr $ "reply: " <> pack (show rep)
-     spc <- case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep $
-                 \(VPoint space) -> space of
-              Right x -> pure x
-              Left  e -> fail (unpack e)
-     postAsEvent spc
-     Wire.ClientRequesting
-       <$> Unagi.readChan reqsChan
-       <*> pure handleReply
+   handleReply _      x@(Left  rej) = traceWith tr' x >>
+     (pure . Wire.ClientDone . error $ "error: " <> unpack rej)
+   handleReply handle x@(Right rep) =
+     traceWith tr' x >>
+     handle rep >>
+     go
+
+   tr' :: Tracer m (Either rej a)
+   tr' = Tracer $ traceWith tr . \case
+     Left  x -> "error: " <> x
+     Right x -> "reply: " <> pack (show x)
 
 data Acceptable
   = APipe  { unAPipe  :: !(SomePipe ()) }
@@ -178,15 +225,40 @@ acceptablePipe = \case
 spaceInteraction ::
      forall    t m
   .  (ReflexVty t m, PerformEvent t m, MonadIO (Performable m))
-  => (Wire.Request -> IO ())
-  -> Reflex.Dynamic t (PipeSpace (SomePipe ()))
+  => (Execution -> IO ())
+  -> Event t SomeValue
   -> VtyWidget t m (Event t ())
-spaceInteraction postReq spaceD = mdo
-  screenLayout@ScreenLayout{..} <- computeScreenLayout
+spaceInteraction postExe someValueRepliesE = mdo
+  let splitSVByKinds ::
+           Event t SomeValue
+        -> EventSelectorG t CTag SomeValueKinded
+      splitSVByKinds =
+        fanG . fmap (\(SomeValue tag sv) ->
+                       DMap.singleton tag sv)
 
-  postBuild <- getPostBuild
-  void $ performEvent . ffor postBuild . const . liftIO $
-    postReq $ Wire.Run "space"
+      splitSVKByTypes ::
+           forall (c :: Con). ReifyCTag c
+        => Event t (SomeValueKinded c)
+        -> EventSelectorG t CTag (Value c)
+      splitSVKByTypes =
+        fanG . fmap (\(SomeValueKinded v) ->
+                       DMap.singleton (reifyVTag $ Proxy @c) v)
+
+      repliesES :: EventSelectorG t CTag SomeValueKinded
+      repliesES = splitSVByKinds someValueRepliesE
+
+      pointRepliesE :: Event t (SomeValueKinded Point)
+      pointRepliesE = select repliesES TPoint
+
+      pointRepliesES :: EventSelectorG t VTag (Value Point)
+      pointRepliesES = splitSVKByTypes repliesPointE
+
+      spacePointRepliesE :: Event t (Value Point (PipeSpace (SomePipe ())))
+      spacePointRepliesE = select pointRepliesES GPipeSpace
+
+  spaceD <- holdDyn emptySpace (stripValue <$> pointRepliesES)
+
+  screenLayout@ScreenLayout{..} <- computeScreenLayout
 
   assemblyD :: Reflex.Dynamic t (Maybe (SomePipe ())) <-
     -- XXX:  what do we want to see here>?
@@ -197,10 +269,10 @@ spaceInteraction postReq spaceD = mdo
   let constraintD :: Reflex.Dynamic t (Maybe SomeTypeRep)
       constraintD = trdyn (\c-> mconcat ["choice: ", show c])
                     assemblyD
-                    <&> fmap (somePipeOutSomeTagType >>> snd)
+                    <&> fmap (somePipeOutSomeCTagType >>> snd)
       pipesFromD :: Reflex.Dynamic t [SomePipe ()]
       pipesFromD  = zipDynWith pipesFromCstr spaceD constraintD
-                    <&> (sortBy (compare `on` somePipeName))
+                    <&> sortBy (compare `on` somePipeName)
 
   sfp0 :: SelectorFrameParams t m Acceptable Acceptance <-
           selToSelrFrameParams

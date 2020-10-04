@@ -1,11 +1,11 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Ground.Parser
-  ( parseTag
+  ( parseCTag
   , parseQName
   , parseQName'
   , parseName
   , parseName'
-  , magicToken
+  , holeToken
   )
 where
 
@@ -25,17 +25,17 @@ import Data.Some
 import Type
 
 
--- * Some Tag
+-- * Some CTag
 --
-instance Parse (Some Tag) where
-  parser = parseTag
+instance Parse (Some CTag) where
+  parser = parseCTag
 
-parseTag
+parseCTag
   :: forall m
   . (MonadFail m, TokenParsing m)
-  => m (Some Tag)
-parseTag = do
-  i <- tagIdentifier
+  => m (Some CTag)
+parseCTag = do
+  i <- ctagIdentifier
   case i of
     "Point" -> pure $ Exists TPoint
     "List"  -> pure $ Exists TList
@@ -45,8 +45,8 @@ parseTag = do
     "Graph" -> pure $ Exists TGraph
     x -> fail $ "Mal-Con: " <> show x
 
-tagIdentifier :: (Monad m, TokenParsing m) => m Text
-tagIdentifier = ident $ IdentifierStyle
+ctagIdentifier :: (Monad m, TokenParsing m) => m Text
+ctagIdentifier = ident $ IdentifierStyle
   { _styleName = "Con tag"
   , _styleStart = letter
   , _styleLetter = alphaNum
@@ -61,8 +61,9 @@ tagIdentifier = ident $ IdentifierStyle
 instance Typeable a => Parse (QName a) where
   parser = parseQName
 
-magicToken :: Text
-magicToken = "!"
+-- An internal token that serves as a hint to allow the expression to be extended openly.
+holeToken :: Text
+holeToken = "!"
 
 parseQName
   :: forall e a
@@ -73,10 +74,10 @@ parseQName = locVal <$> parseQName' False
 parseQName'
   :: forall e a. (e ~ Text)
   => Bool -> ParsecT Text Text Identity (Located (QName a))
-parseQName' allowMagic =
-  if allowMagic
+parseQName' allowHole =
+  if allowHole
   then doParse tok <|> doParse (QName mempty
-                                 <$ string (unpack magicToken))
+                                 <$ string (unpack holeToken))
   else doParse tok
  where
    tok = textQName <$> alnumTokenDotty
@@ -109,9 +110,9 @@ parseName'
     , Monad m
     , TokenParsing m)
   => Bool -> m (Name a)
-parseName' allowMagic =
-  Name <$> (if allowMagic
-            then nameIdentifier <|> pure magicToken
+parseName' allowHole =
+  Name <$> (if allowHole
+            then nameIdentifier <|> pure holeToken
             else nameIdentifier)
   <?> "Name"
 
