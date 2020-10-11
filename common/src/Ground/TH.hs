@@ -16,14 +16,130 @@ defineGroundTypes :: Q [Dec] -> Q [Dec]
 defineGroundTypes qDec = qDec >>= pure . emit
  where
    emit :: [Dec] -> [Dec]
-   emit [DataD [] dataNameRaw [tyIx@(PlainTV tyIxName)] Nothing cons []] =
-     [ DataD
+   emit [DataD [] dataNameRaw [PlainTV tyIxName] Nothing cons []] =
+     [
+       DataInstD
          []                             -- no context
          dataName
-         [tyIx]                         -- retain the tyvar binder
+         [ ConT $ mkName "()"
+         , VarT tyIxName
+         ]
          Nothing                        -- no kind spec
          (mkCon <$> decls)
          []                             -- no derive clauses
+     -- instance GEq CTag where
+     --   geq a b = case (a,b) of
+     --     (,) TPoint  TPoint -> Just Refl
+     --     (,) TList   TList  -> Just Refl
+     --     (,) TSet    TSet   -> Just Refl
+     --     (,) TTree   TTree  -> Just Refl
+     --     (,) TDag    TDag   -> Just Refl
+     --     (,) TGraph  TGraph -> Just Refl
+     --     _ -> Nothing
+     , let
+         (,) a b = (mkName "a", mkName "b")
+         just = mkName "Just"
+         refl = mkName "Refl"
+         nothing = mkName "Nothing"
+         pair = mkName "(,)"
+         mkGEq TagDecl{..} =
+           let tag = mkName $ "V" <> tdStem
+           in Match (if isJust tdTy
+                     then ConP pair [ConP tag [], ConP tag []]
+                     else WildP)
+                    (NormalB $
+                     if isJust tdTy
+                     then AppE (ConE just) (ConE refl)
+                     else ConE nothing)
+                    []
+       in
+       InstanceD
+         Nothing
+         []
+         (AppT (ConT $ mkName "GEq")
+               (AppT (ConT $ mkName "VTag'")
+                     (ConT $ mkName "()")))
+         [ FunD
+             (mkName "geq")
+             [ Clause
+                 [VarP a, VarP b]
+                 (NormalB $
+                    CaseE (AppE (AppE (ConE pair) (VarE a)) (VarE b))
+                          (mkGEq <$> decls))
+                 []
+             ]]
+     -- instance GCompare CTag where
+     --   gcompare a b = case geq a b of
+     --     Just Refl -> GEQ
+     --     Nothing -> case orderCTag a `compare` orderCTag b of
+     --       LT -> GLT
+     --       GT -> GGT
+     --    where
+     --      orderCTag :: forall a. CTag a -> Int
+     --      orderCTag = \case
+     --        TPoint -> 0
+     --        TList  -> 1
+     --        TSet   -> 2
+     --        TTree  -> 3
+     --        TDag   -> 4
+     --        TGraph -> 5
+     , let
+         (,) a b = (mkName "a", mkName "b")
+         geq = mkName "GEQ"
+         glt = mkName "GLT"
+         ggt = mkName "GGT"
+         just = mkName "Just"
+         nothing = mkName "Nothing"
+         refl = mkName "Refl"
+         pair = mkName "(,)"
+         compare = mkName "compare"
+         orderVTag = mkName "orderVTag"
+         mkGCompare TagDecl{..} n =
+           Match (ConP (mkName $ "V" <> tdStem) [])
+                 (NormalB $ LitE $ IntegerL n)
+                 []
+       in
+       InstanceD
+         Nothing
+         []
+         (AppT (ConT $ mkName "GCompare")
+               (AppT (ConT $ mkName "VTag'")
+                     (ConT $ mkName "()")))
+         [ FunD
+             (mkName "gcompare")
+             [ Clause
+                 [VarP a, VarP b]
+                 (NormalB $
+                    CaseE (AppE (AppE (VarE $ mkName "geq") (VarE a)) (VarE b))
+                          [ Match (ConP just [ConP refl []])
+                                  (NormalB $ ConE geq)
+                                  []
+                          , Match (ConP nothing [])
+                                  (NormalB $
+                                   CaseE (AppE (AppE (VarE compare)
+                                                  (AppE (VarE orderVTag) (VarE a)))
+                                               (AppE (VarE orderVTag) (VarE b)))
+                                         [ Match (ConP (mkName "LT") [])
+                                                 (NormalB $ ConE glt)
+                                                 []
+                                         , Match (ConP (mkName "GT") [])
+                                                 (NormalB $ ConE ggt)
+                                                 []
+                                         ])
+                                  []
+                          ])
+               [ SigD orderVTag $
+                 ForallT [PlainTV a] [] $
+                   funT [ AppT (ConT $ mkName "VTag") (VarT a)
+                        , ConT $ mkName "Int"]
+               , FunD orderVTag
+                   [ Clause
+                       []
+                       (NormalB $ LamCaseE (uncurry mkGCompare <$>
+                                            zip decls [0..]))
+                       [] ]
+               ]
+             ]]
      , SigD
          (mkName "groundTypes")
          (AppT
@@ -70,14 +186,12 @@ defineGroundTypes qDec = qDec >>= pure . emit
 
       tcTypeable  = ConT $ mkName "Typeable"
       tcReifyCTag = ConT $ mkName "ReifyCTag"
-      tcGround    = ConT $ mkName "Ground"
       tcCTag      = ConT $ mkName "CTag"
       tcVTag      = ConT $ mkName "VTag"
       tcRepr      = ConT $ mkName "Repr"
       tcSomeValue = ConT $ mkName "SomeValue"
       cSomeValue  = ConE $ mkName "SomeValue"
       cSomeValueKinded = ConE $ mkName "SomeValueKinded"
-      cVTop       = ConE $ mkName "VTop"
       vmkValue    = VarE $ mkName "mkValue"
       vDot        = VarE $ mkName "."
       vError      = VarE $ mkName "error"
@@ -165,7 +279,7 @@ defineGroundTypes qDec = qDec >>= pure . emit
 
       promoteTyToTag :: Type -> Type
       promoteTyToTag tdTy =
-        AppT (ConT dataName) tdTy
+        AppT (AppT (ConT dataName) (ConT $ mkName "()")) tdTy
 
    emit []      = shapeError
    emit (_:_:_) = shapeError
@@ -221,6 +335,9 @@ data TagDecl
 --   ConE Name                          -- data T1 = C1 t1 t2; p = {C1} e1 e2
 --   LitE Lit                           --  { 5 or 'c'}
 --   AppE Exp Exp                       --  { f x }
+--   CaseE Exp [Match]                  -- { case e of m1; m2 }
+-- data Match
+--   Match Pat Body [Dec]               -- case e of { pat -> body where decs }
 -- data TyVarBndr flag
 --   PlainTV Name flag                  -- a
 --   KindedTV Name flag Kind            -- (a :: k)

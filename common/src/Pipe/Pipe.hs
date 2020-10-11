@@ -195,7 +195,7 @@ instance ( Typeable (CTagOf ct), Typeable (TypeOf ct), Typeable ct
          ) => IsType (ct :: *)
 
 type ArgConstr (c :: * -> Constraint) (ct :: *)
-  = ( IsType ct, Typeable c, ReifyCTag (CTagOf ct), c (TypeOf ct))
+  = ( IsType ct, Typeable c, ReifyCTag (CTagOf ct), ReifyVTag (TypeOf ct), c (TypeOf ct))
 
 type PipeConstr (c :: * -> Constraint) (cas :: [*]) (o :: *)
   = ( All IsType cas, ArgConstr c o

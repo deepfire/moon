@@ -125,7 +125,7 @@ failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
 failLenTag len tag = fail $ "invalid "<>show (typeRep @a)<>" encoding: len="<>show len<>" tag="<>show tag
 
 instance Serialise SomeValue where
-  encode sv@(SomeValue k (SomeValueKinded x)) =
+  encode sv@(SomeValue k (SomeValueKinded _vtag x)) =
     encodeListLen 3
     <> encodeWord tagSomeValue
     <> encode (SomeCTag k)
@@ -157,7 +157,9 @@ instance Serialise SomeValue where
               decodeSomeValue (SomeCTag ctag) (TyDict (a :: Proxy a)) =
                 SomeValue
                   <$> pure ctag
-                  <*> (SomeValueKinded <$> decodeValue a ctag)
+                  <*> (SomeValueKinded
+                       <$> pure (reifyVTag a)
+                       <*> decodeValue a ctag)
               decodeValue :: forall s (k :: Con) a
                 . Ground a => Proxy a -> CTag k -> Decoder s (Value k a)
               decodeValue _ = \case

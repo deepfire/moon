@@ -15,6 +15,7 @@ module Basis
   , module Data.Foldable
   , module Data.Function
   , module Data.Functor
+  , module Data.GADT.Compare
   , module Data.Hashable
   , module Data.HashMap.Strict
   , module Data.Kind
@@ -33,6 +34,7 @@ module Basis
   , module Data.String
   , module Data.Text
   , module Data.Tuple.Extra
+  , module Data.Type.Equality
   , module Data.Type.List
   , module Data.TypeRep
   , module Data.Witherable
@@ -62,6 +64,7 @@ import Data.Either.Extra          (mapLeft, mapRight, fromLeft, fromRight, eithe
 import Data.Function              ((&), on)
 import Data.Functor               ((<&>), (<$), ($>))
 import Data.Foldable              (toList)
+import Data.GADT.Compare          (GOrdering(..))
 import Data.Hashable              (Hashable)
 import Data.HashMap.Strict        (HashMap)
 import Data.Kind                  (Constraint)
@@ -80,6 +83,7 @@ import Data.SOP.Constraint        (Head, Tail)
 import Data.String                (IsString)
 import Data.Text                  (Text, pack, unpack)
 import Data.Tuple.Extra           (fst3, snd3, thd3, uncurry3)
+import Data.Type.Equality         ((:~:)(..), (:~~:)(..))
 import Data.Type.List             (spineConstraint)
 import Data.TypeRep               (showSomeTypeRep, showTypeRep)
 import Data.Witherable            (catMaybes, mapMaybe, wither)

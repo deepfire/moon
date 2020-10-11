@@ -19,8 +19,7 @@ module Ground.Table
   --
   , parseDict
   --
-  , VTag(..)
-  , ReifyVTag(..)
+  , VTag'(..)
   )
 where
 
@@ -29,6 +28,7 @@ import           Codec.Serialise
 import           Codec.CBOR.Encoding                (Encoding, encodeListLen)
 import           Codec.CBOR.Decoding                (decodeListLen)
 import           Control.Monad                      (forM, unless)
+import           Data.GADT.Compare
 import qualified Data.Kind                        as K
 import qualified Data.SOP                         as SOP
 import           Type.Reflection                    ((:~~:)(..), eqTypeRep, typeRepKind, withTypeable)
@@ -59,7 +59,7 @@ deriving instance Typeable Scope
 deriving instance Typeable Type
 
 defineGroundTypes [d|
-  data VTag a where
+  data VTag' a where
     -- Meta
     -- VGround       :: Dict Ground
     VCon             :: Con
@@ -67,11 +67,13 @@ defineGroundTypes [d|
     VSig             :: ISig
     VStruct          :: Struct
     VPipe            :: SomePipe ()
+
     VTypeRep         :: SomeTypeRep
     VTypeRep2        :: (SomeTypeRep, SomeTypeRep)
     VNameType        :: Name Type
     VNamePipe        :: Name Pipe
     VQNamePipe       :: QName Pipe
+
     VQNameScope      :: QName Scope
     -- OMG, Ord on PipeSpace..
     VPipeSpace       :: PipeSpace (SomePipe ())
@@ -79,29 +81,30 @@ defineGroundTypes [d|
     VInt             :: Int
     VInteger         :: Integer
     VFloat           :: Float
+
     VDouble          :: Double
     VString          :: String
     VText            :: Text
     VUnit            :: ()
     -- Plain
     VFileName        :: Hask.FileName
+
     VLoc             :: Hask.Loc
     VURL             :: Hask.URL
     -- Hask
     VNameHaskIndex   :: Name Hask.Index
     VHaskIndex       :: Hask.Index
     VNameHaskRepo    :: Name Hask.Repo
+
     VNameHaskPackage :: Name Hask.Package
     VNameHaskModule  :: Name Hask.Module
     VNameHaskDef     :: Name Hask.Def
     VHaskDef         :: Hask.Def
     VHaskDefType     :: Hask.DefType
+
     -- Top, special processing.
     VTop             :: a
  |]
-
-class ReifyVTag (a :: *) where
-  reifyVTag :: Proxy a -> VTag a
 
 --------------------------------------------------------------------------------
 -- * SomeValue
@@ -285,7 +288,7 @@ instance Serialise (SomePipe ()) where
        . (SomeCTag, SomeTypeRep, SomeTypeRep)
        -> (forall (c1 :: Con) (a1 :: *) ty
            . ( Typeable (Type c1 a1), Typeable c1, Typeable a1
-             , ReifyCTag c1
+             , ReifyCTag c1, ReifyVTag a1
              , ty ~ Type c1 a1)
            => TypePair ty -> Proxy c1 -> Proxy a1 -> b)
        -> b

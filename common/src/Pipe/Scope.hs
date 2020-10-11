@@ -81,10 +81,11 @@ dataProjPipes ctor c u =
           SOP.SomeAccessors
             (SOP.Accessors getter _ :: SOP.Accessors u c a) ->
             ctor $
-            link' (Name $ SOP.fName f)
-            TPoint'
-            TPoint' -- XXX: Kind can be non-Point!
-            (pure . Right . getter)
+            link'
+              (Name $ SOP.fName f)
+              TPoint'
+              TPoint' -- XXX: Kind can be non-Point!
+              (pure . Right . getter)
   in [ fieldPipe d ct f
      | ct <- SOP.dCtors  d
      , f  <- SOP.cFields ct]

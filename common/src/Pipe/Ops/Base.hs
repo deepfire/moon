@@ -26,14 +26,15 @@ runPipe' pd@Desc{pdOut=TypePair{tpCTag, tpType}} dyn =
   case fromDynamic dyn :: Maybe (IOA Ground '[] o) of
     Nothing -> pure . Left $ "Incomplete pipe: " <> showDesc pd
     Just (IOA io _c _as _o) ->
-      (SomeValue tpCTag . SomeValueKinded . mkValue tpType tpCTag <$>) <$> io
+      let vtag = reifyVTag tpType
+      in (SomeValue tpCTag . SomeValueKinded vtag . mkValue vtag tpCTag <$>) <$> io
 
 
 -- * Constructors
 --
 genG
   :: forall ct tt
-  .  (ReifyCTag ct, Typeable (Repr ct tt), Typeable ct, Ground tt)
+  .  (ReifyCTag ct, ReifyVTag tt, Typeable (Repr ct tt), Typeable ct, Ground tt)
   => Name Pipe
   -> Type ct tt
   -> Result (Repr ct tt)
@@ -42,7 +43,9 @@ genG n to pf = G mempty $ gen' n to pf
 
 gen
   :: forall ct tt
-  .  (ReifyCTag ct, Typeable (Repr ct tt), Typeable ct, Typeable tt)
+  .  ( ReifyCTag ct
+     , ReifyVTag tt
+     , Typeable (Repr ct tt), Typeable ct, Typeable tt)
   => Name Pipe
   -> Type ct tt
   -> Result (Repr ct tt)
@@ -51,7 +54,9 @@ gen n to pf = T mempty $ gen' n to pf
 
 linkG
   :: forall cf tf ct tt
-  . ( ReifyCTag cf,ReifyCTag ct, Typeable (Repr cf tf), Typeable (Repr ct tt)
+  . ( ReifyCTag cf, ReifyCTag ct
+    , ReifyVTag tt
+    , Typeable (Repr cf tf), Typeable (Repr ct tt)
     , Typeable cf, Typeable tf, Typeable ct
     , Ground tt)
   => Name Pipe
@@ -63,7 +68,9 @@ linkG n from to pf = G mempty $ link' n from to pf
 
 link
   :: forall cf tf ct tt
-  . ( ReifyCTag cf, ReifyCTag ct, Typeable (Repr cf tf), Typeable (Repr ct tt)
+  . ( ReifyCTag cf, ReifyCTag ct
+    , ReifyVTag tt
+    , Typeable (Repr cf tf), Typeable (Repr ct tt)
     , Typeable cf, Typeable tf, Typeable ct
     , Typeable tt)
   => Name Pipe
@@ -76,7 +83,8 @@ link n from to pf = T mempty $ link' n from to pf
 gen'
   :: forall cf tf ct tt c
   .  ( cf ~ 'Point, tf ~ ()
-     , ReifyCTag ct, Typeable (Repr ct tt), Typeable ct, Typeable tt, Typeable c
+     , ReifyCTag ct, ReifyVTag tt
+     , Typeable (Repr ct tt), Typeable ct, Typeable tt, Typeable c
      , c tt)
   => Name Pipe
   -> Type ct tt
@@ -93,9 +101,11 @@ gen' name (splitType -> (tagTo, pTo)) mv
         dyn     = Dynamic typeRep pipeFun
         pipeFun = IOA mv Proxy Proxy Proxy :: IOA c '[] (Type ct tt)
 
-link'
-  :: forall cf tf ct tt c
-  . ( ReifyCTag cf, ReifyCTag ct, Typeable (Repr cf tf), Typeable (Repr ct tt)
+link' ::
+    forall cf tf ct tt c
+  . ( ReifyCTag cf, ReifyCTag ct
+    , ReifyVTag tt
+    , Typeable (Repr cf tf), Typeable (Repr ct tt)
     , Typeable cf, Typeable tf, Typeable ct, Typeable tt, Typeable c
     , c tt)
   => Name Pipe

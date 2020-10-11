@@ -75,7 +75,7 @@ parse' nameParser = tryParse True
           (runIdentity $ runParserT
            (do
                x <- unParsecT $ parseExpr (nameParser (not mayExtend))
-               eof
+               Text.Megaparsec.eof
                pure x)
             "" s)
           mayExtend
@@ -106,7 +106,7 @@ parseExpr nameParser =
        x : xs -> foldM (\l r -> pure $ PApp <$> l <*> r) x xs
        _ -> error "Invariant failed: 'some' failed us."
    comps = do
-     xs' <- sepBy1 applys (token (string "."))
+     xs' <- sepBy1 applys (token (Text.Megaparsec.Char.string "."))
      let (errs, xs) = partitionEithers xs'
      pure $ if null errs
        then Right $ foldl1 PComp xs

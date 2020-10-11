@@ -25,7 +25,7 @@ demoApply = case apply appDyn pipe val of
      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
    val :: SomeValue
-   val = SomeValue TPoint $ SomeValueKinded $ VPoint ("demo!" :: String)
+   val = SomeValue TPoint $ SomeValueKinded VString $ VPoint ("demo!" :: String)
 
 apply
   :: (forall g cas cas' o ca
@@ -56,7 +56,7 @@ apply'
   -> Either Text (Pipe g cas' o p)
 apply' pf
   f@P{pPipeRep=ioa@IOATyCons{tagARep=tA, aRep=a}}
-  (SomeValue _ (SomeValueKinded (v :: Value cv v) :: SomeValueKinded cv))
+  (SomeValue _ (SomeValueKinded _ (v :: Value cv v) :: SomeValueKinded cv))
   | Just e <- ioaTyConsInvalidity ioa
   = Left $ "Apply: " <> e
 

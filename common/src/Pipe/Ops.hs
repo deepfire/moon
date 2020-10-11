@@ -34,6 +34,7 @@ import Pipe.Ops.Compose
 import Pipe.Ops.Traverse
 import Pipe.Types
 import Pipe.Zipper
+import SomeValue
 import Type
 
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE InstanceSigs               #-}
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
@@ -19,6 +20,9 @@ module Type
   , CTag(..)
   , withReifyCTag
   , ReifyCTag(..)
+  , VTag'(..)
+  , VTag
+  , ReifyVTag(..)
   , Type(..)
   , splitType
   , Repr
@@ -50,6 +54,7 @@ where
 import qualified Algebra.Graph                    as G
 import           Codec.Serialise
 import           Control.Monad.Fail                 (MonadFail)
+import           Data.GADT.Compare                  (GEq(..), GCompare(..))
 import           Data.IntervalMap.FingerTree (Interval(..))
 import qualified Data.Sequence                    as Seq
 import qualified Data.Set.Monad                   as S
@@ -156,8 +161,41 @@ data CTag (c :: Con) where
   TGraph :: CTag Graph
   deriving (Typeable)
 
+instance GEq CTag where
+  geq a b = case (a,b) of
+    (,) TPoint  TPoint -> Just Refl
+    (,) TList   TList  -> Just Refl
+    (,) TSet    TSet   -> Just Refl
+    (,) TTree   TTree  -> Just Refl
+    (,) TDag    TDag   -> Just Refl
+    (,) TGraph  TGraph -> Just Refl
+    _ -> Nothing
+
+instance GCompare CTag where
+  gcompare a b = case geq a b of
+    Just Refl -> GEQ
+    Nothing -> case orderCTag a `compare` orderCTag b of
+      LT -> GLT
+      GT -> GGT
+   where
+     orderCTag :: forall a. CTag a -> Int
+     orderCTag = \case
+       TPoint -> 0
+       TList  -> 1
+       TSet   -> 2
+       TTree  -> 3
+       TDag   -> 4
+       TGraph -> 5
+
+data family VTag' a b
+
+type VTag a = VTag' () a
+
 class ReifyCTag (c :: Con) where
   reifyCTag :: Proxy c -> CTag c
+
+class ReifyVTag (a :: *) where
+  reifyVTag :: Proxy a -> VTag a
 
 instance ReifyCTag Point where reifyCTag = const TPoint
 instance ReifyCTag List  where reifyCTag = const TList
@@ -215,7 +253,7 @@ type family Repr (k :: Con) (a :: *) :: * where
   --            that which already exists?
   -- Option:    Set of pairs with enforced left hand uniqueness?
 
-mapRepr :: CTag k -> (a -> b) -> Repr k a -> Repr k b
+mapRepr :: CTag c -> (a -> b) -> Repr c a -> Repr c b
 mapRepr TPoint f = f
 mapRepr TList  f = fmap f
 mapRepr TSet   f = fmap f
@@ -223,7 +261,7 @@ mapRepr TTree  f = fmap f
 mapRepr TDag   f = fmap f
 mapRepr TGraph f = fmap f
 
-withReifyCTag :: CTag k -> (ReifyCTag k => r) -> r
+withReifyCTag :: CTag c -> (ReifyCTag c => r) -> r
 withReifyCTag = \case
   TPoint -> id
   TList  -> id
@@ -236,10 +274,10 @@ withReifyCTag = \case
 data family TypePair t :: *
 
 data instance TypePair ty where
-  TypePair :: (ty ~ Type k a, ReifyCTag k, Typeable k, Typeable a) =>
-    { tpCTag :: CTag k
+  TypePair :: (ty ~ Type c a, ReifyCTag c, Typeable c, Typeable a) =>
+    { tpCTag :: CTag c
     , tpType :: Proxy a
-    } -> TypePair (Type k a)
+    } -> TypePair (Type c a)
 
 deriving instance Eq       (TypePair t)
 deriving instance Ord      (TypePair t)
@@ -249,11 +287,11 @@ instance NFData (TypePair a) where
   rnf _ = ()
 
 type family OnArg1 (onarg1f :: Con -> * -> *) (onarg1xs :: [*]) :: * where
-  OnArg1 f (Type k a:_) = f k a
+  OnArg1 f (Type c a:_) = f c a
   OnArg1 _ xs = TypeError (Ty.Text "OnArg1Ty: incompatible signature: " :<>: ShowType xs)
 
 type family Arg1 (arg1 :: [*]) :: * where
-  Arg1 (Type k a:_) = Type k a
+  Arg1 (Type c a:_) = Type c a
   Arg1 xs = TypeError (Ty.Text "Arg1: no argument: " :<>: ShowType xs)
 
 type family Arg1Ty (arg1ty :: [*]) :: * where
@@ -261,7 +299,7 @@ type family Arg1Ty (arg1ty :: [*]) :: * where
   Arg1Ty xs = TypeError (Ty.Text "Arg1Ty: no argument: " :<>: ShowType xs)
 
 type family Arg1CTag (arg1ctag :: [*]) :: Con where
-  Arg1CTag (Type k _:_) = k
+  Arg1CTag (Type c _:_) = c
   Arg1CTag xs = TypeError (Ty.Text "Arg1CTag: no argument: " :<>: ShowType xs)
 
 type family TypeOf (typeof :: *) :: * where
@@ -272,11 +310,11 @@ type family CTagOf (ctagof :: *) :: Con where
   CTagOf (Type c _) = c
   CTagOf  x = TypeError (Ty.Text "CTagOf: invalid argument: " :<>: ShowType x)
 
-type WithPair (ty :: *) (k :: Con) (a :: *)
-  = (CTagOf ty ~ k, TypeOf ty ~ a)
+type WithPair (ty :: *) (c :: Con) (a :: *)
+  = (CTagOf ty ~ c, TypeOf ty ~ a)
 
 type family ReprOf (reprof :: *) :: * where
-  ReprOf (Type k a) = Repr k a
+  ReprOf (Type c a) = Repr c a
   ReprOf x = TypeError (Ty.Text "ReprOf: invalid argument: " :<>: ShowType x)
 
 --------------------------------------------------------------------------------
@@ -289,7 +327,7 @@ data Value (k :: Con) a where
   VGraph  :: Repr Graph a -> Value Graph a
   deriving (Typeable)
 
-mkValue' :: Proxy a -> CTag k -> Repr k a -> Value k a
+mkValue' :: Proxy a -> CTag c -> Repr c a -> Value c a
 mkValue' = const $ \case
   TPoint -> VPoint
   TList  -> VList
@@ -359,7 +397,7 @@ instance Read (Some CTag) where
       _ -> trace (printf "Unknown CTag: %s" (show con))
                  (fail "")
 
-instance Show (CTag k) where
+instance Show (CTag c) where
   show TPoint = "TPoint"
   show TList  = "TList"
   show TSet   = "TSet"
@@ -367,7 +405,7 @@ instance Show (CTag k) where
   show TDag   = "TDag"
   show TGraph = "TGraph"
 
-instance Show (Type k a) where
+instance Show (Type c a) where
   show TPoint'  = "TPoint"
   show TList'   = "TList"
   show TSet'    = "TSet"
@@ -375,7 +413,7 @@ instance Show (Type k a) where
   show TDag'    = "TDag"
   show TGraph'  = "TGraph"
 
-instance (Show a) => Show (Value k a) where
+instance (Show a) => Show (Value c a) where
   show (VPoint x) = "VPoint " <> show x
   show (VList  x) = "VList "  <> show x
   show (VSet   x) = "VSet "   <> show (foldMap (:[]) x)
@@ -383,7 +421,7 @@ instance (Show a) => Show (Value k a) where
   show (VDag   x) = "VDag "   <> show x
   show (VGraph x) = "VGraph " <> show x
 
-instance Functor (Value k) where
+instance Functor (Value c) where
   fmap f (VPoint x) = VPoint $ f x
   fmap f (VList x) = VList $ f <$> x
   fmap f (VSet x) = VSet $ f <$> x

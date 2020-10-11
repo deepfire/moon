@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 --{-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
@@ -67,7 +68,6 @@ import Basis hiding (Dynamic)
 import Data.Text.Extra
 import qualified Data.Text.Zipper.Extra as TZ
 
-import           Ground.Table                        (VTag(..))
 import qualified Ground.Hask                      as Hask
 import qualified Wire.Peer                        as Wire
 import qualified Wire.Protocol                    as Wire
@@ -145,9 +145,6 @@ data WSAddr
   , wsaPort :: Int
   , wsaPath :: String
   }
-
-instance GEq CTag
-instance GCompare CTag
 
 data Execution where
   Execution :: (ReifyCTag c, Typeable c, Typeable a, Ord a, Ground a) =>
@@ -238,7 +235,7 @@ spaceInteraction postExe someValueRepliesE = mdo
       splitSVKByTypes ::
            forall (c :: Con). ReifyCTag c
         => Event t (SomeValueKinded c)
-        -> EventSelectorG t VTag (Value c)
+        -> EventSelectorG t (VTag' ()) (Value c)
       splitSVKByTypes =
         fanG . fmap (\(SomeValueKinded tag v) -> DMap.singleton tag v)
 
@@ -246,15 +243,15 @@ spaceInteraction postExe someValueRepliesE = mdo
       repliesES = splitSVByKinds someValueRepliesE
 
       pointRepliesE :: Event t (SomeValueKinded Point)
-      pointRepliesE = select repliesES TPoint
+      pointRepliesE = selectG repliesES TPoint
 
-      pointRepliesES :: EventSelectorG t VTag (Value Point)
-      pointRepliesES = splitSVKByTypes repliesPointE
+      pointRepliesES :: EventSelectorG t (VTag' ()) (Value Point)
+      pointRepliesES = splitSVKByTypes pointRepliesE
 
       spacePointRepliesE :: Event t (Value Point (PipeSpace (SomePipe ())))
-      spacePointRepliesE = select pointRepliesES GPipeSpace
+      spacePointRepliesE = selectG pointRepliesES VPipeSpace
 
-  spaceD <- holdDyn emptySpace (stripValue <$> pointRepliesES)
+  spaceD <- holdDyn mempty (stripValue <$> spacePointRepliesE)
 
   screenLayout@ScreenLayout{..} <- computeScreenLayout
 

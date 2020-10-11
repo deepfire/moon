@@ -156,7 +156,7 @@ handleRequest :: Env -> Request -> IO (Either Text Reply)
 handleRequest Env{..} x = case x of
   Compile name pipe ->
     Lift.compile name pipe
-    <&> (ReplyValue . SomeValue TPoint . SomeValueKinded . VPoint <$>)
+    <&> (ReplyValue . SomeValue TPoint . SomeValueKinded VSig . VPoint <$>)
   Run text ->
     case Pipe.parse text of
       Left e -> pure . Left $ "Parse: " <> e
