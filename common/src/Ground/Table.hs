@@ -4,7 +4,12 @@
 {-# OPTIONS_GHC -dth-dec-file #-}
 
 module Ground.Table
-  ( lookupRep
+  ( mkValue
+  , SomeValueKinded(..)
+  , SomeValue(..)
+  , mkSomeValue
+  --
+  , lookupRep
   , lookupName
   , lookupNameRep
   , withRepGroundType
@@ -13,9 +18,9 @@ module Ground.Table
   , groundTypeNames
   --
   , parseDict
-  , parseSomeValue
   --
   , VTag(..)
+  , ReifyVTag(..)
   )
 where
 
@@ -38,7 +43,6 @@ import Basis
 import qualified Data.Dict as Dict
 import Type
 import SomeType
-import SomeValue
 
 import Data.Parsing
 import Ground.Parser ()
@@ -92,7 +96,42 @@ defineGroundTypes [d|
     VNameHaskDef     :: Name Hask.Def
     VHaskDef         :: Hask.Def
     VHaskDefType     :: Hask.DefType
-   |]
+    -- Top, special processing.
+    VTop             :: a
+ |]
+
+class ReifyVTag (a :: *) where
+  reifyVTag :: Proxy a -> VTag a
+
+--------------------------------------------------------------------------------
+-- * SomeValue
+--
+data SomeValueKinded (c :: Con)
+  = forall a. Ground a => SomeValueKinded (VTag a) (Value c a)
+
+data SomeKindValue a =
+  forall (c :: Con). Typeable c =>
+  SomeKindValue (CTag c) (Value c a)
+
+data SomeValue =
+  forall c. (ReifyCTag c, Typeable c) =>
+  SomeValue (CTag c) (SomeValueKinded c)
+
+-- data SomeValue =
+--   forall a. Ground a =>
+--   SomeValue  (SomeKindValue a)
+
+--------------------------------------------------------------------------------
+-- * Value
+--
+mkValue :: VTag a -> CTag k -> Repr k a -> Value k a
+mkValue = const $ \case
+  TPoint -> VPoint
+  TList  -> VList
+  TSet   -> VSet
+  TTree  -> VTree
+  TDag   -> VDag
+  TGraph -> VGraph
 
 
 -- * Ground API
@@ -152,49 +191,6 @@ instance Read (TyDict Ground) where
         Nothing -> trace (printf "Unknown ground: %s" i)
                          (fail $ "Unknown ground: " <> i)
       x -> fail $ "Unexpected construct: " <> show x
-
-instance Read SomeValue where
-  readPrec = do
-    tag :: Some CTag <- readPrec
-    dict :: TyDict Ground <- readPrec
-    case tag of
-      Exists tag' -> readSomeValue tag' dict
-
-
--- * SomeValue
---
-instance Parse SomeValue where
-  parser = parseSomeValue
-
-parseSomeValue :: Parser SomeValue
-parseSomeValue =
-  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Text) TPoint <$> stringLiteral)
-  <|>
-  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Integer) TPoint <$> integer)
-  <|>
-  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Integer) TPoint <$> hexadecimal)
-  <|>
-  (SomeValue TPoint . SomeValueKinded . mkValue' (Proxy @Double) TPoint <$> double)
-  <|>
-  braces   (parseSV . reifyCTag $ Proxy @Point)
-  <|>
-  brackets (parseSV . reifyCTag $ Proxy @List)
- where
-  parseSV :: CTag c -> Parser SomeValue
-  parseSV tag = do
-    TyDict a :: TyDict Ground <- parser
-    case tag of
-      TPoint -> do
-        v :: a <- parser
-        pure $ SomeValue tag $ SomeValueKinded $ mkValue' a tag v
-      TList -> do
-        v :: [a] <- commaSep parser
-        pure $ SomeValue tag $ SomeValueKinded $ mkValue' a tag v
-      TSet -> do
-        v :: [a] <- commaSep parser
-        pure $ SomeValue tag $ SomeValueKinded $ mkValue' a tag $ Set.fromList v
-      _ -> trace (printf "No parser for structures outside of Point/List/Set.")
-                 (fail "")
 
 
 _withGroundTop

@@ -33,7 +33,6 @@ module Type
   , TypeOf
   , ReprOf
   , Value(..)
-  , mkValue
   , mkValue'
   , Parse(..)
   , Ground
@@ -269,7 +268,7 @@ type family TypeOf (typeof :: *) :: * where
   TypeOf (Type _ a) = a
   TypeOf x = TypeError (Ty.Text "TypeOf: invalid argument: " :<>: ShowType x)
 
-type family CTagOf (tagof :: *) :: Con where
+type family CTagOf (ctagof :: *) :: Con where
   CTagOf (Type c _) = c
   CTagOf  x = TypeError (Ty.Text "CTagOf: invalid argument: " :<>: ShowType x)
 
@@ -292,15 +291,6 @@ data Value (k :: Con) a where
 
 mkValue' :: Proxy a -> CTag k -> Repr k a -> Value k a
 mkValue' = const $ \case
-  TPoint -> VPoint
-  TList  -> VList
-  TSet   -> VSet
-  TTree  -> VTree
-  TDag   -> VDag
-  TGraph -> VGraph
-
-mkValue :: Proxy a -> CTag k -> Repr k a -> Value k a
-mkValue = const $ \case
   TPoint -> VPoint
   TList  -> VList
   TSet   -> VSet

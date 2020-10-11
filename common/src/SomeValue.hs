@@ -2,17 +2,18 @@
 {-# LANGUAGE UndecidableSuperClasses    #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module SomeValue
-  ( SomeValueKinded(..)
-  , SomeValue(..)
-  , readSomeValue
+  ( readSomeValue
   , stripValue
-  , stripSomeValue
+  -- , stripSomeValue
   , unitSomeValue
   , someValueSomeCTag
   , someValueSomeTypeRep
   , someValueKindedSomeTypeRep
   , someValueSomeType
   , withSomeValue
+  , parseSomeValue
+  --
+  , module Ground.Table
   )
 where
 
@@ -21,44 +22,65 @@ import           Text.Read                           (ReadPrec)
 import qualified Type.Reflection                  as R
 
 import Basis
+import Data.Parsing
 
 import Type
 import SomeType
+import Ground.Table
 
---------------------------------------------------------------------------------
--- * Ground
---
-data SomeValueKinded (c :: Con) =
-  forall a. Ground a =>
-  SomeValueKinded (Value c a)
-
-data SomeKindValue a =
-  forall (c :: Con). Typeable c =>
-  SomeKindValue (CTag c) (Value c a)
-
-data SomeValue =
-  forall c. (ReifyCTag c, Typeable c) =>
-  SomeValue (CTag c) (SomeValueKinded c)
--- data SomeValue = forall a. Ground a =>
---   SomeValue  (SomeKindValue a)
+parseSomeValue :: Parser SomeValue
+parseSomeValue =
+  (SomeValue TPoint . SomeValueKinded VText . mkValue' (Proxy @Text) TPoint <$> stringLiteral)
+  <|>
+  (SomeValue TPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) TPoint <$> integer)
+  <|>
+  (SomeValue TPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) TPoint <$> hexadecimal)
+  <|>
+  (SomeValue TPoint . SomeValueKinded VDouble . mkValue' (Proxy @Double) TPoint <$> double)
+  <|>
+  braces   (parseSV . reifyCTag $ Proxy @Point)
+  <|>
+  brackets (parseSV . reifyCTag $ Proxy @List)
+ where
+   parseSV :: CTag c -> Parser SomeValue
+   parseSV ctag = do
+     TyDict a :: TyDict Ground <- parser
+     case ctag of
+       TPoint -> do
+         v :: a <- parser
+         let vtag = reifyVTag $ Proxy @a
+         pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag v
+         -- pure $ mkSomeValue ctag vtag v
+       TList -> do
+         v :: [a] <- commaSep parser
+         let vtag = reifyVTag $ Proxy @a
+         pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag v
+         -- pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) v
+       TSet -> do
+         v :: [a] <- commaSep parser
+         let vtag = reifyVTag $ Proxy @a
+         pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag (Set.fromList v)
+         -- pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) (Set.fromList v)
+       _ -> trace (printf "No parser for structures outside of Point/List/Set.")
+                  (fail "")
 
 readSomeValue :: forall (c :: Con). CTag c -> TyDict Ground -> ReadPrec SomeValue
-readSomeValue tag (TyDict (a :: Proxy a)) =
-  case tag of
+readSomeValue ctag (TyDict (a :: Proxy a)) =
+  case ctag of
     TPoint -> do
       v :: a <- readPrec
-      pure . SomeValue tag . SomeValueKinded $ mkValue' a tag v
+      pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) v
     TList -> do
       v :: [a] <- readListPrec
-      pure . SomeValue tag . SomeValueKinded $ mkValue' a tag v
+      pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) v
     TSet -> do
       v :: [a] <- readListPrec
-      pure . SomeValue tag . SomeValueKinded $ mkValue' a tag $ Set.fromList v
+      pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) (Set.fromList v)
     _ -> trace (printf "No parser for structures outside of Point/List/Set.")
                (fail "")
 
 unitSomeValue :: SomeValue
-unitSomeValue = SomeValue TPoint $ SomeValueKinded (VPoint ())
+unitSomeValue = SomeValue TPoint $ SomeValueKinded VUnit (VPoint ())
 
 stripValue ::
   forall (c :: Con) a
@@ -72,22 +94,22 @@ stripValue = \case
   VDag   x -> x
   VGraph x -> x
 
-stripSomeValue ::
-  forall a c
-   . (Typeable a, Typeable c)
-  => CTag c
-  -> Proxy a
-  -> SomeValue
-  -> Maybe (Repr c a)
-stripSomeValue _ _ (SomeValue (_ :: CTag c') (SomeValueKinded (r :: Value c' a'))) =
-  let exptr = typeRep @a
-      svtr  = typeRep @a'
-      expk  = typeRep @c
-      svk   = typeRep @c'
-  in case (,) (svtr `R.eqTypeRep` exptr)
-              (svk  `R.eqTypeRep` expk) of
-    (Just R.HRefl, Just R.HRefl) -> Just $ stripValue r
-    _ -> Nothing
+-- stripSomeValue ::
+--   forall a c
+--    . (Typeable a, Typeable c)
+--   => CTag c
+--   -> Proxy a
+--   -> SomeValue
+--   -> Maybe (Repr c a)
+-- stripSomeValue _ _ (SomeValue (_ :: CTag c') (SomeValueKinded (r :: Value c' a'))) =
+--   let exptr = typeRep @a
+--       svtr  = typeRep @a'
+--       expk  = typeRep @c
+--       svk   = typeRep @c'
+--   in case (,) (svtr `R.eqTypeRep` exptr)
+--               (svk  `R.eqTypeRep` expk) of
+--     (Just R.HRefl, Just R.HRefl) -> Just $ stripValue r
+--     _ -> Nothing
 
 withSomeValue
   :: forall a c b
@@ -97,7 +119,7 @@ withSomeValue
   -> SomeValue
   -> (Value c a -> b)
   -> Either Text b
-withSomeValue _ _ (SomeValue (_ :: CTag c') (SomeValueKinded (r :: Value c' a'))) f =
+withSomeValue _ _ (SomeValue (_ :: CTag c') (SomeValueKinded _ (r :: Value c' a'))) f =
   let exptr = typeRep @a
       svtr  = typeRep @a'
       expk  = typeRep @c
@@ -115,11 +137,23 @@ someValueSomeTypeRep :: SomeValue -> R.SomeTypeRep
 someValueSomeTypeRep (SomeValue _ svk) = someValueKindedSomeTypeRep svk
 
 someValueKindedSomeTypeRep :: SomeValueKinded c -> R.SomeTypeRep
-someValueKindedSomeTypeRep (SomeValueKinded (_ :: Value c a)) = R.someTypeRep $ Proxy @a
+someValueKindedSomeTypeRep (SomeValueKinded _ (_ :: Value c a)) = R.someTypeRep $ Proxy @a
 
 someValueSomeType :: SomeValue -> SomeType
-someValueSomeType (SomeValue ctag (SomeValueKinded (_ :: Value c a))) =
+someValueSomeType (SomeValue ctag (SomeValueKinded _ (_ :: Value c a))) =
   ctagSomeType ctag (Proxy @a)
 
+-- * Instances
+--
+instance Read SomeValue where
+  readPrec = do
+    tag :: Some CTag <- readPrec
+    dict :: TyDict Ground <- readPrec
+    case tag of
+      Exists tag' -> readSomeValue tag' dict
+
+instance Parse SomeValue where
+  parser = parseSomeValue
+
 instance Show SomeValue where
-  show (SomeValue _ (SomeValueKinded x)) = show x
+  show (SomeValue _ (SomeValueKinded _ x)) = show x

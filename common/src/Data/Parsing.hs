@@ -12,7 +12,7 @@ import           Control.Applicative                ((<|>), many)
 import           Data.Functor.Identity              (Identity(..))
 import           Data.Text                          (Text)
 import           Text.Megaparsec                    (MonadParsec, getOffset)
-import           Text.Megaparsec.Parsers            (ParsecT)
+import           Text.Megaparsec.Parsers
 import           Text.Megaparsec.Pos
 
 type Parser a = ParsecT Text Text Identity a

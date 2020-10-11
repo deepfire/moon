@@ -23,7 +23,7 @@ import Data.Parsing
 import Basis
 import Type
 import Ground.Parser (parseQName', holeToken) -- No Ground needed.
-import Ground.Table (parseSomeValue)          -- Needs Ground.
+import SomeValue (SomeValue, parseSomeValue)          -- Needs Ground.
 import Pipe.Types
 
 

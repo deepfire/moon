@@ -19,6 +19,7 @@ module Basis
   , module Data.HashMap.Strict
   , module Data.Kind
   , module Data.List
+  , module Data.List.Extra
   , module Data.List.NonEmpty
   , module Data.Map.Monoidal.Strict
   , module Data.Map.Strict
@@ -65,6 +66,7 @@ import Data.Hashable              (Hashable)
 import Data.HashMap.Strict        (HashMap)
 import Data.Kind                  (Constraint)
 import Data.List                  (sortBy)
+import Data.List.Extra            (unsnoc)
 import Data.List.NonEmpty         (NonEmpty(..), (<|))
 import Data.Map.Strict            (Map)
 import Data.Maybe                 (isJust, fromMaybe)

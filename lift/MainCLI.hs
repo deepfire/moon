@@ -233,16 +233,14 @@ spaceInteraction postExe someValueRepliesE = mdo
            Event t SomeValue
         -> EventSelectorG t CTag SomeValueKinded
       splitSVByKinds =
-        fanG . fmap (\(SomeValue tag sv) ->
-                       DMap.singleton tag sv)
+        fanG . fmap (\(SomeValue tag svk) -> DMap.singleton tag svk)
 
       splitSVKByTypes ::
            forall (c :: Con). ReifyCTag c
         => Event t (SomeValueKinded c)
-        -> EventSelectorG t CTag (Value c)
+        -> EventSelectorG t VTag (Value c)
       splitSVKByTypes =
-        fanG . fmap (\(SomeValueKinded v) ->
-                       DMap.singleton (reifyVTag $ Proxy @c) v)
+        fanG . fmap (\(SomeValueKinded tag v) -> DMap.singleton tag v)
 
       repliesES :: EventSelectorG t CTag SomeValueKinded
       repliesES = splitSVByKinds someValueRepliesE
