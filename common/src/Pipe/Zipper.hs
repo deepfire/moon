@@ -11,7 +11,7 @@ module Pipe.Zipper
   )
 where
 
-import Pipe.Expr
+import Ground.Expr
 
 
 type ZExpr p = ([Either (Expr p) (Expr p)], Expr p)

@@ -9,12 +9,20 @@ module Data.Orphanage (failRead) where
 import Algebra.Graph
 import Algebra.Graph.AdjacencyMap
 import Codec.Serialise
+import Data.IntervalMap.FingerTree (Interval(..))
+import Data.Map.Monoidal.Strict hiding (fromList, toList)
 import qualified Data.Map.Monoidal.Strict as MMap
 import qualified Data.Set.Monad as Set
+import Generics.SOP
 import Text.Read
 import Type.Reflection
 
-import Data.Map.Monoidal.Strict hiding (fromList, toList)
+
+instance Serialise a => Serialise (I a) where
+  encode (I x) = encode x
+  decode = I <$> decode
+
+instance Serialise a =>  Serialise (Interval a)
 
 instance (Ord k, Serialise k, Semigroup v, Serialise v) => Serialise (MonoidalMap k v) where
   encode = encode . MMap.toList

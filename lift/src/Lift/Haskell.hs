@@ -62,7 +62,6 @@ import Basis
 import Ground.Hask
 import Pipe.Scope
 import Pipe.Space
-import "common" Type
 
 newtype GhcLibDir = GhcLibDir FilePath deriving Show
 

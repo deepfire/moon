@@ -10,6 +10,7 @@ module Basis
   -- , module Data.Coerce
   , module Data.Dict
   , module Data.Dynamic
+  , module Data.Either
   , module Data.Either.Combinators
   , module Data.Either.Extra
   , module Data.Foldable
@@ -53,12 +54,13 @@ import Control.Applicative        ((<|>), liftA2)
 import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, first, second)
 import Control.Concurrent.STM     (STM, atomically)
 import Control.DeepSeq            (NFData(..))
-import Control.Monad              (join, void)
+import Control.Monad              (foldM, join, mapM, mapM_, forM, forM_, void)
 import Control.Tracer             (Tracer(..), traceWith)
 import Data.Bifunctor             (bimap)
 import Data.Bifunctor.Swap        (swap)
 import Data.Dict                  (TyDict(..), TyDicts)
 import Data.Dynamic               (Dynamic(..), Typeable)
+import Data.Either                (partitionEithers)
 import Data.Either.Combinators    (maybeToLeft, maybeToRight)
 import Data.Either.Extra          (mapLeft, mapRight, fromLeft, fromRight, eitherToMaybe, maybeToEither)
 import Data.Function              ((&), on)
@@ -72,7 +74,7 @@ import Data.List                  (sortBy)
 import Data.List.Extra            (unsnoc)
 import Data.List.NonEmpty         (NonEmpty(..), (<|))
 import Data.Map.Strict            (Map)
-import Data.Maybe                 (isJust, fromMaybe)
+import Data.Maybe                 (isJust, isNothing, fromMaybe)
 import Data.Map.Monoidal.Strict   (MonoidalMap)
 import Data.Orphanage
 import Data.Proxy                 (Proxy(..))
@@ -208,36 +210,6 @@ luncons3 (a, b, c) = (a, (b, c))
 
 rpop3 :: (a, b, c) -> (a, b)
 rpop3 (a, b, _) = (a, b)
-
-showSomeTypeRepNoKind :: SomeTypeRep -> Text
-showSomeTypeRepNoKind (SomeTypeRep x) = showTypeRepNoKind x
-
-showTypeRepNoKind :: TypeRep a -> Text
-showTypeRepNoKind = TB.run . flip go False
- where
-   go :: TypeRep b -> Bool -> TB.Builder
-   go (R.App (R.Con f) a1) _
-     | f == listTyCon =
-       case a1 of
-         R.Con x | x == charTyCon
-           -> TB.text "String"
-         _ -> TB.char '[' <> go a1 False <> TB.char ']'
-   go (R.App (R.App (R.Con f) a1) a2) _
-     | f == tuple2TyCon =
-       TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ')'
-   go (R.App (R.App (R.App (R.Con f) a1) a2) a3) _
-     | f == tuple3TyCon =
-       TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ',' <> TB.char ' ' <> go a3 False <> TB.char ')'
-   go (R.Con c) _ =
-     TB.string $ show c
-   go a@R.App{} True =
-     TB.char '(' <> go a False <> TB.char ')'
-   go (R.App f x) False =
-     go f True <> TB.char ' ' <> go x True
-   go f@R.Fun{} True =
-     TB.char '(' <> go f False <> TB.char ')'
-   go (R.Fun x r) False =
-     go x True <> TB.text " -> " <> go r True
 
 listTyCon, tuple2TyCon, tuple3TyCon, charTyCon :: GHC.TyCon
 listTyCon   = R.typeRepTyCon $ typeRep @[()]

@@ -33,8 +33,6 @@ module Namespace
   , withQName
   , updateScope
   , alterScope
-  -- * Re-exports
-  , module Type
   )
 where
 
@@ -51,7 +49,8 @@ import           GHC.Generics                       (Generic)
 import qualified Unsafe.Coerce                    as Unsafe
 
 import Basis
-import Type
+import Dom.CTag
+import Dom.Name
 
 
 data Space c a = Space

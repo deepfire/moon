@@ -31,7 +31,6 @@ import Ground.Hask
 import Pipe.Scope
 import Pipe.Space
 import Pipe
-import "common" Type
 
 import Lift.Orphanage
 

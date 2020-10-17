@@ -2,13 +2,12 @@
 --{-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
-module Main (main, fetchPSpace) where
-
 import           Safe
 
 import           Codec.Serialise                          (Serialise)
 import           Control.Applicative
 import           Control.Concurrent
+import qualified Control.Concurrent.Async               as Async
 import           Control.Concurrent.Chan.Unagi
                  (Element, InChan, OutChan)
 import qualified Control.Concurrent.Chan.Unagi          as Unagi
@@ -74,7 +73,7 @@ import qualified Wire.Protocol                    as Wire
 
 import qualified Shelly
 
-import Lift
+import Lift hiding (main)
 import Lift.Pipe
 import Pipe
 import Pipe.Space
@@ -134,10 +133,11 @@ reflexVtyApp (exeSendW, exeSendR)
    spawnHostChatterThread WSAddr{..} logfd postBuild = performEventAsync $
      ffor postBuild $ \_ fire -> liftIO $ do
        postExec (Execution "space" TPoint (Proxy @(PipeSpace (SomePipe ()))))
-       void $ forkIO $ WS.runClient wsaHost wsaPort wsaPath $
+       thd <- Async.async $ WS.runClient wsaHost wsaPort wsaPath $
          \(channelFromWebsocket -> webSockChan) ->
            void $ Wire.runClient logfd webSockChan $
              client stderr fire exeSendR
+       Async.link thd
 
 data WSAddr
   = WSAddr

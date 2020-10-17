@@ -1,3 +1,4 @@
+{-# LANGUAGE Arrows                     #-}
 {-# LANGUAGE UndecidableInstances       #-}
 module Pipe.Pipe
   ( ArgConstr
@@ -13,8 +14,8 @@ module Pipe.Pipe
   , showPipeP
   , pipeArityCase
   , Desc(..)
-  , descOutTag
-  , descOutType
+  , descOutCTag
+  , descOutVTag
   , showDesc
   , pattern PipeD
   , Sig(..)
@@ -35,12 +36,17 @@ import qualified Algebra.Graph                    as G
 import           Codec.Serialise
 import           Data.Dynamic
 import qualified Data.Text                        as T
-import           Type.Reflection                    ((:~~:)(..), eqTypeRep)
 import           GHC.Generics                       (Generic)
+import qualified Options.Applicative              as Opt
+import           Type.Reflection                    ((:~~:)(..), eqTypeRep)
 
 import Basis
-import Type
-import SomeType
+import Dom.CTag
+import Dom.Name
+import Dom.SomeType
+import Dom.Tags
+import Dom.Value
+import Dom.VTag
 
 
 --------------------------------------------------------------------------------
@@ -71,8 +77,8 @@ data Desc (c :: * -> Constraint) (cas :: [*]) (o :: *) =
   , pdSig    :: !ISig
   , pdStruct :: !Struct
   , pdRep    :: !SomeTypeRep           -- ^ Full type of the pipe.
-  , pdArgs   :: !(NP TypePair cas)
-  , pdOut    :: !(TypePair o)
+  , pdArgs   :: !(NP Tags cas)
+  , pdOut    :: !(Tags o)
   }
   deriving (Generic)
 
@@ -104,8 +110,8 @@ pattern PipeD :: ( ArgConstr c o
                  , All Top (cas :: [*])
                  )
               => Name Pipe -> ISig -> Struct -> SomeTypeRep
-              -> NP TypePair cas
-              -> TypePair o
+              -> NP Tags cas
+              -> Tags o
               -> p
               -> Pipe c cas o p
 -- TODO:  get rid of this, the added benefit is too small.
@@ -178,7 +184,7 @@ pipeOutSomeCTagType ::
   forall c as o co to p
   . ( PipeConstr c as o
     , ReifyCTag co
-    , o ~ Type co to)
+    , o ~ Types co to)
   => Pipe c as o p -> (SomeCTag, SomeTypeRep)
 pipeOutSomeCTagType PipeD{} =
   ( SomeCTag $ reifyCTag $ Proxy @co
@@ -187,11 +193,11 @@ pipeOutSomeCTagType _ = error "pipeOutSomeCTagType: impossible"
 
 class    ( Typeable (CTagOf ct), Typeable (TypeOf ct), Typeable ct
          , Top ct
-         , ct ~ Type (CTagOf ct) (TypeOf ct)
+         , ct ~ Types (CTagOf ct) (TypeOf ct)
          ) => IsType (ct :: *)
 instance ( Typeable (CTagOf ct), Typeable (TypeOf ct), Typeable ct
          , Top ct
-         , ct ~ Type (CTagOf ct) (TypeOf ct)
+         , ct ~ Types (CTagOf ct) (TypeOf ct)
          ) => IsType (ct :: *)
 
 type ArgConstr (c :: * -> Constraint) (ct :: *)
@@ -208,11 +214,11 @@ instance Functor (Pipe c as o) where
 --------------------------------------------------------------------------------
 -- * Desc
 --
-descOutTag :: Desc c cas (Type to o) -> CTag to
-descOutTag = tpCTag . pdOut
+descOutCTag :: Desc c cas (Types to o) -> CTag to
+descOutCTag = tCTag . pdOut
 
-descOutType :: Desc c cas (Type to o) -> Proxy o
-descOutType = tpType . pdOut
+descOutVTag :: Desc c cas (Types to o) -> VTag o
+descOutVTag = tVTag . pdOut
 
 showDesc, showDescP :: Desc c as o -> Text
 showDesc  p = pack $ show (pdName p) <>" :: "<>show (pdSig p)

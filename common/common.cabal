@@ -18,22 +18,35 @@ library
                        Data.Orphanage
                        Data.Parsing
                        Data.RTTI
-                       Data.Some
                        Data.Type.List
                        Data.TypeRep
                        Debug.TraceErr
+
+                       Dom.CTag
+                       Dom.Expr
+                       Dom.Ground
+                       Dom.Located
+                       Dom.Name
+                       Dom.Parse
+                       Dom.Parsers
+                       Dom.Representable
+                       Dom.Some
+                       Dom.SomeType
+                       Dom.SomeVTag
+                       Dom.SomeValue
+                       Dom.Tags
+                       Dom.VTag
+                       Dom.Value
 
                        Generics.SOP.Mapping
                        Generics.SOP.Some
                        Generics.SOP.Traversal
 
+                       Ground.Expr
                        Ground.Hask
                        Ground.Parser
-                       -- Ground.Reflection
                        Ground.Table
-                       Ground.TH
 
-                       Pipe.Expr
                        Pipe.Ops
                        Pipe.Ops.Apply
                        Pipe.Ops.Base
@@ -55,9 +68,6 @@ library
                        Ground
                        Namespace
                        Pipe
-                       SomeType
-                       SomeValue
-                       Type
 
                        -- Network.TypedProtocol.Channel
                        -- Network.TypedProtocol.Codec
@@ -98,6 +108,7 @@ library
                      , text
                      , text-builder
                      , unordered-containers
+                     , vector
                      -- , type-list
                      , witherable
                      -- , zippers
@@ -113,7 +124,7 @@ library
   hs-source-dirs:      src
   default-language:    Haskell2010
 
-  extensions:          AllowAmbiguousTypes
+  default-extensions:  AllowAmbiguousTypes
                        BangPatterns
                        ConstraintKinds
                        DataKinds

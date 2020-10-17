@@ -17,7 +17,8 @@ import qualified Data.Map.Monoidal.Strict         as MMap
 import qualified Data.Set.Monad                   as Set
 
 import Basis
-import Type
+import Dom.CTag
+import Dom.Name
 import Namespace (Space, PointScope, spaceEntries)
 import Pipe.Pipe
 import Pipe.SomePipe
@@ -42,8 +43,7 @@ instance Functor PipeSpace where
 -- * PipeSpace -- move to Pipe.Space?
 --
 
-instance (Eq a, Serialise a, Typeable a)
- => Serialise (PipeSpace a) where
+instance (Eq a, Serialise a, Typeable a) => Serialise (PipeSpace a) where
   encode PipeSpace{psName, psSpace, psFrom, psTo} =
     encodeListLen 5
     <> encodeWord 2177

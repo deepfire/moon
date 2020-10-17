@@ -1,0 +1,38 @@
+#+TITLE: Domain conflicts: dependencies and types
+
+* Granularity of Ground
+  1. Ground serves several needs:
+     - interactivity
+       - Parse (hard)
+       - Show (hard)
+       - Read (soft)
+     - transportability
+       - Serialise (hard)
+     - representability as part of superstructures:
+       - either Ord & Eq -- only for Data.Set.Monad
+       - or Hashable -- for Data.HashSet
+  2. Ord and Eq are hard
+
+*** Investigation
+    - raw:
+
+  src/Dom/SomeValue.hs:52:17: error:
+      • Could not deduce (Eq (Repr c a))
+          arising from a use of ‘SomeValueKinded’
+        from the context: (Typeable Con c, ReifyCTag c, Ground a)
+          bound by the type signature for:
+                     mkSomeGroundValue :: forall (c :: Con) a.
+                                          (Typeable Con c, ReifyCTag c, Ground a) =>
+                                          CTag c -> VTag a -> Repr c a -> SomeValue
+          at src/Dom/SomeValue.hs:(48,1)-(50,46)
+
+    - =Read SomeValue= -> =readSomeValue=
+      - mkSomeGroundValue
+        - has =Ground a=  <- from the recovered =TyDict Ground=
+        - needs =Eq (Repr c a)=
+        - for =SomeValueKinded=
+          - which needs if tor =Eq (SomeValueKinded c)=
+            - =Ord (SomeValueKinded c)=
+              - =Ord SomeValue=
+                - =Ord Expr=
+                  - ground table entry for =Expr=

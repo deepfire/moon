@@ -33,7 +33,6 @@ import Namespace (PointScope, mapScope)
 import qualified Namespace
 import Pipe.Scope
 import Pipe.Types
-import Type
 
 
 emptyPipeSpace :: Name PipeSpace -> SomePipeSpace p

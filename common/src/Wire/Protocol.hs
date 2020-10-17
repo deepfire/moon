@@ -53,8 +53,11 @@ import           Network.TypedProtocol.Codec  hiding (encode, decode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
 import Basis
-import Ground (withRepGroundType, groundTypeReps)
-import Pipe
+-- import Dom.Ground
+import Dom.Name
+import Dom.SomeValue
+import Pipe.Pipe
+import Pipe.SomePipe
 
 --------------------------------------------------------------------------------
 -- | Request/Reply:  asks with expectance of certain type of reply.
@@ -70,16 +73,6 @@ instance Show Request where
   show (Compile n text) = "Compile " <> show n <> " " <> unpack text
 instance Show Reply where show (ReplyValue n) = "ReplyValue " <> show n
 
-parseSomePipe :: (QName Pipe -> Maybe (SomePipe ())) -> Opt.Parser (SomePipe ())
-parseSomePipe lookupPipe =
-  runA $ proc () -> do
-    p <- asA (strArgument (metavar "PIPEDESC")) -< ()
-    returnA -< case do
-      ast <- parse p
-      compile opsDesc lookupPipe ast of
-      Left  e -> error (unpack e)
-      Right x -> x
-
 parseRequest :: Opt.Parser Request
 parseRequest = subparser $ mconcat
   [ cmd "run" $ Run <$> strArgument (metavar "PIPEDESC")
@@ -94,10 +87,9 @@ parseRequest = subparser $ mconcat
 --------------------------------------------------------------------------------
 -- | Serialise instances
 
-tagRequest, tagReply, tagSomeValue :: Word
+tagRequest, tagReply :: Word
 tagRequest   = 31--415926535
 tagReply     = 27--182818284
-tagSomeValue = 16--180339887
 
 instance Serialise Request where
   encode x = case x of
@@ -123,53 +115,6 @@ instance Serialise Reply where
 
 failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
 failLenTag len tag = fail $ "invalid "<>show (typeRep @a)<>" encoding: len="<>show len<>" tag="<>show tag
-
-instance Serialise SomeValue where
-  encode sv@(SomeValue k (SomeValueKinded _vtag x)) =
-    encodeListLen 3
-    <> encodeWord tagSomeValue
-    <> encode (SomeCTag k)
-    <> encode (someValueSomeTypeRep sv)
-    <> encodeValue x
-   where
-     encodeValue :: Ground a => Value k a -> Encoding
-     encodeValue = \case
-       VPoint x -> encode x
-       VList  x -> encode x
-       VSet   x -> encode x
-       VTree  x -> encode x
-       VDag   x -> encode x
-       VGraph x -> encode x
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    someCTag <- decode
-    case (len, tag == tagSomeValue) of
-      (3, True) -> do
-        str :: SomeTypeRep <- decode
-        case Ground.withRepGroundType str (decodeSomeValue someCTag) of
-          Nothing -> fail $ mconcat
-            ["Not a ground type: ", show str, "\n"
-            ,"Ground types: ", show groundTypeReps]
-          Just x -> x
-        where decodeSomeValue ::
-                SomeCTag -> TyDict Ground -> Decoder s SomeValue
-              decodeSomeValue (SomeCTag ctag) (TyDict (a :: Proxy a)) =
-                SomeValue
-                  <$> pure ctag
-                  <*> (SomeValueKinded
-                       <$> pure (reifyVTag a)
-                       <*> decodeValue a ctag)
-              decodeValue :: forall s (k :: Con) a
-                . Ground a => Proxy a -> CTag k -> Decoder s (Value k a)
-              decodeValue _ = \case
-                TPoint -> VPoint <$> decode
-                TList  -> VList  <$> decode
-                TSet   -> VSet   <$> decode
-                TTree  -> VTree  <$> decode
-                TDag   -> VDag   <$> decode
-                TGraph -> VGraph <$> decode
-      _ -> failLenTag len tag
 
 --------------------------------------------------------------------------------
 -- | Piping: protocol tag

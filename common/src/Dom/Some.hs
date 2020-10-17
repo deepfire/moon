@@ -1,20 +1,11 @@
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeInType #-}
-
-module Data.Some
-  ( Some(..)
-  , CSome(..)
-  , mkCSome
-  , withCSome
-  , mapCSome
-  )
-where
+module Dom.Some (module Dom.Some) where
 
 import Data.Kind (Constraint)
 
+
+--------------------------------------------------------------------------------
+-- | Some:  abstract over a (possibly constrained) type variable.
+--
 data Some :: (tag -> *) -> * where
   Exists :: forall f x. f x -> Some f
 

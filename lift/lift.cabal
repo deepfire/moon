@@ -14,17 +14,20 @@ library
   ghc-options:         -j3 +RTS -A128m -n2m -qg -RTS
 
   exposed-modules:
+                       -- for Lift.main
+                       Lift
+
+                       -- for TUI:
                        Data.Text.Extra
                        Data.Text.Zipper.Extra
                        Debug.Reflex
-                       Lift
-                       Lift.Haskell
-                       Lift.Hackage
-                       Lift.Orphanage
                        Lift.Pipe
                        Reflex.Vty.Widget.Extra
                        Reflex.Vty.Widget.Input.RichText
-                       -- TUI
+  other-modules:
+                       Lift.Haskell
+                       Lift.Hackage
+                       Lift.Orphanage
 
   build-depends:       common
 
@@ -93,7 +96,7 @@ library
 
   ghc-options:       -O0
 
-  extensions:          AllowAmbiguousTypes
+  default-extensions:  AllowAmbiguousTypes
                        BangPatterns
                        ConstraintKinds
                        -- CPP
@@ -158,6 +161,7 @@ executable cli
   main-is:             MainCLI.hs
   build-depends:       common
                      , lift
+                     , async
                      , base
                      , bytestring
                      , containers

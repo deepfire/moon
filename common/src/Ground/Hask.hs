@@ -21,7 +21,7 @@ import GHC.Generics
 import qualified Generics.SOP.Some as SOP
 
 import Basis
-import Type
+import Dom.Name
 
 {-------------------------------------------------------------------------------
   Generic types for externalisation

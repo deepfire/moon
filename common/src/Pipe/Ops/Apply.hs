@@ -111,7 +111,7 @@ appDyn
   => Desc g cas o -> Value (CTagOf ca) (TypeOf ca) -> Dynamic
   -> Either Text Dynamic
 appDyn
-  Desc {pdArgs = TypePair _ _ SOP.:* _}
+  Desc {pdArgs = Tags _ _ SOP.:* _}
   v ioaDyn = case spineConstraint of
       (Dict :: Dict Typeable cass) ->
         Dynamic typeRep <$> case fromDynamic ioaDyn of
@@ -123,13 +123,13 @@ appDyn
 applyIOA
   :: forall g cas cass o c a
   .  ( PipeConstr g cas o
-     , cas ~ (Type c a : cass)
+     , cas ~ (Types c a : cass)
      )
   => IOA g cas  o
   -> Value c a
   -> IOA g cass o
 applyIOA
-  (IOA (f :: PipeFunTy (Type c a:ass) o)
+  (IOA (f :: PipeFunTy (Types c a:ass) o)
     c _as o
   ) v = case spineConstraint of
           (Dict :: Dict Typeable cas) ->
@@ -140,7 +140,7 @@ applyIOA
 -- ($) :: (a -> b) -> a -> b
 applyPipeFun'
   :: forall (cas :: [*]) (o :: *) (c :: Con) (a :: *)
-  .  PipeFunTy (Type c a:cas) o
+  .  PipeFunTy (Types c a:cas) o
   -> Proxy cas
   -> Proxy o
   -> Value c a

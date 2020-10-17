@@ -3,7 +3,7 @@
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
 module Lift
-  ( lift
+  ( main
   , defaultConfig
   , Config(..)
   , channelFromWebsocket
@@ -58,6 +58,20 @@ import Pipe
 import Wire.Peer
 import Wire.Protocol
 
+
+main :: IO ()
+main = do
+  let preConfig@Config{..} = defaultConfig
+
+  libDir <- case cfGhcLibDir of
+    Just x  -> pure x
+    Nothing -> (FileName <$>) <$> shelly $ run "ghc" ["--print-libdir"]
+
+  let config :: Config Final = preConfig
+        { cfGhcLibDir  = libDir }
+
+  wsServer =<< finalise config
+
 
 data ConfigPhase
   = Initial
@@ -87,18 +101,6 @@ defaultConfig = Config
   , cfGitRoot    = "."
   , cfHackageTmo = 3600
   }
-
-lift :: IO ()
-lift = do
-  -- establish config
-  let preConfig@Config{..} = defaultConfig
-  libDir <- case cfGhcLibDir of
-    Just x  -> pure x
-    Nothing -> (FileName <$>) <$> shelly $ run "ghc" ["--print-libdir"]
-  let config :: Config Final = preConfig
-        { cfGhcLibDir  = libDir }
-
-  wsServer =<< finalise config
 
 data Env =
   Env

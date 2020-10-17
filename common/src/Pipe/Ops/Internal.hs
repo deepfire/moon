@@ -27,6 +27,9 @@ module Pipe.Ops.Internal
   --
   , module Basis
   , module Type
+  --
+  , module Ground.Table
+  --
   , module SomeType
   , module SomeValue
   , module Pipe.Types
@@ -44,8 +47,10 @@ import Type.Reflection ( pattern App
                        )
 
 import Basis
+  --
+import Ground.Table
+  --
 import Pipe.Types
-import Type
 import SomeType
 import SomeValue
 
@@ -99,7 +104,7 @@ typeRepNull rep = rep `eqTypeRep` typeRep @('[] :: [k])
 consTyCon, ioaTyCon, nilTyCon, typeTyCon :: TyCon
 consTyCon = typeRepTyCon (typeRep @(() : '[]))
 nilTyCon  = someTypeRepTyCon (head $ tail $ snd $ splitApps $ typeRep @(() : '[]))
-typeTyCon = typeRepTyCon (typeRep @Type)
+typeTyCon = typeRepTyCon (typeRep @Types)
 ioaTyCon = typeRepTyCon (typeRep @IOA)
 
 ioaTyInvalidity :: SomeTypeRep -> Maybe Text
@@ -139,7 +144,7 @@ ioaTyNilInvalidity _  = Just "no match with IOATyNil"
 pattern P
   :: Desc c as o -> Name Pipe -> Struct -> SomeTypeRep -> p
   -> [SomeType]   -> SomeType
-  -> NP TypePair as -> TypePair o
+  -> NP Tags as -> Tags o
   -> Pipe c as o p
 pattern P { pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pArgs, pOut }
   <- Pipe pDesc_@(Desc pName (Sig (fmap unI -> pArgStys) (I pOutSty)) pStruct

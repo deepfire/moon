@@ -10,8 +10,7 @@ module Ground
 where
 
 import Data.Dict
-import Data.Some
-import Type
+import Dom.Some
 
 import Ground.Hask
 import Ground.Parser

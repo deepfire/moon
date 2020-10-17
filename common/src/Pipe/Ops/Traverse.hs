@@ -21,11 +21,11 @@ traverseP
   :: (forall cf ct fas fo tas to
       . ( PipeConstr cf fas fo
         , PipeConstr ct tas to
-        , fas ~ (Type Point a ': '[])
+        , fas ~ (Types Point a ': '[])
         , tas ~ '[]
-        , fo  ~ Type Point b
-        , to  ~ Type tt    a
-        , ro  ~ Type tt    b
+        , fo  ~ Types Point b
+        , to  ~ Types tt    a
+        , ro  ~ Types tt    b
         )
       => Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p)
   -> SomePipe p -> SomePipe p -> Either Text (SomePipe p)
@@ -64,10 +64,10 @@ traverseP''
      , PipeConstr ct tas to
      , PipeConstr cf ras ro
      , fas ~ (fa:'[])
-     , fo ~ Type ft fa
-     , to ~ Type ttr tr
+     , fo ~ Types ft fa
+     , to ~ Types ttr tr
      )
-  => proxy (Type (CTagOf to) (TypeOf fo))
+  => proxy (Types (CTagOf to) (TypeOf fo))
   -> (forall cf' ct' fas' fo' tas' to'
       . ( PipeConstr cf' fas' fo'
         , PipeConstr ct' tas' to')
@@ -103,9 +103,9 @@ traverseP'
   :: forall cf ct tas to tt a b fas fo ras ro p
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
-     , tas ~ '[],                   to  ~ Type tt    a
-     , fas ~ (Type Point a ': '[]), fo  ~ Type Point b
-     , ras ~ '[],                   ro  ~ Type tt    b
+     , tas ~ '[],                    to  ~ Types tt    a
+     , fas ~ (Types Point a ': '[]), fo  ~ Types Point b
+     , ras ~ '[],                    ro  ~ Types tt    b
      )
   => (Desc cf fas fo -> p ->
       Desc ct tas to -> p ->
@@ -126,12 +126,12 @@ doTraverse
   :: forall cf ct tas to tt a b fas fo ras ro p
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
-     , fas ~ (Type Point a ': '[])
+     , fas ~ (Types Point a ': '[])
      , tas ~ '[]
-     , fo  ~ Type Point b
-     , to  ~ Type tt    a
+     , fo  ~ Types Point b
+     , to  ~ Types tt    a
      , ras ~ '[]                   -- TODO:  undo this constraint
-     , ro  ~ Type tt    b
+     , ro  ~ Types tt    b
      )
   => (Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p)
   -> Pipe cf     fas fo p
@@ -139,15 +139,15 @@ doTraverse
   -> Either Text (Pipe cf ras ro p)
 doTraverse pf
   P{ pDesc_=df, pName=Name fn, pOutSty=fosty, pStruct=Struct fg
-   , pArgs=(_fca SOP.:* Nil), pOut=TypePair{tpType=fty}, pPipe=f}
+   , pArgs=(_fca SOP.:* Nil), pOut=Tags{tVTag=vtag}, pPipe=f}
   P{ pDesc_=dt, pName=Name tn, pOutSty=tosty, pStruct=Struct tg
-   , pArgs=(_tca SOP.:* Nil), pOut=TypePair{tpCTag=ttag}, pPipe=t}
+   , pArgs=(_tca SOP.:* Nil), pOut=Tags{tCTag=ctag}, pPipe=t}
   -- (Pipe df@(Desc (Name fn) _ (Struct fg) _  _ _  _ c) f)
   -- (Pipe dt@(Desc (Name fn) _ (Struct fg) _ ca a cb _) t)
   = Pipe desc <$> (pf df f dt t)
   where desc    = Desc name sig struct (SomeTypeRep rep) ras ro
         ras     = Nil
-        ro      = TypePair ttag fty
+        ro      = Tags ctag vtag
         name    = Name $ "("<>fn<>")-<trav>-("<>tn<>")"
         sig     = Sig [] (I $ someTypeFromConType tosty fosty)
         struct  = Struct (fg `G.overlay` tg) -- XXX: structure!
@@ -160,11 +160,11 @@ travDyn
   :: forall cf ct tas to tt a b fas fo ro
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
-     , fas ~ (Type Point a ': '[])
+     , fas ~ (Types Point a ': '[])
      , tas ~ '[]
-     , fo  ~ Type Point b
-     , to  ~ Type tt    a
-     , ro  ~ Type tt    b
+     , fo  ~ Types Point b
+     , to  ~ Types tt    a
+     , ro  ~ Types tt    b
      )
   => Desc cf     fas fo -> Dynamic
   -> Desc ct tas to     -> Dynamic
@@ -176,7 +176,7 @@ travDyn _df f dt t = Dynamic typeRep <$>
       -> Right (IOA ioa cf tas (Proxy @ro) :: IOA cf tas ro)
      where
        ioa :: Result (ReprOf ro)
-       ioa = traversePipes0 (descOutTag dt) (descOutType dt) (Proxy @b) f' t'
+       ioa = traversePipes0 (descOutCTag dt) (descOutVTag dt) (Proxy @b) f' t'
     (_, Nothing) -> Left . pack $ printf
       "travDyn: invariant failure: tas %s, to %s, dyn %s"
       (show $ typeRep @tas) (show $ typeRep @to) (show $ dynRep f)
@@ -209,8 +209,8 @@ traversePipes0
   :: forall ttr tr fr
   . ( Typeable tr, Typeable fr
     )
-  -- TODO:  see if we can just pass a TypePair here
-  => CTag ttr -> Proxy tr -> Proxy fr
+  -- TODO:  see if we can just pass a Tags here
+  => CTag ttr -> VTag tr -> Proxy fr
   -> (Repr Point tr -> Result (Repr Point fr))
   -> Result (Repr ttr tr)
   -> Result (Repr ttr fr)

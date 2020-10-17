@@ -21,6 +21,7 @@ where
 import qualified Type.Reflection                  as R
 
 import Basis
+import qualified Generics.SOP      as SOP
 import qualified Generics.SOP.Some as SOP
 import Namespace
 import Pipe.Ops
@@ -32,7 +33,11 @@ import Pipe.Types
 dataProjScope
   :: forall u.
   ( Typeable u, SOP.HasDatatypeInfo u, SOP.Generic u
-  , All2 (SOP.And Typeable Top) (SOP.Code u)
+  , ReifyVTag u
+  -- XXX: why the combinatory explosion?
+  , All2 (SOP.And Typeable                    Top)  (SOP.Code u)
+  , All2 (SOP.And ReifyVTag                   Top)  (SOP.Code u)
+  , All2 (SOP.And Typeable (SOP.And ReifyVTag Top)) (SOP.Code u)
   )
   => Proxy u -> Scope Point (SomePipe Dynamic)
 dataProjScope  p = dataProjScope' p $ dataProjPipes (T mempty) (Proxy @Top) p
@@ -58,10 +63,13 @@ pipeScope name pipes = scope (coerceName name) $
   zip (coerceName . somePipeName <$> pipes) pipes
 
 dataProjPipes
-  :: forall c u
+  :: forall c c' u
   . ( Typeable c, Typeable u
     , SOP.HasTypeData c u, SOP.Generic u
-    , All2 (SOP.And Typeable c) (SOP.Code u)
+    , ReifyVTag u
+    , All2 (SOP.And Typeable (SOP.And ReifyVTag c)) (SOP.Code u)
+    , All2 c' (SOP.Code u)
+    , c' ~ (SOP.And ReifyVTag c)
     , c u)
   => (forall (cas :: [*]) (o :: *)
       .  PipeConstr c cas o
@@ -69,23 +77,23 @@ dataProjPipes
       -> SomePipe Dynamic)
   -> Proxy c -> Proxy u -> [SomePipe Dynamic]
 dataProjPipes ctor c u =
-  let d :: SOP.Data SOP.Fun c u
-      d = SOP.typeData c u
+  let d :: SOP.Data SOP.Fun c' u
+      d = SOP.typeData (Proxy @c') u
       fieldPipe
-        :: SOP.Data  SOP.Fun c u
-        -> SOP.Ctor  SOP.Fun c u
-        -> SOP.Field SOP.Fun c u
+        :: ()
+        => SOP.Data  SOP.Fun c' u
+        -> SOP.Ctor  SOP.Fun c' u
+        -> SOP.Field SOP.Fun c' u
         -> SomePipe Dynamic
       fieldPipe _d _c f =
         case SOP.fAccess f of
-          SOP.SomeAccessors
-            (SOP.Accessors getter _ :: SOP.Accessors u c a) ->
+          SOP.SomeAccessors (SOP.Accessors getter _ :: SOP.Accessors u c' a) ->
             ctor $
-            link'
-              (Name $ SOP.fName f)
-              TPoint'
-              TPoint' -- XXX: Kind can be non-Point!
-              (pure . Right . getter)
+            (link'
+             (Name $ SOP.fName f)
+             TPoint'
+             TPoint' -- XXX: Kind can be non-Point!
+             (pure . Right . getter))
   in [ fieldPipe d ct f
      | ct <- SOP.dCtors  d
      , f  <- SOP.cFields ct]

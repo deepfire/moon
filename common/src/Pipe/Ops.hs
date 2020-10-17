@@ -27,7 +27,9 @@ where
 import qualified Data.Text as T
 
 import Basis
-import Pipe.Expr
+
+import Ground.Expr
+
 import Pipe.Ops.Base
 import Pipe.Ops.Apply
 import Pipe.Ops.Compose
@@ -35,7 +37,6 @@ import Pipe.Ops.Traverse
 import Pipe.Types
 import Pipe.Zipper
 import SomeValue
-import Type
 
 
 -- * Operations of pipe gut composition
@@ -61,7 +62,7 @@ data Ops p where
       :: forall cf ct fas fo a tas to
       . ( PipeConstr cf fas fo
         , PipeConstr ct tas to
-        , fas ~ (Type 'Point a ': '[])
+        , fas ~ (Types 'Point a ': '[])
         , tas ~ '[]
         , TypeOf to ~ a
         , CTagOf fo ~ 'Point)

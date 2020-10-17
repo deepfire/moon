@@ -19,8 +19,10 @@ where
 import qualified Data.SOP                         as SOP
 
 import Basis
-import Type
-import SomeType
+import Dom.CTag
+import Dom.Ground
+import Dom.Name
+import Dom.SomeType
 import Pipe.Pipe
 
 --------------------------------------------------------------------------------

@@ -2,24 +2,14 @@
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeInType                 #-}
-module Data.Dict
-  ( TyDict(..)
-  , TyDicts
-  , lookupRep
-  , lookupName
-  , lookupNameRep
-  , empty
-  , insert
-  , link
-  , reps
-  , names
-  )
-where
+{-# LANGUAGE UnboxedTuples              #-}
+module Data.Dict (module Data.Dict) where
 
 import           Data.Kind                          (Constraint, Type)
 import qualified Data.Map                         as Map
 import           Data.Proxy                         (Proxy(..))
 import           Data.Text                          (Text)
+import qualified Data.Vector                      as Vec
 import           Type.Reflection                    (SomeTypeRep, Typeable, someTypeRep)
 
 
@@ -31,24 +21,29 @@ import           Type.Reflection                    (SomeTypeRep, Typeable, some
 data TyDict (c :: Type -> Constraint) where
   TyDict :: (c a, Typeable a) => Proxy a -> TyDict c
 
+type TyDictsRecord c = (Int, Text, SomeTypeRep, TyDict c)
+
 data TyDicts (c :: Type -> Constraint) =
   TyDicts
-  { _byRep  :: (Map.Map SomeTypeRep (TyDict c))
-  , _byName :: (Map.Map Text        (TyDict c))
+  { _byRep   :: !(Map.Map SomeTypeRep (TyDictsRecord c))
+  , _byName  :: !(Map.Map Text        (TyDictsRecord c))
+  , _byIx    :: !(Vec.Vector          (TyDictsRecord c))
   }
 
-lookupRep :: forall (c :: Type -> Constraint). TyDicts c -> SomeTypeRep -> Maybe (TyDict c)
-lookupRep  (TyDicts rep _name) = flip Map.lookup rep
+type TyDictsLookup k =
+  forall (c :: Type -> Constraint). TyDicts c -> k -> Maybe (TyDictsRecord c)
 
-lookupName :: forall (c :: Type -> Constraint). TyDicts c -> Text -> Maybe (TyDict c)
-lookupName (TyDicts _rep name) = flip Map.lookup name
+lookupByIx   :: TyDictsLookup Int
+lookupByIx   (TyDicts _rep _name ix) k = ix Vec.!? k
 
-lookupNameRep :: forall (c :: Type -> Constraint). TyDicts c -> Text -> Maybe SomeTypeRep
-lookupNameRep (TyDicts _rep name) n =
-  (\case TyDict (a :: Proxy a) -> someTypeRep a) <$> Map.lookup n name
+lookupByName :: TyDictsLookup Text
+lookupByName (TyDicts _rep name _ix) k = k `Map.lookup` name
+
+lookupByRep  :: TyDictsLookup SomeTypeRep
+lookupByRep  (TyDicts rep _name _ix) k = k `Map.lookup` rep
 
 empty :: TyDicts c
-empty = TyDicts mempty mempty
+empty = TyDicts mempty mempty mempty
 
 insert
   :: forall c a. (c a, Typeable a)
@@ -56,15 +51,19 @@ insert
   -> Proxy a
   -> TyDicts c
   -> TyDicts c
-insert name a (TyDicts repM nameM) = TyDicts
-  (Map.insert (someTypeRep a) (TyDict a)  repM)
-  (Map.insert name            (TyDict a) nameM)
+insert name a (TyDicts repM nameM ixV) = TyDicts
+  (Map.insert (someTypeRep a) new  repM)
+  (Map.insert name            new nameM)
+  (Vec.snoc   ixV             new)
+ where new :: TyDictsRecord c
+       new = (sz, name, someTypeRep a, TyDict a)
+       sz  = Vec.length ixV
 
-link :: forall c a. (c a, Typeable a) => Proxy a -> (SomeTypeRep, TyDict c)
-link p = (someTypeRep p, TyDict p)
+-- link :: forall c a. (c a, Typeable a) => Proxy a -> (SomeTypeRep, TyDict c)
+-- link p = (someTypeRep p, TyDict p)
 
-reps :: TyDicts c -> [SomeTypeRep]
-reps (TyDicts reps _) = Map.keys reps
+tyDictReps :: TyDicts c -> [SomeTypeRep]
+tyDictReps TyDicts{..} = Map.keys _byRep
 
-names :: TyDicts c -> [Text]
-names (TyDicts _ names) = Map.keys names
+tyDictNames :: TyDicts c -> [Text]
+tyDictNames TyDicts{..} = Map.keys _byName
