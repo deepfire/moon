@@ -1,58 +1,23 @@
-{-# LANGUAGE Arrows                     #-}
-{-# LANGUAGE UndecidableInstances       #-}
-module Pipe.Pipe
-  ( ArgConstr
-  , IsType
-  , PipeConstr
-  , Pipe(..)
-  , pipeSig
-  , pipeName
-  , pipeStruct
-  , pipeRep
-  , pipeOutSomeCTagType
-  , showPipe
-  , showPipeP
-  , pipeArityCase
-  , Desc(..)
-  , descOutCTag
-  , descOutVTag
-  , showDesc
-  , pattern PipeD
-  , Sig(..)
-  , ISig
-  , MSig
-  , showSig
-  , showSigDotty
-  , ListSig(..)
-  , toListSig
-  , fromListSig
-  , Struct(..)
-  , Value(..)
-  , withCompatiblePipes
-  )
-where
+{-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls -Wno-orphans -Wno-unticked-promoted-constructors #-}
+module Dom.Pipe (module Dom.Pipe) where
 
-import qualified Algebra.Graph                    as G
-import           Codec.Serialise
-import           Data.Dynamic
-import qualified Data.Text                        as T
 import           GHC.Generics                       (Generic)
-import qualified Options.Applicative              as Opt
-import           Type.Reflection                    ((:~~:)(..), eqTypeRep)
 
 import Basis
+
+import Data.Orphanage ()
+
 import Dom.CTag
+import Dom.Error
 import Dom.Name
-import Dom.SomeType
+import Dom.Pipe.Constr
+import Dom.Sig
+import Dom.Struct
 import Dom.Tags
-import Dom.Value
 import Dom.VTag
 
 
 --------------------------------------------------------------------------------
--- * cey types
---
-
 -- | Pipe: component of a computation.  Characterised by:
 --   c  -- either 'Ground' (wire-transportable) or 'Top' (not so)
 --   as -- a type-level list of its argument specs, (TypePair (Type c a))
@@ -65,9 +30,6 @@ data Pipe (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) where
     { pDesc :: Desc c as o
     , p     :: p
     } -> Pipe c as o p
-
-deriving instance Eq  p => Eq  (Pipe c as o p)
-deriving instance Ord p => Ord (Pipe c as o p)
 
 -- | Everything there is to be said about a pipe,
 --   except for its representation.
@@ -82,31 +44,15 @@ data Desc (c :: * -> Constraint) (cas :: [*]) (o :: *) =
   }
   deriving (Generic)
 
--- | Sig:  serialisable type signature
-type ISig = Sig I
-type MSig = Sig Maybe
+-- | Result of running a pipe.
+type Result a = IO (Fallible a)
 
-data Sig f =
-  Sig
-  { sArgs :: [f SomeType]
-  , sOut  :: f SomeType
-  }
-  deriving (Generic)
-deriving instance (Eq  (f SomeType)) => Eq (Sig f)
-deriving instance (Ord (f SomeType)) => Ord (Sig f)
-
-newtype ListSig f = ListSig { unListSig :: [f SomeType] }
-
--- | Struct: Pipe's internal structure,
---   as a graph of type transformations.
-newtype Struct =
-  Struct (G.Graph SomeType) deriving (Eq, Generic, Ord, Show)
-
--- * Pipe
+--------------------------------------------------------------------------------
+-- * Destructuring
 --
 pattern PipeD :: ( ArgConstr c o
                  , All Typeable cas
-                 , All IsType cas
+                 , All IsTypes cas
                  , All Top (cas :: [*])
                  )
               => Name Pipe -> ISig -> Struct -> SomeTypeRep
@@ -118,6 +64,37 @@ pattern PipeD :: ( ArgConstr c o
 pattern PipeD name sig str rep args out p
               <- Pipe (Desc name sig str rep args out) p
 
+--------------------------------------------------------------------------------
+-- * Instances
+--
+deriving instance Eq  p => Eq  (Pipe c as o p)
+deriving instance Ord p => Ord (Pipe c as o p)
+
+instance Functor (Pipe c as o) where
+  fmap f (Pipe d x) = Pipe d (f x)
+
+instance Show (Pipe c as o p) where
+  show p = "Pipe "<>unpack (showPipe p)
+
+instance Show (Desc c as o) where show = unpack . showDesc
+instance (Typeable c, Typeable as, Typeable o) => Read (Desc c as o) where readPrec = failRead
+
+instance Eq (Desc c as o) where
+  -- XXX: slightly opportustic, due to omissions.
+  Desc ln _ lst lrep _ _ == Desc rn _ rst rrep _ _ =
+    ln == rn && lst == rst && lrep == rrep
+
+instance Ord (Desc c as o) where
+  Desc ln _ lst lrep _ _ `compare` Desc rn _ rst rrep _ _ =
+    ln `compare` rn <> lrep `compare` rrep <> lst `compare` rst
+
+instance NFData (Desc c as o) where
+  rnf (Desc x y z w _ u) = -- XXX: ugh
+    rnf x `seq` rnf y `seq` rnf z `seq` rnf w `seq` rnf u
+
+--------------------------------------------------------------------------------
+-- * Pipe utils
+--
 pipeName :: (PipeConstr c as o) => Pipe c as o p -> Name Pipe
 pipeName (PipeD name _ _ _ _ _ _)   = name
 pipeName _ = error "impossible pipeName"
@@ -125,14 +102,6 @@ pipeName _ = error "impossible pipeName"
 pipeSig :: (PipeConstr c as o) => Pipe c as o p -> ISig
 pipeSig   (PipeD _ sig _ _ _ _ _)    = sig
 pipeSig _ = error "impossible pipeSig"
-
-toListSig :: Sig f -> ListSig f
-toListSig Sig{..} = ListSig $ sArgs <> [sOut]
-
-fromListSig :: ListSig f -> Maybe (Sig f)
-fromListSig = \case
-  ListSig [] -> Nothing
-  ListSig xs -> Just $ Sig (init xs) (last xs)
 
 pipeStruct :: (PipeConstr c as o) => Pipe c as o p -> Struct
 pipeStruct   (PipeD _ _ struct _ _ _ _) = struct
@@ -191,28 +160,8 @@ pipeOutSomeCTagType PipeD{} =
   , someTypeRep $ Proxy @to)
 pipeOutSomeCTagType _ = error "pipeOutSomeCTagType: impossible"
 
-class    ( Typeable (CTagOf ct), Typeable (TypeOf ct), Typeable ct
-         , Top ct
-         , ct ~ Types (CTagOf ct) (TypeOf ct)
-         ) => IsType (ct :: *)
-instance ( Typeable (CTagOf ct), Typeable (TypeOf ct), Typeable ct
-         , Top ct
-         , ct ~ Types (CTagOf ct) (TypeOf ct)
-         ) => IsType (ct :: *)
-
-type ArgConstr (c :: * -> Constraint) (ct :: *)
-  = ( IsType ct, Typeable c, ReifyCTag (CTagOf ct), ReifyVTag (TypeOf ct), c (TypeOf ct))
-
-type PipeConstr (c :: * -> Constraint) (cas :: [*]) (o :: *)
-  = ( All IsType cas, ArgConstr c o
-    , All Typeable cas -- why do we need this, when we have IsType?
-    )
-
-instance Functor (Pipe c as o) where
-  fmap f (Pipe d x) = Pipe d (f x)
-
 --------------------------------------------------------------------------------
--- * Desc
+-- * Desc utils
 --
 descOutCTag :: Desc c cas (Types to o) -> CTag to
 descOutCTag = tCTag . pdOut
@@ -223,50 +172,3 @@ descOutVTag = tVTag . pdOut
 showDesc, showDescP :: Desc c as o -> Text
 showDesc  p = pack $ show (pdName p) <>" :: "<>show (pdSig p)
 showDescP = ("("<>) . (<>")") . showDesc
-
-instance Eq (Desc c as o) where
-  -- XXX: slightly opportustic, due to omissions.
-  Desc ln _ lst lrep _ _ == Desc rn _ rst rrep _ _ =
-    ln == rn && lst == rst && lrep == rrep
-
-instance Ord (Desc c as o) where
-  Desc ln _ lst lrep _ _ `compare` Desc rn _ rst rrep _ _ =
-    ln `compare` rn <> lrep `compare` rrep <> lst `compare` rst
-
-instance NFData (Desc c as o) where
-  rnf (Desc x y z w _ u) = -- XXX: ugh
-    rnf x `seq` rnf y `seq` rnf z `seq` rnf w `seq` rnf u
-
---------------------------------------------------------------------------------
--- * Sig
---
-showSig :: ISig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSig (Sig as o) = T.intercalate " → " $ showSomeType False . unI <$> (as <> [o])
-
-showSigDotty :: ISig -> Text -- " ↦ ↣ → ⇨ ⇒ "
-showSigDotty (Sig as o) = T.intercalate " → " $ showSomeType True . unI <$> (as <> [o])
-
-instance NFData (f SomeType) => NFData (Sig f)
-
---------------------------------------------------------------------------------
--- * Struct
---
-instance NFData Struct
-
-{-------------------------------------------------------------------------------
-  Really boring.
--------------------------------------------------------------------------------}
-instance Show (Pipe c as o p) where
-  show p = "Pipe "<>unpack (showPipe p)
-
-instance Show (Desc c as o) where show = unpack . showDesc
-instance (Typeable c, Typeable as, Typeable o) => Read (Desc c as o) where readPrec = failRead
-
-instance Show ISig where
-  show x  =  "("<>T.unpack (showSig x)<>")"
-instance (Serialise (f SomeType)) => Serialise (Sig f)
-instance Typeable f => Read (Sig f) where readPrec = failRead
-
-instance Serialise Struct
-instance Read Struct where readPrec = failRead
-

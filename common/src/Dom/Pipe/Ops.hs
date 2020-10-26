@@ -1,42 +1,26 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Pipe.Ops
-  ( Ops(..)
-  , opsFull
-  , opsDesc
-  , CPipe(..)
-  -- * High-level
-  , compile
-  , analyse
-  , resolveNames
-  -- unused
-  , checkAndInfer
-  -- * Ops
-  , runPipe
-  , apply
-  , compose
-  , traverseP
-  -- * Constructors
-  , gen, genG, gen'
-  , link, linkG, link'
-  -- , emptyDesc
-  -- , emptyPipe
-  -- , someEmptyPipe
-  )
-where
+module Dom.Pipe.Ops (module Dom.Pipe.Ops) where
 
 import qualified Data.Text as T
 
 import Basis
 
-import Ground.Expr
+import Dom.CTag
+import Dom.Error
+import Dom.Expr
+import Dom.Located
+import Dom.Name
+import Dom.Pipe
+import Dom.Pipe.Constr
+import Dom.Pipe.Ops.Apply
+import Dom.Pipe.Ops.Compose
+import Dom.Pipe.Ops.Traverse
+import Dom.Pipe.SomePipe
+import Dom.Sig
+import Dom.SomeType
+import Dom.SomeValue
+import Dom.Value
 
-import Pipe.Ops.Base
-import Pipe.Ops.Apply
-import Pipe.Ops.Compose
-import Pipe.Ops.Traverse
-import Pipe.Types
-import Pipe.Zipper
-import SomeValue
 
 
 -- * Operations of pipe gut composition
@@ -49,7 +33,7 @@ data Ops p where
         , PipeConstr c cas' o
         , cas ~ (ca : cas')
         )
-      => Desc c cas o -> Value (CTagOf ca) (TypeOf ca) -> p -> Either Text p
+      => Desc c cas o -> Value (TypesC ca) (TypesV ca) -> p -> Fallible p
     , comp
       :: forall cf cv vas vo fas fass ras fo
       . ( PipeConstr cv vas vo
@@ -57,16 +41,16 @@ data Ops p where
         , fas ~ (vo:fass)
         , ras ~ fass
         )
-      => Desc cv vas vo -> p -> Desc cf fas fo -> p -> Either Text p
+      => Desc cv vas vo -> p -> Desc cf fas fo -> p -> Fallible p
     , trav
       :: forall cf ct fas fo a tas to
       . ( PipeConstr cf fas fo
         , PipeConstr ct tas to
         , fas ~ (Types 'Point a ': '[])
         , tas ~ '[]
-        , TypeOf to ~ a
-        , CTagOf fo ~ 'Point)
-      => Desc cf fas fo -> p -> Desc ct tas to -> p -> Either Text p
+        , TypesV to ~ a
+        , TypesC fo ~ 'Point)
+      => Desc cf fas fo -> p -> Desc ct tas to -> p -> Fallible p
     } -> Ops p
 
 opsFull :: Ops Dynamic
@@ -87,12 +71,10 @@ opsDesc = Ops
 -- * Processing pipe expressions
 --
 compile ::
-  forall e p
-  . (e ~ Text)
-  => Ops p
+     Ops p
   -> (QName Pipe -> Maybe (SomePipe p))
   -> Expr (Located (QName Pipe))
-  -> Either e (SomePipe p)
+  -> Fallible (SomePipe p)
 compile ops lookupPipe expr =
   resolveNames lookupPipe expr
   <&> mapLeft failMissing . locVal
@@ -100,59 +82,20 @@ compile ops lookupPipe expr =
   <&> doCompile ops
   & join
  where
-   failMissing = ("No such pipe: " <>) . showQName
+   failMissing = Error . ("No such pipe: " <>) . showQName
 
 analyse ::
-  forall e p
-  . (e ~ Text)
-  => (QName Pipe -> Maybe (SomePipe p))
+     (QName Pipe -> Maybe (SomePipe p))
   -> Expr (Located (QName Pipe))
-  -> Either e (Expr (Located (CPipe p)))
+  -> Fallible (Expr (Located (PartPipe p)))
 analyse lookupPipe expr =
   resolveNames lookupPipe expr
   & doAnalyse
 
-checkAndInfer ::
-  forall m e p
-  .  (Monad m, e ~ Text)
-  => Expr (Either (QName Pipe) (SomePipe p))
-  -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))
-checkAndInfer expr = go True $ fromExpr expr
- where
-   -- toSig :: Either (SomePipe ()) (SomePipe p) -> SomePipe ()
-   -- toSig (Left x)  = x
-   -- toSig (Right p) = somePipeDesc p
-   go :: Bool
-      -> ZExpr (Either (QName Pipe) (SomePipe p))
-      -> Either e (Expr (Either (SomePipe ()) (SomePipe p)))
-   go _ (_, PVal x)          = Right (PVal x)
-   go _known z@(parents, PPipe p) = case p of
-     Right x   -> Right . PPipe $ Right x
-     Left name -> case parents of
-       [] -> Left $ "Lacking context to infer unknown: " <> showQName name
-       Right PApp{}:_  -> PPipe . Left <$> inferFnApp name z
-       Left  PApp{}:_  -> undefined
-       Right PComp{}:_ -> undefined
-       Left  PComp{}:_ -> undefined
-       _ -> Left $ "Child of an atom: " <> showQName name
-   inferFnApp
-     :: QName Pipe
-     -> ZExpr (Either (QName Pipe) (SomePipe p))
-     -> Either e (SomePipe ())
-   inferFnApp _n = goIFA [] where
-     goIFA :: [SomePipe ()]
-           -> ZExpr (Either (QName Pipe) (SomePipe p))
-           -> Either e (SomePipe ())
-     goIFA xs z@(Right (PApp _f x):_ps, _self) = join $
-       goIFA <$> ((:)
-                  <$> undefined (go False (fromExpr x))
-                  <*> pure xs)
-             <*> pure (upFromLeft' z)
-     goIFA xs _ = undefined xs
 
 resolveNames ::
-  forall e f p
-  . (Functor f, e ~ Text)
+  forall f p
+  . (Functor f)
   => (QName Pipe -> Maybe (SomePipe p))
   -> Expr (f (QName Pipe))
   -> Expr (f (Either (QName Pipe) (SomePipe p)))
@@ -161,23 +104,19 @@ resolveNames lookupPipe = fmap (fmap tryLookupPipe)
     tryLookupPipe :: QName Pipe -> Either (QName Pipe) (SomePipe p)
     tryLookupPipe name = maybeToEither name $ lookupPipe name
 
-doCompile ::
-  forall e p. (e ~ Text)
-  => Ops p
-  -> Expr (SomePipe p)
-  -> Either e (SomePipe p)
+doCompile :: forall p. Ops p -> Expr (SomePipe p) -> Fallible (SomePipe p)
 doCompile Ops{app, comp, trav} = go
  where
    go :: Expr (SomePipe p)
-      -> Either Text (SomePipe p)
+      -> Fallible (SomePipe p)
    go = \case
-     PVal{}      -> Left "doCompile:  called on a value"
+     PVal{}      -> fall "doCompile:  called on a value"
      PPipe f     -> Right f
      PApp  f  x  -> goApp f x
      PComp f1 f2 -> goComp f1 f2
 
-   goApp :: Expr (SomePipe p) -> Expr (SomePipe p) -> Either Text (SomePipe p)
-   goApp PVal{}    _          = Left $ "Applying a value."
+   goApp :: Expr (SomePipe p) -> Expr (SomePipe p) -> Fallible (SomePipe p)
+   goApp PVal{}    _          = fall "Applying a value."
    goApp f           PVal{vX} = join $ apply app <$> go f <*> pure vX
     -- here we expect traverseP to reduce:
     --   PApp (b = IO c) (a = IO b) = (a = IO c)
@@ -185,16 +124,15 @@ doCompile Ops{app, comp, trav} = go
    goApp f@PPipe{} x@PComp{}  = join $ traverseP trav <$> pure (pP f) <*> go x
    goApp f         x          = join $ traverseP trav <$> go f        <*> go x
 
-   goComp :: Expr (SomePipe p) -> Expr (SomePipe p) -> Either Text (SomePipe p)
-   goComp   PVal{}  _         = Left $ "Composing a value on the left."
-   goComp _           PVal{}  = Left $ "Composing a value on the right."
+   goComp :: Expr (SomePipe p) -> Expr (SomePipe p) -> Fallible (SomePipe p)
+   goComp   PVal{}  _         = fall "Composing a value on the left."
+   goComp _           PVal{}  = fall "Composing a value on the right."
    goComp l@PPipe{} r@PPipe{} = compose comp (pP l) (pP r)
    goComp l         r         = join $ compose comp <$> go l <*> go r
 
 doAnalyse ::
-  forall e p. e ~ Text
-  => Expr (Located (Either (QName Pipe) (SomePipe p)))
-  -> Either e (Expr (Located (CPipe p)))
+     Expr (Located (Either (QName Pipe) (SomePipe p)))
+  -> Fallible (Expr (Located (PartPipe p)))
 doAnalyse = go emptyPipeCtx
  where
    emptyPipeCtx :: MSig
@@ -202,7 +140,7 @@ doAnalyse = go emptyPipeCtx
 
    go :: MSig
       -> Expr (Located (Either (QName Pipe) (SomePipe p)))
-      -> Either e (Expr (Located (CPipe p)))
+      -> Fallible (Expr (Located (PartPipe p)))
    go (Sig args out) = \case
      PPipe (Locn l (Left pn)) -> Right . PPipe . Locn l $ CFreePipe (Sig (reverse args) out) pn
      PPipe (Locn l (Right p)) -> PPipe . Locn l <$> checkApply p (Sig (reverse args) out)
@@ -210,21 +148,22 @@ doAnalyse = go emptyPipeCtx
      PApp  PVal{} _           -> Left "Applying a value."
      PApp  f      PVal{vX}    ->
        go (Sig (Just (someValueSomeType vX) : args) out) f
-     PVal{vX} -> Left $ "doCompile:  " <> pack (show vX)
+     PVal{vX} -> fallDescShow "doAnalyse:  value handling leaked" vX
+     x -> fallDescShow "doAnalyse:  unhandled" x
 
-   checkApply :: SomePipe p -> MSig -> Either e (CPipe p)
+   checkApply :: SomePipe p -> MSig -> Fallible (PartPipe p)
    checkApply p@(somePipeSig -> Sig params (I out)) args = case args of
      Sig []     Nothing    -> Right $ CSomePipe args p -- special case: unhinged..
      Sig eArgs  Nothing    -> maybeToLeft (CSomePipe args p) $
-                                checkArgs eArgs params
+                                Error <$> checkArgs eArgs params
      Sig eArgs (Just eRet) -> maybeToLeft (CSomePipe args p) $
-                                checkTy "return value" p eRet out
+                                Error <$> checkTy "return value" p eRet out
                                   (checkArgs eArgs params)
     where
-      checkArgs :: [Maybe SomeType] -> [I SomeType] -> Maybe e
+      checkArgs :: [Maybe SomeType] -> [I SomeType] -> Maybe Text
       checkArgs ctx sig = goCheck 0 ctx sig
        where
-         goCheck :: Int -> [Maybe SomeType] -> [I SomeType] -> Maybe e
+         goCheck :: Int -> [Maybe SomeType] -> [I SomeType] -> Maybe Text
          goCheck _ []    [] = Nothing -- success
          goCheck _ [] (_:_) = Just $ "Too many "   <> argcMiss (somePipeName p) argC paramC
          goCheck _ (_:_) [] = Just $ "Not enough " <> argcMiss (somePipeName p) argC paramC
@@ -237,11 +176,11 @@ doAnalyse = go emptyPipeCtx
          paramC = length sig - 1
          argC   = length ctx - 1
 
-         argcMiss :: Name Pipe -> Int -> Int -> e
+         argcMiss :: Name Pipe -> Int -> Int -> Text
          argcMiss name _paramC _argC = mconcat
            [ "args for pipe \"", showT name, "\":  "
            , showT paramC, " required, ", showT argC, " passed."]
-      checkTy :: Text -> SomePipe p -> SomeType -> SomeType -> Maybe e -> Maybe e
+      checkTy :: Text -> SomePipe p -> SomeType -> SomeType -> Maybe Text -> Maybe Text
       checkTy desc p act exp c
         | exp == act = c
         | otherwise = Just $ mconcat
@@ -252,7 +191,7 @@ doAnalyse = go emptyPipeCtx
           ]
 
 -- Represents a pipe, known or not.
-data CPipe p
+data PartPipe p
   = CFreePipe
     { cpArgs  :: !MSig
     , cfpName :: !(QName Pipe)
@@ -262,7 +201,7 @@ data CPipe p
     , cspPipe :: !(SomePipe p)
     }
 
-instance Show (CPipe p) where
+instance Show (PartPipe p) where
   show (CFreePipe args name) = mconcat
     [ show name
     , " :?: "

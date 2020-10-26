@@ -22,52 +22,52 @@ library
                        Data.TypeRep
                        Debug.TraceErr
 
-                       Dom.CTag
-                       Dom.Expr
-                       Dom.Ground
-                       Dom.Located
-                       Dom.Name
-                       Dom.Parse
-                       Dom.Parsers
-                       Dom.Representable
-                       Dom.Some
-                       Dom.SomeType
-                       Dom.SomeVTag
-                       Dom.SomeValue
-                       Dom.Tags
-                       Dom.VTag
-                       Dom.Value
-
                        Generics.SOP.Mapping
                        Generics.SOP.Some
                        Generics.SOP.Traversal
 
-                       Ground.Expr
-                       Ground.Hask
-                       Ground.Parser
-                       Ground.Table
+                       Dom.CTag
+                       Dom.Error
+                       Dom.Expr
+                       Dom.Ground
+                       Dom.Ground.Hask
+                       Dom.Located
+                       Dom.Name
+                       Dom.Parse
+                       Dom.Parsers
+                       Dom.Pipe
+                       Dom.Pipe.Ops
+                       Dom.Pipe.Ops.Apply
+                       Dom.Pipe.Ops.Compose
+                       Dom.Pipe.Ops.Traverse
+                       Dom.Pipe.Constr
+                       Dom.Pipe.IOA
+                       Dom.Pipe.SomePipe
+                       Dom.Representable
+                       Dom.RequestReply
+                       Dom.Scope
+                       Dom.Scope.ADTPipe
+                       Dom.Scope.SomePipe
+                       Dom.Sig
+                       Dom.Some
+                       Dom.SomeType
+                       Dom.SomeVTag
+                       Dom.SomeValue
+                       Dom.Space
+                       Dom.Space.Pipe
+                       Dom.Space.SomePipe
+                       Dom.Struct
+                       Dom.Tags
+                       Dom.Value
+                       Dom.VTag
 
-                       Pipe.Ops
-                       Pipe.Ops.Apply
-                       Pipe.Ops.Base
-                       Pipe.Ops.Compose
-                       Pipe.Ops.Internal
-                       Pipe.Ops.Traverse
-                       Pipe.Pipe
-                       Pipe.PipeSpace
-                       Pipe.Scope
-                       Pipe.SomePipe
-                       Pipe.Space
-                       Pipe.Types
-                       Pipe.Zipper
+                       Ground.Expr
+                       Ground.Table
 
                        Wire.Peer
                        Wire.Protocol
 
                        Basis
-                       Ground
-                       Namespace
-                       Pipe
 
                        -- Network.TypedProtocol.Channel
                        -- Network.TypedProtocol.Codec

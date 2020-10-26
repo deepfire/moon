@@ -1,18 +1,4 @@
-module Ground.Hask
-  (
-  -- Generic-ish
-    FileName(..)
-  , Loc(..)
-  , URL(..)
-  -- Composites
-  , Index(..)
-  , Repo(..)
-  , Package(..)
-  , Module(..)
-  , Def(..)
-  , DefType(..)
-  , )
-where
+module Dom.Ground.Hask (module Dom.Ground.Hask) where
 
 import Algebra.Graph
 import Codec.Serialise
@@ -21,6 +7,7 @@ import GHC.Generics
 import qualified Generics.SOP.Some as SOP
 
 import Basis
+
 import Dom.Name
 
 {-------------------------------------------------------------------------------

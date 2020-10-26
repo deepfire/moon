@@ -1,61 +1,37 @@
-{-# LANGUAGE PatternSynonyms #-}
-{-|
-Module      : Pipe.Ops.Internal
-Description : Guts of the Pipe guts.
-Copyright   : (c) Kosyrev Serge, 2019
-License     : GPL-3
+module Dom.Pipe.IOA (module Dom.Pipe.IOA) where
 
-Private structure of 'Pipe':  types and patterns.
--}
-
-module Pipe.Ops.Internal
-  ( typeRepNull
-  , IOA(..)
-  , ioaTyInvalidity
-  , ioaTyConsInvalidity
-  , ioaTySingletonInvalidity
-  , ioaTyNilInvalidity
-  , Pipe(.., P)
-  -- GHC bug: we shouldn't need to list them explicitly.
-  , pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pArgs, pOut
-  , SomeTypeRep(.., IOATyCons, IOATyNil)
-  -- GHC bug: we shouldn't need to list them explicitly.
-  , ioaCon, listCon --, constrRep
-  , typeACon, tagARep, aRep
-  , restRep
-  , typeOCon, tagORep, oRep
-  --
-  , module Basis
-  , module Type
-  --
-  , module Ground.Table
-  --
-  , module SomeType
-  , module SomeValue
-  , module Pipe.Types
-  )
-where
-
-import Type.Reflection ( pattern App
-                       , pattern Con
-                       , TyCon
-                       , (:~~:)(..)
-                       , eqTypeRep
-                       , someTypeRepTyCon
-                       , splitApps
-                       , typeRepTyCon
-                       )
-
+import qualified Algebra.Graph                    as G
+import           GHC.Generics                       (Generic)
+import           Type.Reflection
+                   ( pattern App
+                   , pattern Con
+                   , TyCon
+                   , eqTypeRep
+                   , someTypeRepTyCon
+                   , splitApps
+                   , typeRepTyCon
+                   )
 import Basis
-  --
-import Ground.Table
-  --
-import Pipe.Types
-import SomeType
-import SomeValue
 
+import Dom.CTag
+import Dom.Located
+import Dom.Name
+import Dom.Pipe
+import Dom.Pipe.Constr
+import Dom.Sig
+import Dom.SomeType
+import Dom.Struct
+import Dom.Tags
+import Dom.VTag
+
+
+--------------------------------------------------------------------------------
 -- * Guts of the pipe guts.
 --
+type family PipeFunTy (as :: [*]) (o :: *) :: * where
+  PipeFunTy '[]    o = Result (ReprOf o)
+  PipeFunTy (x:xs) o = ReprOf x -> PipeFunTy xs o
+
 data IOA (c :: * -> Constraint) (as :: [*]) (o :: *) where
   IOA :: PipeConstr c as o
       => PipeFunTy as o
@@ -63,6 +39,16 @@ data IOA (c :: * -> Constraint) (as :: [*]) (o :: *) where
       -> Proxy as
       -> Proxy o
       -> IOA c as o
+
+pattern P
+  :: Desc c as o -> Name Pipe -> Struct -> SomeTypeRep -> p
+  -> [SomeType]   -> SomeType
+  -> NP Tags as -> Tags o
+  -> Pipe c as o p
+pattern P { pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pArgs, pOut }
+  <- Pipe pDesc_@(Desc pName (Sig (fmap unI -> pArgStys) (I pOutSty)) pStruct
+                  pPipeRep pArgs pOut)
+          pPipe
 
 pattern IOATyCons
   :: TyCon -> TyCon -- -> TypeRep c
@@ -94,6 +80,57 @@ pattern IOATyNil ioaCon nilCon typeOCon tagORep oRep
                   (App (App (Con typeOCon) tagORep)
                        oRep))
 
+--------------------------------------------------------------------------------
+-- * Constructors
+--
+genPipe
+  :: forall cf tf ct tt c
+  .  ( cf ~ 'Point, tf ~ ()
+     , ReifyCTag ct, ReifyVTag tt
+     , Typeable (Repr ct tt), Typeable ct, Typeable tt, Typeable c
+     , c tt)
+  => Name Pipe
+  -> Types ct tt
+  -> Result (Repr ct tt)
+  -> Pipe c '[] (Types ct tt) Dynamic
+genPipe name typ@(typesTags -> Tags cTag vTag) mv
+  -- TODO: validate types against the typerep/dynamic
+                = Pipe desc dyn
+  where ty      = someType typ
+        desc    = Desc name sig struct (dynRep dyn) Nil (Tags cTag vTag)
+        sig     = Sig [] (I ty)
+        struct  = Struct graph
+        graph   = G.vertex ty
+        dyn     = Dynamic typeRep pipeFun
+        pipeFun = IOA mv Proxy Proxy Proxy ::
+                  IOA c '[] (Types ct tt)
+
+linkPipe ::
+    forall cf tf ct tt c
+  . ( ReifyCTag cf, ReifyCTag ct
+    , ReifyVTag tf, ReifyVTag tt
+    , Typeable (Repr cf tf), Typeable (Repr ct tt)
+    , Typeable cf, Typeable tf, Typeable ct, Typeable tt, Typeable c
+    , c tt)
+  => Name Pipe
+  -> Types cf tf
+  -> Types ct tt
+  -> (Repr cf tf -> Result (Repr ct tt))
+  -> Pipe c '[Types cf tf] (Types ct tt) Dynamic
+linkPipe name typf@(typesTags -> Tags cf tf) typt@(typesTags -> Tags ct tt) mf
+                = Pipe desc dyn
+  where desc    = Desc name sig struct (dynRep dyn) (Tags cf tf :* Nil) (Tags ct tt)
+        sig     = Sig [I $ someType typf] (I $ someType typt)
+        struct  = Struct G.empty
+        -- G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
+        ---------
+        dyn     = Dynamic typeRep pipeFun
+        pipeFun = IOA mf Proxy Proxy Proxy ::
+                  IOA c '[Types cf tf] (Types ct tt)
+
+--------------------------------------------------------------------------------
+-- * Utils
+--
 typeRepNull
   :: forall k (a :: [k]) (b :: [k])
    . (Typeable k, b ~ '[])
@@ -140,13 +177,3 @@ ioaTyNilInvalidity (IOATyNil con lcon ocon _ko _o)
   | ocon /= typeTyCon = Just "output not a Type"
   | otherwise = Nothing
 ioaTyNilInvalidity _  = Just "no match with IOATyNil"
-
-pattern P
-  :: Desc c as o -> Name Pipe -> Struct -> SomeTypeRep -> p
-  -> [SomeType]   -> SomeType
-  -> NP Tags as -> Tags o
-  -> Pipe c as o p
-pattern P { pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pArgs, pOut }
-  <- Pipe pDesc_@(Desc pName (Sig (fmap unI -> pArgStys) (I pOutSty)) pStruct
-                  pPipeRep pArgs pOut)
-          pPipe

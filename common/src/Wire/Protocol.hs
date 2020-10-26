@@ -1,17 +1,3 @@
-{-# LANGUAGE Arrows                     #-}
-{-# LANGUAGE EmptyCase                  #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE PartialTypeSignatures      #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Wire.Protocol
@@ -33,91 +19,25 @@ import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
-import           Options.Applicative hiding (Parser)
-import           Options.Applicative.Arrows
-import qualified Options.Applicative              as Opt
 import           Type.Reflection
 
-import qualified Codec.CBOR.Decoding              as CBOR (Decoder,  decodeListLen, decodeWord)
-import qualified Codec.CBOR.Encoding              as CBOR (Encoding, encodeListLen, encodeWord)
 import qualified Codec.CBOR.Read                  as CBOR
 import qualified Codec.CBOR.Write                 as CBOR
-import           Codec.Serialise
-import           Codec.Serialise.Decoding
-import           Codec.Serialise.Encoding
 import           Control.Monad.ST                   (ST, stToIO)
 
 import qualified Network.TypedProtocol.Codec      as Codec
-import           Network.TypedProtocol.Codec  hiding (encode, decode)
--- import           Network.TypedProtocol.Codec.Cbor hiding (decode, encode)
+import           Network.TypedProtocol.Codec hiding (encode, decode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
 import Basis
--- import Dom.Ground
 import Dom.Name
+import Dom.RequestReply
 import Dom.SomeValue
-import Pipe.Pipe
-import Pipe.SomePipe
+
 
 --------------------------------------------------------------------------------
--- | Request/Reply:  asks with expectance of certain type of reply.
-data Request
-  = Run                  Text
-  | Compile (QName Pipe) Text
-
-data Reply
-  = ReplyValue SomeValue
-
-instance Show Request where
-  show (Run       pipe) = "Run "                      <> show pipe
-  show (Compile n text) = "Compile " <> show n <> " " <> unpack text
-instance Show Reply where show (ReplyValue n) = "ReplyValue " <> show n
-
-parseRequest :: Opt.Parser Request
-parseRequest = subparser $ mconcat
-  [ cmd "run" $ Run <$> strArgument (metavar "PIPEDESC")
-  , cmd "compile" $
-    Compile
-      <$> (QName <$> argument auto (metavar "NAME"))
-      <*> strArgument (metavar "PIPEDESC")
-  ]
-  where
-    cmd name p = command name $ info (p <**> helper) mempty
-
---------------------------------------------------------------------------------
--- | Serialise instances
-
-tagRequest, tagReply :: Word
-tagRequest   = 31--415926535
-tagReply     = 27--182818284
-
-instance Serialise Request where
-  encode x = case x of
-    Run pipe -> encodeListLen 2 <> encodeWord (tagRequest + 0) <> encode pipe
-    Compile nam expr -> encodeListLen 3 <> encodeWord (tagRequest + 1) <> encode nam <> encode expr
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (2, 31) -> Run     <$> decode
-      (3, 32) -> Compile <$> decode <*> decode
-      _ -> failLenTag len tag
-
-instance Serialise Reply where
-  encode x = case x of
-    ReplyValue v -> encodeListLen 2 <> encodeWord tagReply <> encode (v :: SomeValue)
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (2, _tagSomeReply) -> ReplyValue <$> (decode :: Decoder s SomeValue)
-      _ -> failLenTag len tag
-
-failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
-failLenTag len tag = fail $ "invalid "<>show (typeRep @a)<>" encoding: len="<>show len<>" tag="<>show tag
-
---------------------------------------------------------------------------------
--- | Piping: protocol tag
+-- | Piping:  message state type
+--
 data Piping rej
   = StIdle
   | StBusy
@@ -129,6 +49,7 @@ instance Show (ServerHasAgency (st :: Piping rej)) where show TokBusy = "TokBusy
 
 --------------------------------------------------------------------------------
 -- | Protocol & codec
+--
 instance Protocol (Piping rej) where
   data Message (Piping rej) from to where
     MsgRequest    :: Request  -> Message (Piping rej) StIdle StBusy
@@ -154,18 +75,18 @@ wireCodec =
     enc :: forall (pr :: PeerRole) st st'.
               PeerHasAgency pr st
            -> Message (Piping rej) st st'
-           -> CBOR.Encoding
-    enc (ClientAgency TokIdle) (MsgRequest r)    = CBOR.encodeListLen 2 <> CBOR.encodeWord 0 <> encode r
-    enc (ServerAgency TokBusy) (MsgReply r)      = CBOR.encodeListLen 2 <> CBOR.encodeWord 1 <> encode r
-    enc (ServerAgency TokBusy) (MsgBadRequest t) = CBOR.encodeListLen 2 <> CBOR.encodeWord 2 <> encode t
-    enc (ClientAgency TokIdle)  MsgDone          = CBOR.encodeListLen 1 <> CBOR.encodeWord 3
+           -> Encoding
+    enc (ClientAgency TokIdle) (MsgRequest r)    = encodeListLen 2 <> encodeWord 0 <> encode r
+    enc (ServerAgency TokBusy) (MsgReply r)      = encodeListLen 2 <> encodeWord 1 <> encode r
+    enc (ServerAgency TokBusy) (MsgBadRequest t) = encodeListLen 2 <> encodeWord 2 <> encode t
+    enc (ClientAgency TokIdle)  MsgDone          = encodeListLen 1 <> encodeWord 3
 
     dec :: forall (pr :: PeerRole) s (st :: (Piping rej)).
               PeerHasAgency pr st
-           -> CBOR.Decoder s (SomeMessage st)
+           -> Decoder s (SomeMessage st)
     dec stok = do
-      len <- CBOR.decodeListLen
-      key <- CBOR.decodeWord
+      len <- decodeListLen
+      key <- decodeWord
       case (stok, len, key) of
         (ClientAgency TokIdle, 2, 0) -> SomeMessage . MsgRequest    <$> decode
         (ServerAgency TokBusy, 2, 1) -> SomeMessage . MsgReply      <$> decode
@@ -182,11 +103,11 @@ mkCodecCborLazyBS'
   . m ~ IO =>
   (forall (pr :: PeerRole) (st :: ps) (st' :: ps).
              PeerHasAgency pr st
-          -> Message ps st st' -> CBOR.Encoding)
+          -> Message ps st st' -> Encoding)
 
   -> (forall (pr :: PeerRole) (st :: ps) s.
              PeerHasAgency pr st
-          -> CBOR.Decoder s (SomeMessage st))
+          -> Decoder s (SomeMessage st))
 
   -> Codec ps CBOR.DeserialiseFailure m LBS.ByteString
 mkCodecCborLazyBS'  cborMsgEncode cborMsgDecode =
@@ -195,21 +116,21 @@ mkCodecCborLazyBS'  cborMsgEncode cborMsgDecode =
       decode = \stok     -> convertCborDecoder (cborMsgDecode stok)
     }
   where
-    convertCborEncoder :: (a -> CBOR.Encoding) -> a -> LBS.ByteString
+    convertCborEncoder :: (a -> Encoding) -> a -> LBS.ByteString
     convertCborEncoder cborEncode =
         toLazyByteString
       . CBOR.toBuilder
       . cborEncode
 
     convertCborDecoder
-      :: (forall s. CBOR.Decoder s a)
+      :: (forall s. Decoder s a)
       -> m (DecodeStep LBS.ByteString CBOR.DeserialiseFailure m a)
     convertCborDecoder cborDecode =
         (convertCborDecoderLBS cborDecode stToIO)
 
 convertCborDecoderLBS
   :: forall s m a. Monad m
-  => (CBOR.Decoder s a)
+  => (Decoder s a)
   -> (forall b. ST s b -> m b)
   -> m (DecodeStep LBS.ByteString CBOR.DeserialiseFailure m a)
 convertCborDecoderLBS cborDecode liftST =

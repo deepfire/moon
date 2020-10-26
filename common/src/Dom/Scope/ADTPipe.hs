@@ -1,43 +1,35 @@
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors #-}
+module Dom.Scope.ADTPipe (module Dom.Scope.ADTPipe) where
 
-module Pipe.Scope
-  ( SomePipeScope
-  , pipeScope
-  , emptyPipeScope
-  , dataProjScope
-  , dataProjScopeG
-  -- * Re-exports
-  , Scope
-  , scope
-  , emptyScope
-  , scopeNames
-  , scopeEntries
-  , lookupScope
-  , updateScope
-  , alterScope
-  )
-where
-
-import qualified Type.Reflection                  as R
+import qualified Generics.SOP                     as SOP
+import qualified Generics.SOP.Some                as SOP
+import qualified Type.Reflection                  as Refl
 
 import Basis
-import qualified Generics.SOP      as SOP
-import qualified Generics.SOP.Some as SOP
-import Namespace
-import Pipe.Ops
-import Pipe.Types
+
+import Dom.CTag
+import Dom.Ground
+import Dom.Name
+import Dom.Pipe
+import Dom.Pipe.Constr
+import Dom.Pipe.IOA
+import Dom.Pipe.SomePipe
+import Dom.Scope
+import Dom.Scope.SomePipe
+import Dom.VTag
 
 
 --------------------------------------------------------------------------------
--- TODO: make this a generic operation?
+-- * Scope of pipes, that offer projections for a GroundData-constrained ADT.
+--
 dataProjScope
   :: forall u.
   ( Typeable u, SOP.HasDatatypeInfo u, SOP.Generic u
   , ReifyVTag u
   -- XXX: why the combinatory explosion?
-  , All2 (SOP.And Typeable                    Top)  (SOP.Code u)
-  , All2 (SOP.And ReifyVTag                   Top)  (SOP.Code u)
-  , All2 (SOP.And Typeable (SOP.And ReifyVTag Top)) (SOP.Code u)
+  , All2 (And Typeable                    Top)  (Code u)
+  , All2 (And ReifyVTag                   Top)  (Code u)
+  , All2 (And Typeable (And ReifyVTag Top)) (Code u)
   )
   => Proxy u -> Scope Point (SomePipe Dynamic)
 dataProjScope  p = dataProjScope' p $ dataProjPipes (T mempty) (Proxy @Top) p
@@ -51,32 +43,23 @@ dataProjScope'
   :: forall u. Typeable u
   => Proxy u -> [SomePipe Dynamic] -> SomePipeScope Dynamic
 dataProjScope' _p ps = pipeScope name ps
-  where name  = Name $ pack $ show (R.typeRepTyCon (typeRep @u))
-
-
---------------------------------------------------------------------------------
-emptyPipeScope :: Name Scope -> SomePipeScope p
-emptyPipeScope = Namespace.emptyScope . coerceName
-
-pipeScope :: Name Scope -> [SomePipe p] -> SomePipeScope p
-pipeScope name pipes = scope (coerceName name) $
-  zip (coerceName . somePipeName <$> pipes) pipes
+  where name  = Name $ pack $ show (Refl.typeRepTyCon (typeRep @u))
 
 dataProjPipes
   :: forall c c' u
   . ( Typeable c, Typeable u
     , SOP.HasTypeData c u, SOP.Generic u
     , ReifyVTag u
-    , All2 (SOP.And Typeable (SOP.And ReifyVTag c)) (SOP.Code u)
-    , All2 c' (SOP.Code u)
-    , c' ~ (SOP.And ReifyVTag c)
+    , All2 (And Typeable (And ReifyVTag c)) (Code u)
+    , All2 c' (Code u)
+    , c' ~ (And ReifyVTag c)
     , c u)
   => (forall (cas :: [*]) (o :: *)
       .  PipeConstr c cas o
       => Pipe c (cas :: [*]) (o :: *) Dynamic
       -> SomePipe Dynamic)
   -> Proxy c -> Proxy u -> [SomePipe Dynamic]
-dataProjPipes ctor c u =
+dataProjPipes ctor _c u =
   let d :: SOP.Data SOP.Fun c' u
       d = SOP.typeData (Proxy @c') u
       fieldPipe
@@ -89,7 +72,7 @@ dataProjPipes ctor c u =
         case SOP.fAccess f of
           SOP.SomeAccessors (SOP.Accessors getter _ :: SOP.Accessors u c' a) ->
             ctor $
-            (link'
+            (linkPipe
              (Name $ SOP.fName f)
              TPoint'
              TPoint' -- XXX: Kind can be non-Point!

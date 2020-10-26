@@ -77,16 +77,13 @@ type family Arg1CTag (arg1ctag :: [*]) :: Con where
   Arg1CTag (Types c _:_) = c
   Arg1CTag xs = TypeError (Ty.Text "Arg1CTag: no argument: " :<>: ShowType xs)
 
-type family TypeOf (typeof :: *) :: * where
-  TypeOf (Types _ a) = a
-  TypeOf x = TypeError (Ty.Text "TypeOf: invalid argument: " :<>: ShowType x)
+type family TypesV (typeof :: *) :: * where
+  TypesV (Types _ a) = a
+  TypesV x = TypeError (Ty.Text "TypesV: invalid argument: " :<>: ShowType x)
 
-type family CTagOf (ctagof :: *) :: Con where
-  CTagOf (Types c _) = c
-  CTagOf  x = TypeError (Ty.Text "CTagOf: invalid argument: " :<>: ShowType x)
-
-type WithPair (ty :: *) (c :: Con) (a :: *)
-  = (CTagOf ty ~ c, TypeOf ty ~ a)
+type family TypesC (ctagof :: *) :: Con where
+  TypesC (Types c _) = c
+  TypesC  x = TypeError (Ty.Text "TypesC: invalid argument: " :<>: ShowType x)
 
 type family ReprOf (reprof :: *) :: * where
   ReprOf (Types c a) = Repr c a

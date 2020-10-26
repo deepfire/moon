@@ -21,8 +21,12 @@ library
                        Data.Text.Extra
                        Data.Text.Zipper.Extra
                        Debug.Reflex
+
                        Lift.Pipe
+
+                       Reflex.SomeValue
                        Reflex.Vty.Widget.Extra
+                       Reflex.Vty.Widget.Selector
                        Reflex.Vty.Widget.Input.RichText
   other-modules:
                        Lift.Haskell
@@ -188,7 +192,7 @@ executable cli
                      , websockets
                      , zippers
 
-  extensions:          AllowAmbiguousTypes
+  default-extensions:  AllowAmbiguousTypes
                        BangPatterns
                        ConstraintKinds
                        -- CPP

@@ -27,17 +27,27 @@ import qualified Distribution.PackageDescription.Parsec as Cabal
 import qualified Distribution.Types.GenericPackageDescription as Cabal
 
 import Basis
-import Ground.Hask
-import Pipe.Scope
-import Pipe.Space
-import Pipe
+
+import Dom.CTag
+import Dom.Error
+import Dom.Ground.Hask
+import Dom.Name
+import Dom.Pipe.IOA
+import Dom.Pipe.SomePipe
+import Dom.Scope
+import Dom.Scope.ADTPipe
+import Dom.Scope.SomePipe
+import Dom.Space.SomePipe
+import Dom.Value
+
+import Ground.Table
 
 import Lift.Orphanage
 
 
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
-pipeSpace graft = emptyPipeSpace "Hackage"
-  & attachScopes (graft)
+pipeSpace graft = emptySomePipeSpace "Hackage"
+  & spsAttachScopes (graft)
       [ pipeScope "Hackage"
         [ gen  "packages"        TSet' hackagePackageNames
         , link "cabal" TPoint' TPoint' getHackagePackageCabalDesc
@@ -53,13 +63,15 @@ pipeSpace graft = emptyPipeSpace "Hackage"
 
 
 -- * XXX:  danger lurked in shadows of lazy IO..
-hackagePackageNames :: IO (Either Text (Set (Name Package)))
-hackagePackageNames = Unsafe.unsafePerformIO . Unsafe.unsafeInterleaveIO $
+hackagePackageNames :: IO (Fallible [Name Package])
+-- hackagePackageNames :: IO (Fallible (Set (Name Package)))
+hackagePackageNames =
+  fmap (fmap toList) . Unsafe.unsafePerformIO . Unsafe.unsafeInterleaveIO $
   setupHackageCache 3600
 {-# NOINLINE hackagePackageNames #-}
 
 
-setupHackageCache :: NominalDiffTime -> IO (IO (Either Text (Set (Name Package))))
+setupHackageCache :: NominalDiffTime -> IO (IO (Fallible (Set (Name Package))))
 setupHackageCache cacheTmo = cachedIO cacheTmo $ do
   code <- system "cabal new-update"
   case code of
@@ -67,10 +79,10 @@ setupHackageCache cacheTmo = cachedIO cacheTmo $ do
       tarball <- Hackage.hackageTarball
       Right . Set.fromList . (Name . pack . Cabal.unPackageName <$>) . Map.keys
         <$> Hackage.readTarball Nothing tarball
-    ExitFailure x -> do
-      pure . Left . pack $ "'cabal update' exit status: " <> show x
+    ExitFailure x ->
+      fallM . pack $ "'cabal update' exit status: " <> show x
 
-getHackagePackageCabalDesc :: Name Package -> IO (Either Text Cabal.GenericPackageDescription)
+getHackagePackageCabalDesc :: Name Package -> IO (Fallible Cabal.GenericPackageDescription)
 getHackagePackageCabalDesc pkg@(Name pn) = do
   r <- runReq defaultHttpConfig $
        req GET (https "hackage.haskell.org" /~ ("package" :: String) /~ pn /~ (pn <> ".cabal")) NoReqBody bsResponse mempty
@@ -78,9 +90,9 @@ getHackagePackageCabalDesc pkg@(Name pn) = do
     200  -> do
       let (_, pkg) = Cabal.runParseResult $ Cabal.parseGenericPackageDescription $ responseBody r
       case pkg of
-        Left (_, es) -> pure . Left . pack $ "Errors while parsing "<>unpack pn<>".cabal: "<>(Prelude.concat $ show <$> es)
+        Left (_, es) -> fallM . pack $ "Errors while parsing "<>unpack pn<>".cabal: "<>(Prelude.concat $ show <$> es)
         Right x -> pure $ Right x
-    resp -> pure . Left . pack $ "Hackage response code: "<>show resp
+    resp -> fallM . pack $ "Hackage response code: "<>show resp
 
  -- data Library = Library
  -- { libName           :: Maybe UnqualComponentName

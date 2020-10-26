@@ -1,4 +1,4 @@
-module Pipe.ExprTyped
+module Attic.ExprTyped
   ( Expr'(..)
   , Apply
   , Compose)

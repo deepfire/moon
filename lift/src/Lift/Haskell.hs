@@ -59,15 +59,26 @@ import           StringBuffer
 import           SysTools
 ---------------- Local
 import Basis
-import Ground.Hask
-import Pipe.Scope
-import Pipe.Space
 
+import Dom.Error
+import Dom.Ground.Hask
+import Dom.Name
+import Dom.Scope
+import Dom.Scope.ADTPipe
+import Dom.Space
+import Dom.Space.SomePipe
+
+import Ground.Table
+
+
+
+-- * Top level
+--
 newtype GhcLibDir = GhcLibDir FilePath deriving Show
 
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
-pipeSpace graft = emptyPipeSpace "Haskell"
-  & attachScopes (graft `append` "Hask")
+pipeSpace graft = emptySomePipeSpace "Haskell"
+  & spsAttachScopes (graft `append` "Hask")
       [ dataProjScope $ Proxy @Loc
       -- *
       , dataProjScope $ Proxy @Index
@@ -89,7 +100,7 @@ liftHsModule
 fileToModule
   :: GhcLibDir
   -> FileName
-  -> IO (Either Text Module)
+  -> IO (Fallible Module)
 
 fileToModule libDir hsFile = do
   let parseErr (PFailed _ _ x) = pack $ showSDocUnsafe x
@@ -99,8 +110,7 @@ fileToModule libDir hsFile = do
     pure . (error "fileToModule",) . (PFailed (error "fileToModule") (error "fileToModule") (error "fileToModule"),)
          . pack . show
   case parseR of
-    (PFailed _ _ _, err) -> do
-      pure . Left $ err
+    (PFailed _ _ _, err) -> fallM $ err
     (POk _s m, _) -> do
       -- liftIO $ printSDocLn PageMode dflags stdout (mkCodeStyle CStyle) $ ppr m
       pure . Right $ liftHsModule dflags m

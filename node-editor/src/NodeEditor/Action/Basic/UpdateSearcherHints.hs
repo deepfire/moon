@@ -38,7 +38,6 @@ import Searcher.Data.Result               (Result)
 
 import Pipe hiding (Result, Set)
 import Type hiding (Set)
-import qualified Namespace as Namespace
 import qualified Lift.Types as Lift
 
 

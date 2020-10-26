@@ -36,3 +36,29 @@
               - =Ord SomeValue=
                 - =Ord Expr=
                   - ground table entry for =Expr=
+* Equality
+  1. 
+
+*** Root cause
+    =elemIndex= requires =Eq=
+    #+BEGIN_SRC haskell
+              , selIndex  = menuChoice  <&>
+                            (flip List.elemIndex sfpElems
+                             >>> fmap Index)
+                            & join
+                            & fromMaybe (Index 0)
+    #+END_SRC
+
+*** Error on the path
+MainCLI.hs:306:9: error:
+    • Could not deduce (Eq Acceptable) arising from a use of ‘selector’
+      from the context: (ReflexVty t m, PerformEvent t m,
+                         MonadIO (Performable m))
+        bound by the type signature for:
+                   spaceInteraction :: forall t (m :: * -> *).
+                                       (ReflexVty t m, PerformEvent t m, MonadIO (Performable m)) =>
+                                       (Execution -> IO ())
+                                       -> Event t SomeValue -> VtyWidget t m (Event t ())
+        at MainCLI.hs:(183,1)-(188,31)
+    • In a stmt of an 'mdo' block:
+        selr :: Selector t m Acceptable Acceptance <- (selector sfpD ::

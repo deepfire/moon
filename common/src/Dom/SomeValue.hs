@@ -1,28 +1,18 @@
 module Dom.SomeValue (module Dom.SomeValue) where
 
-import           Codec.CBOR.Decoding
-                   (Decoder, decodeWord, decodeListLen)
-import           Codec.CBOR.Encoding
-                   (Encoding, encodeWord, encodeListLen)
-import           Codec.Serialise                    (Serialise(..))
-import           Control.DeepSeq                    (NFData(..))
 import           Data.GADT.Compare                  (GEq(..), GCompare(..), GOrdering(..))
-import           Data.Foldable                      (toList)
 import qualified Data.Set.Monad                   as Set
-import           Data.Text                          (Text, pack)
-import           Data.Typeable                      (Proxy(..), Typeable, (:~:)(..), (:~~:)(..))
 import           GHC.Generics                       (Generic)
-import           Text.Read                          (Lexeme(..), Read(..), ReadPrec, lexP)
-import           Type.Reflection                    (SomeTypeRep, typeRep)
-import qualified Type.Reflection                  as R
+import           Text.Read                          (Lexeme(..), ReadPrec, lexP)
+import qualified Type.Reflection                  as Refl
 
-import           Debug.Trace
-import           Text.Printf
+import Basis
 
 import Data.Dict
 import Data.Parsing
 
 import Dom.CTag
+import Dom.Error
 import Dom.Ground
 import Dom.Parse
 import Dom.Some
@@ -41,10 +31,6 @@ data SomeValue =
 data SomeValueKinded (c :: Con) =
   forall a. (Ground a)
   => SomeValueKinded (VTag a) (Value c a)
-
--- data SomeKindValue a =
---   forall (c :: Con). Typeable c =>
---   SomeKindValue (CTag c) (Value c a)
 
 mkSomeGroundValue ::
   (Typeable c, ReifyCTag c, Ground a)
@@ -70,19 +56,6 @@ readSomeValue ctag (TyDict (a :: Proxy a)) =
 --------------------------------------------------------------------------------
 -- * Instances
 --
--- instance Eq (SomeValueKinded c) where
---   SomeValueKinded _ (va :: Value c a) == SomeValueKinded _ (vb :: Value c b) =
---     case typeRep @a `R.eqTypeRep` typeRep @b of
---       Just HRefl -> stripValue va == stripValue vb
---       Nothing -> False
-
--- instance Ord (SomeValueKinded c) where
---   SomeValueKinded vta (va :: Value c a) `compare`
---    SomeValueKinded vtb (vb :: Value c b) =
---     case typeRep @a `R.eqTypeRep` typeRep @b of
---       Just HRefl -> stripValue va `compare` stripValue vb
---       Nothing -> vta `compare` vtb
-
 instance Show SomeValue where
   show (SomeValue _ (SomeValueKinded _ x)) = show x
 
@@ -112,31 +85,31 @@ instance Read (Some CTag) where
 someValueSomeCTag :: SomeValue -> SomeCTag
 someValueSomeCTag (SomeValue t _) = SomeCTag t
 
-someValueSomeTypeRep :: SomeValue -> R.SomeTypeRep
+someValueSomeTypeRep :: SomeValue -> SomeTypeRep
 someValueSomeTypeRep (SomeValue _ svk) = someValueKindedSomeTypeRep svk
 
-someValueKindedSomeTypeRep :: SomeValueKinded c -> R.SomeTypeRep
-someValueKindedSomeTypeRep (SomeValueKinded _ (_ :: Value c a)) = R.someTypeRep $ Proxy @a
+someValueKindedSomeTypeRep :: SomeValueKinded c -> SomeTypeRep
+someValueKindedSomeTypeRep (SomeValueKinded _ (_ :: Value c a)) = someTypeRep $ Proxy @a
 
 someValueSomeType :: SomeValue -> SomeType
 someValueSomeType (SomeValue ctag (SomeValueKinded _ (_ :: Value c a))) =
   ctagSomeType ctag (Proxy @a)
 
-withSomeValue
-  :: forall a c b
+withSomeValue ::
+     forall a c b
    . (Typeable a, Typeable c)
   => CTag c
-  -> Proxy a
+  -> VTag a
   -> SomeValue
   -> (Value c a -> b)
-  -> Either Text b
+  -> Fallible b
 withSomeValue _ _ (SomeValue (_ :: CTag c') (SomeValueKinded _ (r :: Value c' a'))) f =
-  case (,) (typeRep @a `R.eqTypeRep` typeRep @a')
-           (typeRep @c `R.eqTypeRep` typeRep @c') of
-    (Just R.HRefl, Just R.HRefl) -> Right $ f r
-    _ -> Left . pack $ printf "withSomeValue: expected %s/%s, got %s/%s"
-                (show $ typeRep @a)  (show $ typeRep @c)
-                (show $ typeRep @a') (show $ typeRep @c')
+  case (,) (typeRep @a `eqTypeRep` typeRep @a')
+           (typeRep @c `eqTypeRep` typeRep @c') of
+    (Just HRefl, Just HRefl) -> Right $ f r
+    _ -> fallS $ printf "withSomeValue: expected %s/%s, got %s/%s"
+                 (show $ typeRep @a)  (show $ typeRep @c)
+                 (show $ typeRep @a') (show $ typeRep @c')
 
 --------------------------------------------------------------------------------
 -- * Parsing
@@ -224,20 +197,3 @@ instance Serialise SomeValue where
    where
      failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a
      failLenTag len tag = fail $ "invalid "<>show (typeRep @a)<>" encoding: len="<>show len<>" tag="<>show tag
-
--- stripSomeValue ::
---   forall a c
---    . (Typeable a, Typeable c)
---   => CTag c
---   -> Proxy a
---   -> SomeValue
---   -> Maybe (Repr c a)
--- stripSomeValue _ _ (SomeValue (_ :: CTag c') (SomeValueKinded (r :: Value c' a'))) =
---   let exptr = typeRep @a
---       svtr  = typeRep @a'
---       expk  = typeRep @c
---       svk   = typeRep @c'
---   in case (,) (svtr `R.eqTypeRep` exptr)
---               (svk  `R.eqTypeRep` expk) of
---     (Just R.HRefl, Just R.HRefl) -> Just $ stripValue r
---     _ -> Nothing

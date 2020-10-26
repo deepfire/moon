@@ -1,9 +1,13 @@
 module Basis
-  ( module Control.Applicative
+  ( module Codec.CBOR.Encoding
+  , module Codec.CBOR.Decoding
+  , module Codec.Serialise
+  , module Control.Applicative
   , module Control.Arrow
   , module Control.Concurrent.STM
   , module Control.DeepSeq
   , module Control.Monad
+  , module Control.Monad.Fail
   , module Control.Tracer
   , module Data.Bifunctor
   , module Data.Bifunctor.Swap
@@ -50,11 +54,15 @@ module Basis
   )
 where
 
+import Codec.Serialise            (Serialise(..))
+import Codec.CBOR.Encoding        (Encoding, encodeListLen, encodeWord)
+import Codec.CBOR.Decoding        (Decoder, decodeListLen, decodeWord)
 import Control.Applicative        ((<|>), liftA2)
 import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, first, second)
 import Control.Concurrent.STM     (STM, atomically)
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (foldM, join, mapM, mapM_, forM, forM_, void)
+import Control.Monad.Fail         (MonadFail)
 import Control.Tracer             (Tracer(..), traceWith)
 import Data.Bifunctor             (bimap)
 import Data.Bifunctor.Swap        (swap)
@@ -89,13 +97,15 @@ import Data.Type.Equality         ((:~:)(..), (:~~:)(..))
 import Data.Type.List             (spineConstraint)
 import Data.TypeRep               (showSomeTypeRep, showTypeRep)
 import Data.Witherable            (catMaybes, mapMaybe, wither)
-import Debug.Trace                (trace)
+import Debug.Trace                (trace, traceM)
 import Debug.TraceErr             (traceErr, traceIOErr)
-import Generics.SOP               (All, All2, Compose, NP(..), NS, Top
+import Generics.SOP               (All, All2, And, Compose, Code, NP(..), NS, Top
                                   , I(..), unI, K(..), unK)
 import Text.Printf                (printf)
 import Text.Read                  (Read(..))
-import Type.Reflection            (TypeRep, SomeTypeRep(..), someTypeRep, typeRep)
+import Type.Reflection            ((:~:)(..), (:~~:)(..),
+                                   TypeRep, SomeTypeRep(..),
+                                   eqTypeRep, someTypeRep, typeRep, typeRepKind, withTypeable)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Map.Monoidal.Strict as MMap
@@ -104,7 +114,7 @@ import qualified Data.Set        as Set'
 import qualified Data.Text       as T
 import qualified GHC.Types       as GHC
 import qualified Text.Builder    as TB
-import qualified Type.Reflection as R
+import qualified Type.Reflection as Refl
 
 
 liftSet :: Ord a => Set'.Set a -> Set.Set a
@@ -141,6 +151,12 @@ eitherLeft = \case
 
 eitherRight :: Either a b -> Maybe b
 eitherRight = eitherToMaybe
+
+maybeLeft :: (a -> Maybe b) -> a -> Either b a
+maybeLeft guard x =
+  case guard x of
+    Just e -> Left e
+    Nothing -> Right x
 
 fst4 :: (,,,) a b c d -> a
 fst4 (x, _, _, _) = x
@@ -212,10 +228,10 @@ rpop3 :: (a, b, c) -> (a, b)
 rpop3 (a, b, _) = (a, b)
 
 listTyCon, tuple2TyCon, tuple3TyCon, charTyCon :: GHC.TyCon
-listTyCon   = R.typeRepTyCon $ typeRep @[()]
-tuple2TyCon = R.typeRepTyCon $ typeRep @((),())
-tuple3TyCon = R.typeRepTyCon $ typeRep @((),(),())
-charTyCon   = R.typeRepTyCon $ typeRep @Char
+listTyCon   = Refl.typeRepTyCon $ typeRep @[()]
+tuple2TyCon = Refl.typeRepTyCon $ typeRep @((),())
+tuple3TyCon = Refl.typeRepTyCon $ typeRep @((),(),())
+charTyCon   = Refl.typeRepTyCon $ typeRep @Char
 
 stderr :: Tracer IO Text
 stderr = Tracer $ traceIOErr . T.unpack

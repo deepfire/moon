@@ -4,12 +4,22 @@ all: cli lift
 lift:
 	cd lift
 	bash -c "time cabal -j build all"
-	cabal exec   $@
+	cabal exec   $@ daemon
 cli vty:
 	cd lift
 	bash -c "time cabal -j build exe:$@"
 	cabal exec   $@ 2>stderr.log || true
 	cat stderr.log
+
+exec exe:
+	cabal run -- exe:lift exec run 'strlen "a"'
+
+debug:
+	cabal --ghc-options=-dshow-passes --ghc-options=-dppr-debug --ghc-options=-ddump-rn --ghc-options=-ddump-tc build 'exe:cli'
+
+kill:
+	pgrep -fal ghc
+	pkill -9 ghc
 
 cls:
 	bash -c "echo -en '\ec'"
@@ -17,6 +27,9 @@ clean:
 	cd lift
 	cabal new-clean
 
+
+bug git-bug:
+	git-bug termui
 
 ENTRY := lift/MainCLI.hs
 GRAPH := module-graph.pdf

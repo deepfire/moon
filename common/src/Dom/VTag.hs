@@ -1,6 +1,4 @@
-module Dom.VTag
-  (module Dom.VTag)
-where
+module Dom.VTag (module Dom.VTag) where
 
 import           Data.Functor                       ((<&>))
 import           Data.List.Extra                    (unsnoc)
@@ -8,6 +6,7 @@ import           Data.Maybe                         (fromMaybe, isJust)
 import           Data.Typeable                      (Proxy)
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Syntax
+
 
 --------------------------------------------------------------------------------
 -- * VTag
@@ -30,7 +29,7 @@ class ReifyVTag (a :: *) where
 --     - GEq, GCompare
 --     - Show
 --     - Serialise
---   - groundTypes :: TyDicts Ground
+--   - groundTable :: TyDicts Ground
 --
 --   This operates in two phases:
 --
@@ -245,7 +244,7 @@ defineGroundTypes qDec = emit <$> qDec
              ]
          ]
 
-     , SigD (mkName "groundTypes")
+     , SigD (mkName "groundTable")
          (AppT (ConT $ mkName "TyDicts") (ConT $ mkName "Ground"))
      , let step :: TagDecl -> Exp -> Exp
            step TagDecl{tdTy = Just ty, ..} acc =
@@ -256,7 +255,7 @@ defineGroundTypes qDec = emit <$> qDec
                   acc
            step _ acc = acc    -- skip the catch-all: no ground dict entry made
        in
-       ValD (VarP $ mkName "groundTypes")
+       ValD (VarP $ mkName "groundTable")
             (NormalB $ foldr step (VarE (qualRef "Dict" "empty")) decls) []
 
      -- mkSomeValue ::

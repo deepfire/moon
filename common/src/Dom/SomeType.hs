@@ -1,19 +1,15 @@
 module Dom.SomeType (module Dom.SomeType) where
 
-import           Codec.Serialise                    (Serialise(..))
-import           Control.DeepSeq                    (NFData(..))
-import           Data.Text                          (Text)
 import qualified Data.Text                        as Text
-import           Data.Typeable                      (Proxy(..), Typeable)
 import           GHC.Generics                       (Generic)
 import qualified Text.Builder                     as TB
-import           Type.Reflection
-import qualified Type.Reflection                  as R
+import qualified Type.Reflection                  as Refl
 
 import Basis
 
 import Dom.CTag
 import Dom.Name
+
 
 --------------------------------------------------------------------------------
 -- * SomeType: a serialisable form of 'Type'
@@ -21,7 +17,7 @@ import Dom.Name
 data SomeType =
   CSomeType
   { tName :: Name SomeType  -- ^ Extracted from the typerep
-  , tCon  :: TyCon          -- ^ Con
+  , tCon  :: Refl.TyCon     -- ^ Con
   , tRep  :: SomeTypeRep    -- ^ cind.Type
   } deriving (Eq, Generic, Ord)
 
@@ -43,7 +39,7 @@ proxySomeType ::
 proxySomeType _ pa =
   CSomeType
     (Name . showSomeTypeRepNoKind $ rep)
-    (typeRepTyCon $ typeRep @c)
+    (Refl.typeRepTyCon $ typeRep @c)
     rep
  where rep = someTypeRep pa
 
@@ -85,32 +81,32 @@ showTypeRepNoKind :: TypeRep a -> Text
 showTypeRepNoKind = TB.run . flip go False
  where
    go :: TypeRep b -> Bool -> TB.Builder
-   go (R.App (R.Con f) a1) _
+   go (Refl.App (Refl.Con f) a1) _
      | f == listTyCon =
        case a1 of
-         R.Con x | x == charTyCon
+         Refl.Con x | x == charTyCon
            -> TB.text "String"
          _ -> TB.char '[' <> go a1 False <> TB.char ']'
-   go (R.App (R.App (R.Con f) a1) a2) _
+   go (Refl.App (Refl.App (Refl.Con f) a1) a2) _
      | f == tuple2TyCon =
        TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ')'
-   go (R.App (R.App (R.App (R.Con f) a1) a2) a3) _
+   go (Refl.App (Refl.App (Refl.App (Refl.Con f) a1) a2) a3) _
      | f == tuple3TyCon =
        TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ',' <> TB.char ' ' <> go a3 False <> TB.char ')'
-   go (R.Con c) _ =
+   go (Refl.Con c) _ =
      TB.string $ show c
-   go a@R.App{} True =
+   go a@Refl.App{} True =
      TB.char '(' <> go a False <> TB.char ')'
-   go (R.App f x) False =
+   go (Refl.App f x) False =
      go f True <> TB.char ' ' <> go x True
-   go f@R.Fun{} True =
+   go f@Refl.Fun{} True =
      TB.char '(' <> go f False <> TB.char ')'
-   go (R.Fun x r) False =
+   go (Refl.Fun x r) False =
      go x True <> TB.text " -> " <> go r True
 
 showSomeType :: Bool -> SomeType -> Text
 showSomeType showDot CSomeType{tName=(showName -> n), tCon} =
-  case R.tyConName tCon of
+  case Refl.tyConName tCon of
     "'Point" -> if showDot then "• "<>n else n
     "'List"  -> "["<>n<>"]"
     "'Set"   -> "{"<>n<>"}"
@@ -118,26 +114,3 @@ showSomeType showDot CSomeType{tName=(showName -> n), tCon} =
     "'Dag"   -> "♆⇄ "<>n
     "'Graph" -> "☸ "<>n
     _        -> "??? "<>n
-
--- showTypeable _ TrType = showChar '*'
--- showTypeable _ rep
---   | isListTyCon tc, [ty] <- tys =
---     showChar '[' . shows ty . showChar ']'
---   | isTupleTyCon tc =
---     showChar '(' . showArgs (showChar ',') tys . showChar ')'
---   where (tc, tys) = splitApps rep
--- showTypeable _ TrTyCon {trTyCon = tycon, trKindVars = []}
---   = showTyCon tycon
--- showTypeable p TrTyCon {trTyCon = tycon, trKindVars = args}
---   = showParen (p > 9) $
---     showTyCon tycon .
---     showChar ' ' .
---     showArgs (showChar ' ') args
--- showTypeable p TrFun {trFunArg = x, trFunRes = r}
---   = showParen (p > 8) $
---     showsPrec 9 x . showString " -> " . showsPrec 8 r
--- showTypeable p TrApp {trAppFun = f, trAppArg = x}
---   = showParen (p > 9) $
---     showsPrec 8 f .
---     showChar ' ' .
---     showsPrec 10 x

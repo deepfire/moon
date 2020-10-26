@@ -41,6 +41,5 @@ import Searcher.Data.Class                          (SearcherData (text), Search
 
 import Pipe
 import Type
-import qualified Namespace as Namespace
 import Lift.Types
 

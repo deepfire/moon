@@ -26,3 +26,15 @@ import           Text.Parser.Token.Highlight        (Highlight(..))
 import           Text.Read                          (Lexeme(Ident), Read(..), lexP)
 
 type Parser a = ParsecT Text Text Identity a
+
+-- * From the old Ground.Parser:
+--
+-- import Control.Monad.Fail (MonadFail)
+-- import Data.IntervalMap.FingerTree (Interval(..))
+-- import Text.Parser.Combinators ((<?>), try)
+-- import Text.Parser.Char (alphaNum, char, letter, string)
+-- import Text.Parser.Token.Highlight
+--        (Highlight(..))
+-- import Text.Parser.Token
+--        (IdentifierStyle(..), TokenParsing
+--        , ident, token)

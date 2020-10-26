@@ -1,138 +1,97 @@
-{-# LANGUAGE DeriveAnyClass #-}
---{-# OPTIONS_GHC -Wno-unused-imports #-}
+--{-# OPTIONS_GHC -dshow-passes -dppr-debug -ddump-rn -ddump-tc #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
-import           Safe
-
-import           Codec.Serialise                          (Serialise)
-import           Control.Applicative
-import           Control.Concurrent
 import qualified Control.Concurrent.Async               as Async
-import           Control.Concurrent.Chan.Unagi
-                 (Element, InChan, OutChan)
+import           Control.Concurrent.Chan.Unagi            (InChan, OutChan)
 import qualified Control.Concurrent.Chan.Unagi          as Unagi
 import           Control.Monad
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Fix
 import           Control.Monad.NodeId
-import           Control.Tracer
-                 (Tracer(..), stdoutTracer, showTracing, traceWith)
-import qualified Control.Zipper                         as Zip
-import           Data.Dependent.Map (DMap, DSum)
-import qualified Data.Dependent.Map                     as DMap
-import           Data.Functor.Identity
-import           Data.Functor.Misc
-import           Data.GADT.Compare
-import qualified Data.IntervalMap.FingerTree            as IMap
-import qualified Data.List                              as List
-import           Data.Map (Map)
-import qualified Data.Set.Monad                         as Set
-import qualified Data.Set                               as SSet
-import qualified Data.Sequence                          as Seq
-import           Data.Text (Text)
-import           Data.Tuple.All
-import qualified Type.Reflection                        as R
+import           Control.Tracer                           (Tracer(..), traceWith)
+import           Data.Text                                (Text)
 
-import           Options.Applicative               hiding (switch)
-import           Options.Applicative.Common
 import           Reflex                            hiding (Request)
-import           Reflex.Class.Switchable
 import           Reflex.Network
 import           Reflex.Vty                        hiding (Request)
-import           Reflex.Vty.Widget.Layout
-import qualified Data.ByteString.Lazy                   as LBS
-import qualified Data.Char                              as C
-import qualified Data.Map                               as Map
 import qualified Data.Text                              as T
-import qualified Data.Text.Zipper                       as TZ
 import qualified Graphics.Vty                           as V
 import qualified Network.WebSockets                     as WS
-import qualified Reflex
--- import qualified Control.Concurrent.STM.TMVar           as TM
--- import qualified Control.Concurrent.STM.TBQueue         as TQ
 
-import           Control.Monad.Class.MonadSTM
-import           Control.Monad.Class.MonadThrow
-
-import           Network.TypedProtocol.Codec
-import           Network.TypedProtocol.Channel
-import           Network.TypedProtocol.Core
-import qualified Network.TypedProtocol.Core             as Net
-import qualified Network.TypedProtocol.Driver           as Net
 
 import           Reflex.Vty.Widget.Extra
-import qualified Reflex.Vty.Widget.Input.RichText       as Rich
+import           Reflex.Vty.Widget.Selector
+
 
 import Basis hiding (Dynamic)
-import Data.Text.Extra
-import qualified Data.Text.Zipper.Extra as TZ
+import Debug.Reflex
+-- import Debug.TraceErr
 
-import qualified Ground.Hask                      as Hask
+import Dom.CTag
+import Dom.Error
+import Dom.Expr
+import Dom.Ground
+import Dom.Located
+import Dom.Name
+import Dom.Pipe
+import Dom.Pipe.Ops
+import Dom.Pipe.SomePipe
+import Dom.Scope
+import Dom.Sig
+import Dom.SomeType
+import Dom.SomeValue
+import Dom.Space
+import Dom.Space.Pipe
+import Dom.Space.SomePipe
+import Dom.Value
+import Dom.VTag
+
+import Ground.Expr
+import Ground.Table
+
 import qualified Wire.Peer                        as Wire
 import qualified Wire.Protocol                    as Wire
 
-import qualified Shelly
-
 import Lift hiding (main)
 import Lift.Pipe
-import Pipe
-import Pipe.Space
-import qualified Namespace
 
-import Debug.Reflex
-import Debug.TraceErr
-import Text.Printf
+import Reflex.SomeValue
+
 
 
-fetchPSpace :: IO (PipeSpace (SomePipe ()))
-fetchPSpace =
-  WS.runClient "127.0.0.1" (cfWSPortOut defaultConfig) "/" $
-    \conn -> do
-      Wire.ReplyValue sv <- Wire.runClient stderr (channelFromWebsocket conn)
-                              (pure fetcherClient)
-      case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) sv
-           (\(VPoint space) -> space) of
-        Right x -> pure x
-        Left  e -> fail (unpack e)
- where
-   fetcherClient :: Wire.ClientState Text IO Wire.Reply
-   fetcherClient = Wire.ClientRequesting fetchPSpaceReq handleReply
-
-   fetchPSpaceReq = Wire.Run "space"
-
-   handleReply (Left rej) = do
-     putStrLn $ "error: " <> unpack rej
-     pure (Wire.ClientDone undefined)
-   handleReply (Right r@(Wire.ReplyValue rep)) = do
-     print rep
-     case withSomeValue TPoint (Proxy @(PipeSpace (SomePipe ()))) rep
-          (\(VPoint space) -> space) of
-       Right _ -> pure $ Wire.ClientDone r
-       Left  e -> fail (unpack e)
-
 main :: IO ()
 main = do
-  (exeSendW, exeSendR) :: (InChan Execution, OutChan Execution) <- Unagi.newChan
-  mainWidget $ reflexVtyApp (exeSendW, exeSendR)
+  sealGround
+  mainWidget reflexVtyApp
 
 reflexVtyApp :: forall t m.
-  (MonadIO (Performable m), ReflexVty t m, PerformEvent t m, PostBuild t m, TriggerEvent t m)
-  => (InChan Execution, OutChan Execution)
-  -> VtyWidget t m (Event t ())
-reflexVtyApp (exeSendW, exeSendR)
-  =   getPostBuild
-  >>= spawnHostChatterThread hostAddr stderr
-  >>= spaceInteraction postExec
+  (MonadIO (Performable m), ReflexVty t m, PerformEvent t m, PostBuild t m, TriggerEvent t m, MonadIO m)
+  => VtyWidget t m (Event t ())
+reflexVtyApp = do
+  init <- getPostBuild
+
+  (exeSendW, exeSendR) :: (InChan (Execution t), OutChan (Execution t)) <-
+    liftIO Unagi.newChan
+
+  someValuE <- spawnHostChatterThread hostAddr exeSendR exeSendW stderr init
+
+  spaceInteraction (postExec exeSendW) someValuE
  where
    hostAddr = WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
 
-   postExec :: Execution -> IO ()
-   postExec = Unagi.writeChan exeSendW
+   postExec :: InChan (Execution t) -> Execution t -> IO ()
+   postExec = Unagi.writeChan
 
-   spawnHostChatterThread :: WSAddr -> Tracer IO Text -> Event t () -> VtyWidget t m (Event t SomeValue)
-   spawnHostChatterThread WSAddr{..} logfd postBuild = performEventAsync $
+   spawnHostChatterThread ::
+        WSAddr
+     -> OutChan (Execution t)
+     -> InChan (Execution t)
+     -> Tracer IO Text
+     -> Event t ()
+     -> VtyWidget t m (Event t SomeValue)
+   spawnHostChatterThread WSAddr{..} exeSendR exeSendW logfd postBuild = performEventAsync $
      ffor postBuild $ \_ fire -> liftIO $ do
-       postExec (Execution "space" TPoint (Proxy @(PipeSpace (SomePipe ()))))
+       postExec exeSendW (mkExecution TPoint VPipeSpace "space" never)
        thd <- Async.async $ WS.runClient wsaHost wsaPort wsaPath $
          \(channelFromWebsocket -> webSockChan) ->
            void $ Wire.runClient logfd webSockChan $
@@ -146,18 +105,33 @@ data WSAddr
   , wsaPath :: String
   }
 
-data Execution where
-  Execution :: (ReifyCTag c, Typeable c, Typeable a, Ord a, Ground a) =>
-    { eText        :: Text
-    , eResultCTag  :: CTag c
-    , eResultRep   :: Proxy a
-    } -> Execution
+data Execution t =
+  forall c a.
+  (Typeable c, Typeable a, Show a) =>
+  Execution
+  { eExpr     :: Expr (Located (QName Pipe))
+  , eResCTag  :: CTag c
+  , eResVTag  :: VTag a
+  , eReply    :: Event t (Value c a)
+  }
 
-client :: forall rej m a
-          . (rej ~ Text, m ~ IO, a ~ Wire.Reply)
+mkExecution ::
+  (Typeable a, Typeable c, Show a)
+  => CTag c -> VTag a -> Expr (Located (QName Pipe))
+  -> Event t (Value c a) -> Execution t
+mkExecution ctag vtag expr e =
+  Execution
+  { eExpr    = expr
+  , eResCTag = ctag
+  , eResVTag = vtag
+  , eReply   = e
+  }
+
+client :: forall rej m a t
+          . (rej ~ Error, m ~ IO, a ~ Wire.Reply)
        => Tracer m Text
        -> (SomeValue -> IO ())
-       -> OutChan Execution
+       -> OutChan (Execution t)
        -> m (Wire.ClientState rej m a)
 client tr fire reqsChan =
   go
@@ -165,174 +139,246 @@ client tr fire reqsChan =
    go :: m (Wire.ClientState rej m a)
    go = do
      exe <- Unagi.readChan reqsChan
-     pure . Wire.ClientRequesting (Wire.Run $ eText exe)
+     pure . Wire.ClientRequesting (Wire.Run $ eExpr exe)
           . handleReply $ handler exe
 
-   handler :: Execution -> Wire.Reply -> IO ()
+   handler :: Execution t -> Wire.Reply -> IO ()
    handler Execution{..} (Wire.ReplyValue rep) =
-     case withSomeValue eResultCTag eResultRep rep stripValue of
+     case withSomeValue eResCTag eResVTag rep stripValue of
        Right{} -> fire rep
-       Left  e -> fail . unpack $
+       Left (Error e) -> fail . unpack $
          "Server response doesn't match Execution: " <> e
 
    handleReply
      :: (Wire.Reply -> IO ())
-     -> Either Text Wire.Reply
-     -> IO (Wire.ClientState Text IO Wire.Reply)
-   handleReply _      x@(Left  rej) = traceWith tr' x >>
-     (pure . Wire.ClientDone . error $ "error: " <> unpack rej)
-   handleReply handle x@(Right rep) =
-     traceWith tr' x >>
-     handle rep >>
-     go
+     -> Fallible Wire.Reply
+     -> IO (Wire.ClientState rej IO Wire.Reply)
+   handleReply _      x@(Left (Error e)) = traceWith tr' x >>               go
+   handleReply handle x@(Right rep)      = traceWith tr' x >> handle rep >> go
 
-   tr' :: Tracer m (Either rej a)
+   tr' :: Tracer m (Either Error a)
    tr' = Tracer $ traceWith tr . \case
-     Left  x -> "error: " <> x
+     Left (Error x) -> "error: " <> x
      Right x -> "reply: " <> pack (show x)
 
+data Assembly
+  = Runnable
+    -- XXX: this is a terrible conflation:
+    --      one does not describe the other!
+    { aExpr  :: !(Expr (Located (QName Pipe)))
+    , aPipe  :: !(SomePipe ())
+    }
+  | Incomplete
+    { aError :: !Error
+    }
+
+instance Show Assembly where
+  show = \case
+    Runnable{..} -> "#<ASM " <> show aExpr <> ">"
+    Incomplete e -> unpack $ showError e
+
 data Acceptable
-  = APipe  { unAPipe  :: !(SomePipe ()) }
-  | AScope { unAScope :: !(Namespace.PointScope (SomePipe ())) }
-  deriving (Eq)
+  = AAssembly { unAAssembly :: !Assembly }
+  | AScope { unAScope :: !(PointScope (SomePipe ())) }
 
 instance Show Acceptable where
   show = \case
-    APipe  x -> show x
-    AScope x -> "Scope " <> T.unpack (showName (Namespace.scopeName x))
+    AAssembly r -> show $ aExpr r
+    AScope x -> "Scope " <> T.unpack (showName (scopeName x))
 
 acceptablePresent :: Acceptable -> Text
 acceptablePresent = \case
-  APipe  x -> showQName . somePipeQName $ x
-  AScope x -> showName . Namespace.scopeName $ x
+  AAssembly r -> showQName . somePipeQName $ aPipe r
+  AScope x -> showName . scopeName $ x
 
 acceptableName :: Acceptable -> Name Pipe
 acceptableName = \case
-  APipe  x -> somePipeName x
-  AScope x -> coerceName . Namespace.scopeName $ x
+  AAssembly r -> somePipeName $ aPipe r
+  AScope x -> coerceName . scopeName $ x
 
 type Acceptance
-  = Either Text (Expr (QName Pipe), Expr (Located (CPipe ())))
+  = Fallible (Expr (QName Pipe), Expr (Located (PartPipe ())))
 
-acceptablePipe :: Acceptable -> Maybe (SomePipe ())
-acceptablePipe = \case
-  APipe x -> Just x
-  _       -> Nothing
+mkAssembly ::
+     (QName Pipe -> Maybe (SomePipe ()))
+  -> Acceptable
+  -> Fallible Assembly
+mkAssembly look = \case
+  AAssembly a -> enrich a <$> compile opsDesc look (aExpr a)
+  _ -> fall "Not a pipe"
+ where enrich a p = a { aPipe = p }
 
 spaceInteraction ::
      forall    t m
   .  (ReflexVty t m, PerformEvent t m, MonadIO (Performable m))
-  => (Execution -> IO ())
+  => (Execution t -> IO ())
   -> Event t SomeValue
   -> VtyWidget t m (Event t ())
 spaceInteraction postExe someValueRepliesE = mdo
-  let splitSVByKinds ::
-           Event t SomeValue
-        -> EventSelectorG t CTag SomeValueKinded
-      splitSVByKinds =
-        fanG . fmap (\(SomeValue tag svk) -> DMap.singleton tag svk)
-
-      splitSVKByTypes ::
-           forall (c :: Con). ReifyCTag c
-        => Event t (SomeValueKinded c)
-        -> EventSelectorG t (VTag' ()) (Value c)
-      splitSVKByTypes =
-        fanG . fmap (\(SomeValueKinded tag v) -> DMap.singleton tag v)
-
-      repliesES :: EventSelectorG t CTag SomeValueKinded
-      repliesES = splitSVByKinds someValueRepliesE
-
-      pointRepliesE :: Event t (SomeValueKinded Point)
-      pointRepliesE = selectG repliesES TPoint
-
-      pointRepliesES :: EventSelectorG t (VTag' ()) (Value Point)
-      pointRepliesES = splitSVKByTypes pointRepliesE
-
+  let pointRepliesE :: Event t (SomeValueKinded Point)
+      pointRepliesE = selectG (splitSVByKinds someValueRepliesE) TPoint
       spacePointRepliesE :: Event t (Value Point (PipeSpace (SomePipe ())))
-      spacePointRepliesE = selectG pointRepliesES VPipeSpace
+      spacePointRepliesE = selectG (splitSVKByTypes pointRepliesE) VPipeSpace
 
-  spaceD <- holdDyn mempty (stripValue <$> spacePointRepliesE)
+  spaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
+    holdDyn mempty (stripValue <$> spacePointRepliesE)
 
-  screenLayout@ScreenLayout{..} <- computeScreenLayout
+  runnableD :: Dynamic t (Fallible Assembly) <-
+    holdDyn (Left $ Error "- no pipe -") $
+    attach (current spaceD) (selrAccepted selr)
+    <&> uncurry (\spc acceptedAsm ->
+                   mkAssembly (lookupSomePipe spc) acceptedAsm)
 
-  assemblyD :: Reflex.Dynamic t (Maybe (SomePipe ())) <-
-    -- XXX:  what do we want to see here>?
-    --       not the individual components, like now..
-    holdDyn Nothing (Just <$> fmapMaybe acceptablePipe selrChoice)
-    >>= holdUniqDyn
+    -- accD <- holdDyn Nothing (Just <$> selrAccepted selr)
+    -- (\acc spc -> Just $ runnablePipe (lookupSomePipe spc) acc)
+    --   <$> accD
+    --   <*> spaceD
+    -- >>= holdUniqDyn
 
-  let constraintD :: Reflex.Dynamic t (Maybe SomeTypeRep)
-      constraintD = trdyn (\c-> mconcat ["choice: ", show c])
-                    assemblyD
-                    <&> fmap (somePipeOutSomeCTagType >>> snd)
-      pipesFromD :: Reflex.Dynamic t [SomePipe ()]
+  let constraintD :: Dynamic t (Maybe SomeTypeRep)
+      constraintD = -- trdyn (\c-> mconcat ["choice: ", show c])
+                    runnableD
+                    <&> (fmap (aPipe >>> somePipeOutSomeCTagType >>> snd)
+                         >>> either (const Nothing) Just)
+      pipesFromD :: Dynamic t [SomePipe ()]
       pipesFromD  = zipDynWith pipesFromCstr spaceD constraintD
                     <&> sortBy (compare `on` somePipeName)
 
-  sfp0 :: SelectorFrameParams t m Acceptable Acceptance <-
-          selToSelrFrameParams
-            <$> sample (current spaceD)
-            <*> (Width <$> sample (current $ _dynRegion_width slaySelector))
-            <*> pure (emptySelection $ Left mempty)
-  sfpD :: Reflex.Dynamic t (SelectorFrameParams t m Acceptable Acceptance) <- holdDyn sfp0 $
-            attachPromptlyDynWith rcons2
-              (zipDyn
-                spaceD
-                (Width <$> _dynRegion_width slaySelector))
-              selrSelection
-            <&> uncurry3 selToSelrFrameParams
+  -- Ok, so
+  -- One problem is that the selector is apparently only triggered
+  -- on what it considers significant event, like completion.  Whew!
+  --
+  -- Another problem is that runnableD fires even if we don't have
+  -- a complete pipe to run.
+  let showErr :: Error -> VtyWidget t m (Maybe (Execution t))
+      showErr = (>> pure Nothing) . boxStatic roundedBoxStyle . text . pure . showError
+  executionE :: Event t (Maybe (Execution t))
+    <- performEvent $
+       (updated (trdyn (("runnable: "<>) . show) runnableD) <&>) $
+       either (pure . const Nothing) $
+       \case
+         Runnable{aPipe, ..} -> do
+           case withSomeGroundPipe aPipe $
+                 \(Pipe{pDesc} :: Pipe Ground kas o ()) ->
+                   let ctag = descOutCTag pDesc :: CTag (TypesC o)
+                       vtag = descOutVTag pDesc :: VTag (TypesV o)
+                   in mkExecution ctag vtag aExpr $
+                        selectG (splitSVKByTypes $ selectG (splitSVByKinds someValueRepliesE) ctag) vtag of
+             Just exe -> do
+               traceM "Ground-pipe Runnable"
+               liftIO $ postExe exe
+               traceM "posted exe"
+               pure $ Just exe
+             Nothing -> do
+               traceM "non-Ground-pipe Runnable"
+               pure Nothing
+         _ -> pure Nothing
 
-  Selector{..} :: Selector t m Acceptable Acceptance <-
-    (selector slaySelector sfpD
-     :: VtyWidget t m (Selector t m Acceptable Acceptance))
+  (((selrFrameParamsD, selr), _), _) <-
+    splitV (pure (\x->x-8)) (pure $ join (,) True)
+           (splitH (pure $ flip div 2) (pure $ join (,) True)
+                   (selectorWidget spaceD)
+                   (presentWidget $ catMaybes executionE)) $
+           (feedbackWidget
+             selrFrameParamsD
+             pipesFromD
+             constraintD
+             runnableD)
 
-  let astExpE = selExt . sfpSelection <$> updated sfpD
-
-  visD <- holdDyn "" (either id (pack . show) . fmap snd <$> astExpE)
-  textPane yellow slayAssembly $ current visD
-
-  debugVisuals screenLayout astExpE constraintD pipesFromD
-
-  input <&>
-    fmapMaybe
-      (\case
-          V.EvKey (V.KChar 'c') [V.MCtrl]
-            -> Just () -- terminate
-          _ -> Nothing)
+  waitForTheEndOf input
 
  where
-   debugVisuals ::
-     ScreenLayout t ->
-     Event t Acceptance ->
-     Reflex.Dynamic t (Maybe SomeTypeRep) ->
-     Reflex.Dynamic t [SomePipe ()] ->
-     VtyWidget t m ()
-   debugVisuals ScreenLayout{..} selExt cstrD pipesD = do
-     redD <- hold "" $ either id (pack . show) . fmap fst <$> selExt
-     let showCstrEnv cstr pipes =
-           mconcat [ "pipes matching ", pack $ show cstr
-                   , ": ", pack $ show (length pipes)]
-     blueD  <- pure . current $ zipDynWith showCstrEnv cstrD pipesD
-     greenD <- hold "" (either id (pack . show) <$> selExt)
-     textPane red   slayErrors redD
-     showPane blue  slayDebug1 blueD
-     showPane green slayDebug2 greenD
+   presentWidget ::
+        Event t (Execution t)
+     -> VtyWidget t m (Dynamic t ())
+   presentWidget exE =
+     networkHold empty $ exE <&>
+       \Execution{..} -> boxStatic roundedBoxStyle $
+         case eResCTag of
+           TPoint -> do
+             rB <- hold "-- no results --" $
+                   eReply <&> pack . show . stripValue
+             text rB
+           -- TList -> do
+           --   rB <- hold [] $
+           --         eReply <&> pack . show . stripValue
+           --   selectionMenu
+           --     (fbFocused . focusButton sfpPresent)
+           --     0
+    where
+      empty :: VtyWidget t m ()
+      empty = boxStatic roundedBoxStyle (text $ pure "-- no results --")
 
-   showPane :: (CWidget t m, Show a)
-            => V.Attr -> DynRegion t -> Behavior t a -> VtyWidget t m ()
-   showPane attr region bx =
-     pane region (pure False) $
-     richTextStatic attr (T.pack . show <$> bx)
+   feedbackWidget ::
+        Dynamic t (SelectorFrameParams t m Acceptable Acceptance)
+     -> Dynamic t [SomePipe ()]
+     -> Dynamic t (Maybe SomeTypeRep)
+     -> Dynamic t (Fallible Assembly)
+     -> VtyWidget t m ()
+   feedbackWidget selrFrameParamsD pipesFromD constraintD runnableD = do
+     let astExpE = selExt . sfpSelection <$> updated selrFrameParamsD
 
-   textPane :: (CWidget t m)
-            => V.Attr -> DynRegion t -> Behavior t Text -> VtyWidget t m ()
-   textPane attr region bx =
-     pane region (pure False) $
-     richTextStatic attr bx
+     visD   <- holdDyn "" $ either showError (pack . show . snd) <$> astExpE
+     redD   <- hold ""    $ either showError (pack . show . fst) <$> astExpE
+     blueD  <- pure . current $ zipDynWith showCstrEnv constraintD pipesFromD
+     greenD <- hold ""    $ either showError (showT . aExpr)
+                              <$> updated runnableD
+
+     splitV (pure $ const 1) (pure $ join (,) True)
+       (richTextStatic yellow . current $
+         visD)
+      (splitV (pure $ const 3) (pure $ join (,) True)
+       (richTextStatic red $
+         redD)
+      (splitV (pure $ const 1) (pure $ join (,) True)
+       (richTextStatic blue $
+         blueD)
+      (richTextStatic green $
+         greenD)))
+
+     pure ()
+    where
+      showCstrEnv cstr pipes =
+        mconcat [ "pipes matching ", pack $ show cstr
+                , ": ", pack $ show (length pipes)
+                ]
+
+   selectorWidget ::
+        Dynamic t (PipeSpace (SomePipe ()))
+     -> VtyWidget t m (Dynamic t (SelectorFrameParams t m Acceptable Acceptance),
+                       Selector t m Acceptable Acceptance)
+   selectorWidget spaceD = mdo
+     width <- displayWidth
+
+     sfp0 :: SelectorFrameParams t m Acceptable Acceptance <-
+       selToSelrFrameParams
+         <$> sample (current spaceD)
+         <*> (Width <$> sample (current width))
+         <*> pure (emptySelection $ Left $ Error "")
+
+     sfpD :: Dynamic t (SelectorFrameParams t m Acceptable Acceptance) <- holdDyn sfp0 $
+       attachPromptlyDynWith rcons2
+         (zipDyn spaceD (Width <$> width))
+         (selrSelection selr)
+         <&> uncurry3 selToSelrFrameParams
+
+     selr :: Selector t m Acceptable Acceptance <-
+       (selector sfpD
+        :: VtyWidget t m (Selector t m Acceptable Acceptance))
+
+     pure (sfpD, selr)
 
    red, blue, green, yellow :: V.Attr
    (,,,) red blue green yellow =
     (,,,) (foregro V.red) (foregro V.blue) (foregro V.green) (foregro V.yellow)
+
+   waitForTheEndOf inp =
+    inp <&>
+      fmapMaybe
+        (\case
+            V.EvKey (V.KChar 'c') [V.MCtrl]
+              -> Just () -- terminate
+            _ -> Nothing)
 
 selToSelrFrameParams :: forall t m
    . (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
@@ -340,56 +386,62 @@ selToSelrFrameParams :: forall t m
   -> Width
   -> Selection
        Acceptable
-       (Either Text ( Expr (QName Pipe)
-                    , Expr (Located (CPipe ()))))
+       (Fallible ( Expr (QName Pipe)
+                 , Expr (Located (PartPipe ()))))
   -> SelectorFrameParams t m Acceptable Acceptance
 selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} = either errFrameParams id $ do
 
   let focusChar = if T.length selInput >= coln && coln > 0 then T.index selInput (coln - 1) else 'Ø'
-      look = lookupPipe spc
+      look = lookupSomePipe spc
 
-  ast :: Expr (Located (QName Pipe)) <- parse selInput
-  cpipe <- analyse look ast
+  ast :: Expr (Located (QName Pipe)) <- parseGroundExpr selInput
+  partPipe <- analyse look ast
 
   let -- determine the completable
       indexAst = indexLocated ast
-      indexCPipe = indexLocated cpipe
+      indexPartPipe = indexLocated partPipe
       inputName = fromMaybe mempty $ lookupLocated coln indexAst
-      inputCPipe = lookupLocated coln indexCPipe
+      inputPartPipe = lookupLocated coln indexPartPipe
       -- componentise into scope name and tail
       (scopeName, Name rawName) = unconsQName inputName &
                                   fromMaybe (mempty, Name "")
       -- determine the current scope
-      mScope = Namespace.lookupSpaceScope (coerceQName scopeName) (psSpace spc)
+      mScope = lookupSpaceScope (coerceQName scopeName) (psSpace spc)
       -- determine immediate children of named scope, matching the stem restriction
-      subScNames = childScopeQNamesAt (coerceQName scopeName) spc
+      subScNames = childPipeScopeQNamesAt (coerceQName scopeName) spc
                    & Prelude.filter (T.isInfixOf rawName . showName . lastQName)
       -- determine pipes within named scope
-      scPipes = Namespace.selectFromScope
+      scPipes = selectFromScope
                   (\k _ -> rawName `T.isInfixOf` showName k)
                   <$> mScope
                 & fromMaybe mempty
-                & restrictByCPipe inputCPipe
-      subScopes = catMaybes $ flip scopeAt spc <$> subScNames
+                & restrictByPartPipe inputPartPipe
+      subScopes = catMaybes $ flip pipeScopeAt spc <$> subScNames
       --
-      sels = (APipe <$> scPipes) <> (AScope <$> subScopes)
+      sels = (AAssembly . Runnable ast <$> scPipes)
+             -- So, here we're ignoring the _selected_ pipe,
+             -- only collecting the _accepted_ AST.
+             --
+             -- Important distinction.
+             <> (AScope <$> subScopes)
       --
       compR = compile opsDesc look ast
 
-  pure $ computeFrameParams (locVal <$> ast) cpipe sels
+  pure $ computeFrameParams (locVal <$> ast) partPipe sels
 
  where
    -- | Given a set of available pipes,
    --   restrict that,
    --   by matching them against the pipe signature provided by type checker
    --   for the current input context (position inside partially resolved AST).
-   restrictByCPipe :: Maybe (CPipe ()) -> [SomePipe ()] -> [SomePipe ()]
-   restrictByCPipe Nothing  xs = xs
-   restrictByCPipe (Just p) xs = Prelude.filter (matchMSig $ cpArgs p) xs
+   restrictByPartPipe :: Maybe (PartPipe ()) -> [SomePipe ()] -> [SomePipe ()]
+   restrictByPartPipe Nothing  xs = xs
+   restrictByPartPipe (Just p) xs = Prelude.filter (matchMSig $ cpArgs p) xs
     where
       matchMSig :: MSig -> SomePipe () -> Bool
       matchMSig sig sp =
-        traceErr ("verdict on " <> spname <> "::" <> show spsig <> " vs " <> show msig <> ": " <> show r) r
+        -- traceErr ("verdict on " <> spname <> "::" <> show spsig <> " vs " <> show msig <> ": " <> show r)
+        r
        where
          msig = sOut sig   : sArgs sig
          psig = sOut spsig : sArgs spsig
@@ -401,7 +453,7 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
          go = foldl (\acc x -> acc && uncurry tyMatch x) True
          spname = unpack $ showName $ somePipeName sp
          tyMatch :: Maybe SomeType -> I SomeType -> Bool
-         tyMatch Nothing   _    = traceErr ("match " <> spname <> ": *")
+         tyMatch Nothing   _    = --traceErr ("match " <> spname <> ": *")
                                   True
          tyMatch (Just x) (I y) =
            traceErr ("match " <> spname <> ":" <> show x <> "|" <> show y <>
@@ -410,7 +462,7 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
 
    computeFrameParams
      :: Expr (QName Pipe)
-     -> Expr (Located (CPipe ()))
+     -> Expr (Located (PartPipe ()))
      -> [Acceptable]
      -> SelectorFrameParams t m Acceptable Acceptance
    computeFrameParams ast expr@(indexLocated -> index) sels =
@@ -445,7 +497,7 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
      -> Acceptable
      -> Behavior t Bool
      -> VtyWidget t m Acceptable
-   somePipeSelectable (Width nameW, Width sigW) x@(APipe sp) focusB =
+   somePipeSelectable (Width nameW, Width sigW) x@(AAssembly (Runnable exp sp)) focusB =
     row $ withSomePipe sp $ \(Pipe pd _) -> do
      fixed (pure nameW) $
        richText (textFocusStyle (foregro V.green) focusB)
@@ -464,13 +516,13 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
     row $ do
      fixed (pure nameW) $
        richText (textFocusStyle (foregro V.green) focusB)
-         (pure $ T.justifyRight nameW ' ' . showName $ Namespace.scopeName scope)
+         (pure $ T.justifyRight nameW ' ' . showName $ scopeName scope)
      fixed 4 $
        richText (textFocusStyle V.defAttr focusB)
          (pure " :: ")
      fixed (pure sigW) $
        richText (textFocusStyle (foregro V.blue) focusB)
-         (pure . pack . show $ Namespace.scopeSize scope)
+         (pure . pack . show $ scopeSize scope)
      pure x
 
    textFocusStyle attr focB =
@@ -490,37 +542,6 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
      >>> (\nameWi -> ( Width nameWi
                      , Width $ total - reserved - nameWi))
 
--- * Boring
---
-data ScreenLayout t =
-  ScreenLayout
-  { slayScreenWi      :: !(Reflex.Dynamic t Width)
-  , slayScreenHe      :: !(Reflex.Dynamic t Height)
-  , slaySelector      :: !(DynRegion t)
-  , slayAssembly      :: !(DynRegion t)
-  , slayErrors        :: !(DynRegion t)
-  , slayDebug1        :: !(DynRegion t)
-  , slayDebug2        :: !(DynRegion t)
-  }
-
-computeScreenLayout ::
-  HasDisplaySize t m
-  => m (ScreenLayout t)
-computeScreenLayout = do
-  wi <- displayWidth
-  he <- displayHeight
-
-  pure $
-    ScreenLayout
-    { slayScreenWi    = Width <$> wi
-    , slayScreenHe    = Height <$> he
-    , slaySelector    = DynRegion 0  0       wi (he - 8)
-    , slayAssembly    = DynRegion 0 (he - 7) wi  1
-    , slayErrors      = DynRegion 0 (he - 5) wi  3
-    , slayDebug1      = DynRegion 0 (he - 2) wi  1
-    , slayDebug2      = DynRegion 0 (he - 1) wi  1
-    }
-
 -- * UI
 --
  -- where
@@ -531,7 +552,7 @@ computeScreenLayout = do
    --     V.EvKey V.KEsc [] -> Just Nothing
    --     _ -> Nothing
 
-   -- look :: PipeSpace (SomePipe ()) -> QName Pipe -> Either Text (SomePipe ())
+   -- look :: PipeSpace (SomePipe ()) -> QName Pipe -> Fallible (SomePipe ())
    -- look space name = lookupSpace name space &
    --   maybeToEither ("No such pipe: " <> showQName name)
    -- loop :: Cons.InputT IO ()

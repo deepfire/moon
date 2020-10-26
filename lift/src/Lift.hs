@@ -23,6 +23,7 @@ import           GHC.Types                          (Symbol)
 import           GHC.TypeLits
 import qualified GHC.TypeLits                     as Ty
 import           Options.Applicative
+import           Options.Applicative.Common
 import qualified Type.Reflection                  as R
 
 -- import qualified Control.Concurrent.Chan.Unagi    as Unagi
@@ -49,18 +50,39 @@ import qualified Network.TypedProtocol.Channel    as Net
 import           Generics.SOP.Some
 import qualified Generics.SOP.Some                as SOP
 
-
 import Basis
-import Ground.Hask
-import qualified Ground.Hask as Hask
+
+import Dom.CTag
+import Dom.Error
+import Dom.Expr
+import Dom.Ground.Hask
+import qualified Dom.Ground.Hask as Hask
+import Dom.Located
+import Dom.Name
+import Dom.Pipe
+import Dom.Pipe.Ops
+import Dom.Pipe.SomePipe
+import Dom.Sig
+import Dom.SomeValue
+import Dom.Space.SomePipe
+import Dom.Value
+
+import Ground.Expr
+import Ground.Table
+
 import Lift.Pipe
-import Pipe
+
 import Wire.Peer
 import Wire.Protocol
 
 
+
+-- * Actually do things.
+--
 main :: IO ()
 main = do
+  sealGround
+  cmd <- execParser opts
   let preConfig@Config{..} = defaultConfig
 
   libDir <- case cfGhcLibDir of
@@ -70,7 +92,27 @@ main = do
   let config :: Config Final = preConfig
         { cfGhcLibDir  = libDir }
 
-  wsServer =<< finalise config
+  config' <- finalise config
+
+  case cmd of
+    Daemon -> wsServer config'
+    Exec rq -> handleRequest config' rq >>= print
+
+ where
+   opts = info (cli <**> helper)
+     ( fullDesc
+    <> progDesc "A simple lift"
+    <> header "lift - execute requests, either on CLI or over WebSockets" )
+   cli :: Parser Cmd
+   cli = subparser $ mconcat
+     [ cmd "daemon" $ pure Daemon
+     , cmd "exec" $ Exec <$> parseRequest
+     ]
+   cmd name p = command name $ info (p <**> helper) mempty
+
+data Cmd
+  = Daemon
+  | Exec Request
 
 
 data ConfigPhase
@@ -139,10 +181,10 @@ wsServer env@Env{envConfig=Config{..},..} = forever $
         runServer tracer (haskellServer env) $ channelFromWebsocket conn
 
 haskellServer
-  :: forall rej m a
-  . (rej ~ Text, m ~ IO, a ~ Reply)
+  :: forall m a
+  . (m ~ IO, a ~ Reply)
   => Env
-  -> Server rej m a
+  -> Server Error m a
 haskellServer env@Env{..} =
     server
   where
@@ -154,41 +196,36 @@ haskellServer env@Env{..} =
     , processDone = ()
     }
 
-handleRequest :: Env -> Request -> IO (Either Text Reply)
+handleRequest :: Env -> Request -> IO (Fallible Reply)
 handleRequest Env{..} x = case x of
   Compile name pipe ->
     Lift.compile name pipe
     <&> (ReplyValue . SomeValue TPoint . SomeValueKinded VSig . VPoint <$>)
-  Run text ->
-    case Pipe.parse text of
-      Left e -> pure . Left $ "Parse: " <> e
-      Right nameTree -> do
-        putStrLn $ unpack $ Data.Text.unlines
-          ["Pipe:", pack $ show (locVal <$> nameTree) ]
-        spc :: SomePipeSpace Dynamic <- atomically getState
-        case Pipe.compile opsFull (lookupPipe spc) nameTree of
-          Left e -> pure . Left $ "Compilation: " <> e
-          Right (runnable :: SomePipe Dynamic) -> do
-            res :: Either Text SomeValue <- runPipe runnable
-            case res of
-              Left e -> pure . Left $ "Runtime: " <> e
-              Right x -> pure . Right . ReplyValue $ x
-  -- req -> pure . Left . pack $ "Unhandled request: " <> show req
+  Run nameTree -> do
+    putStrLn $ unpack $ Data.Text.unlines
+      ["Pipe:", pack $ show (locVal <$> nameTree) ]
+    spc :: SomePipeSpace Dynamic <- atomically getState
+    case Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) nameTree of
+      Left (Error e) -> pure $ fallDesc "Compilation" e
+      Right (runnable :: SomePipe Dynamic) -> do
+        putStrLn "ok, runnable"
+        res :: Fallible SomeValue <- runSomePipe runnable
+        putStrLn "ok, ran (?)"
+        case res of
+          Left (Error e) -> pure $ fallDesc "Runtime" e
+          Right x -> pure . Right . ReplyValue $ x
 
-compile :: QName Pipe -> Text -> Result ISig
-compile newname text =
-  case Pipe.parse text of
-    Left e -> pure . Left $ "Parse: " <> e
-    Right nameTree -> do
+compile :: QName Pipe -> Expr (Located (QName Pipe)) -> Result ISig
+compile newname e = do
       putStrLn $ unpack $ Data.Text.unlines
-        ["Pipe:", pack $ show (locVal <$> nameTree) ]
+        ["Pipe:", pack $ show (locVal <$> e) ]
       atomically $ do
         spc <- getState
-        let old = lookupPipe spc newname
-            res = Pipe.compile opsFull (lookupPipe spc) nameTree
+        let old = lookupSomePipe spc newname
+            res = Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) e
         case (old, res) of
-          (Just _,  _)    -> pure . Left $ "Already exists: " <> pack (show newname)
-          (_,  Left e)    -> pure . Left $ e
+          (Just _,  _)    -> fallM $ "Already exists: " <> pack (show newname)
+          (_,  Left e)    -> pure $ Left e
           (_, Right pipe) -> do
             addPipe newname pipe
             pure . Right . somePipeSig $ pipe

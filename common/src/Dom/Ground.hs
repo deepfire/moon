@@ -95,14 +95,14 @@ instance Read (TyDict Ground) where
 --------------------------------------------------------------------------------
 -- * Ground table (TyDicts Ground): private
 --
-{-# NOINLINE _groundTypesRef #-}
-_groundTypesRef :: IO.IORef (TyDicts Ground)
-_groundTypesRef = IO.unsafePerformIO . IO.newIORef $
+{-# NOINLINE _groundTableRef #-}
+_groundTableRef :: IO.IORef (TyDicts Ground)
+_groundTableRef = IO.unsafePerformIO . IO.newIORef $
   error "Ground table not yet initialised."
 
-{-# NOINLINE _groundTypes #-}
-_groundTypes :: TyDicts Ground
-_groundTypes = IO.unsafePerformIO $ IO.readIORef _groundTypesRef
+{-# NOINLINE _groundTable #-}
+_groundTable :: TyDicts Ground
+_groundTable = IO.unsafePerformIO $ IO.readIORef _groundTableRef
 
 --------------------------------------------------------------------------------
 -- * Ground table (TyDicts Ground): public
@@ -124,38 +124,34 @@ tdrTyDict (_,_,_,x) = x
 
 {-# NOINLINE setupGroundTypes #-}
 setupGroundTypes :: TyDicts Ground -> IO ()
-setupGroundTypes = IO.writeIORef _groundTypesRef
+setupGroundTypes = IO.writeIORef _groundTableRef
 
 {-# NOINLINE withRepGround #-}
 withRepGround ::
   SomeTypeRep -> (Int -> Text -> SomeTypeRep -> TyDict Ground -> b) -> Maybe b
-withRepGround k f = uncurry4 f <$> lookupByRep _groundTypes k
+withRepGround k f = uncurry4 f <$> lookupByRep _groundTable k
 
 {-# NOINLINE withNameGround #-}
 withNameGround ::
   Text -> (Int -> Text -> SomeTypeRep -> TyDict Ground -> b) -> Maybe b
-withNameGround k f = uncurry4 f <$> lookupByName _groundTypes k
+withNameGround k f = uncurry4 f <$> lookupByName _groundTable k
 
 {-# NOINLINE lookupGroundByIx #-}
 lookupGroundByIx   :: Int         -> Maybe (TyDictsRecord Ground)
-lookupGroundByIx   = lookupByIx   _groundTypes
+lookupGroundByIx   = lookupByIx   _groundTable
 
 {-# NOINLINE lookupGroundByName #-}
 lookupGroundByName :: Text        -> Maybe (TyDictsRecord Ground)
-lookupGroundByName = lookupByName _groundTypes
+lookupGroundByName = lookupByName _groundTable
 
 {-# NOINLINE lookupGroundByRep #-}
 lookupGroundByRep  :: SomeTypeRep -> Maybe (TyDictsRecord Ground)
-lookupGroundByRep  = lookupByRep  _groundTypes
-
--- {-# NOINLINE lookupGroundNameRep #-}
--- lookupGroundNameRep :: Name VTag' -> Maybe SomeTypeRep
--- lookupGroundNameRep (Name n) = lookupRepByName _groundTypes n
+lookupGroundByRep  = lookupByRep  _groundTable
 
 {-# NOINLINE groundTypeReps #-}
 groundTypeReps :: [SomeTypeRep]
-groundTypeReps = tyDictReps _groundTypes
+groundTypeReps = tyDictReps _groundTable
 
 {-# NOINLINE groundTypeNames #-}
 groundTypeNames :: [Text]
-groundTypeNames = tyDictNames _groundTypes
+groundTypeNames = tyDictNames _groundTable
