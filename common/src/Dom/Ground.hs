@@ -29,9 +29,10 @@ import Dom.VTag
 -- * Ground context
 --
 type     GroundCtx a =
-  ( Eq             a   -- for Ord instance of SomeValueKinded
-  , Ord            a   -- for Set encoding
-  , Parse          a
+  ( -- Eq             a   -- for Ord instance of SomeValueKinded
+  -- , Ord            a   -- for Set encoding
+  -- , 
+    Parse          a
   , Read           a
   , ReifyVTag      a
   , Serialise      a

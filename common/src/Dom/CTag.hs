@@ -185,7 +185,7 @@ instance Serialise SomeCTag where
 type family Repr (k :: Con) (a :: *) :: * where
   Repr Point a =            a
   Repr List  a =         [] a
-  Repr 'Set  a =      S.Set a
+  Repr 'Set  a =         [] a
   Repr Tree  a =    G.Graph a
   Repr Dag   a =    G.Graph a
   Repr Graph a =    G.Graph a

@@ -63,7 +63,7 @@ readSomeValue ctag (TyDict (a :: Proxy a)) =
       pure $ mkSomeGroundValue ctag (reifyVTag $ Proxy @a) v
     TSet -> do
       v :: [a] <- readListPrec
-      pure $ mkSomeGroundValue ctag (reifyVTag $ Proxy @a) (Set.fromList v)
+      pure $ mkSomeGroundValue ctag (reifyVTag $ Proxy @a) v
     _ -> trace (printf "No parser for structures 0utside of Point/List/Set.")
                (fail   "No parser for structures outs1de of Point/List/Set.")
 
@@ -166,7 +166,7 @@ parseSomeValue extraParses =
        TSet -> do
          v :: [a] <- commaSep parser
          let vtag = reifyVTag $ Proxy @a
-         pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag (Set.fromList v)
+         pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag v
          -- pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) (Set.fromList v)
        _ -> trace (printf "No parser for structures outside of Point/List/Set.")
                   (fail "")
