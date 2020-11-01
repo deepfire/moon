@@ -118,7 +118,7 @@ selector sfpD = mdo
       menuWidget ::
         [(Index, a)] -> VtyWidget t m (Dynamic t (Maybe (Index, a)))
       menuWidget xs =
-        selectionMenu
+        selectionMenuStatic
           (\(ix, a) ->
              fmap (fmap (ix,) . fbFocused) . focusButton sfpPresent $ a)
           selIndex
@@ -165,6 +165,8 @@ completingInput completep completion prompt text0 (Column col0) = do
      -> V.Event
      -> TextZipper -> (Maybe Char, TextZipper)
    interactorEventHandler TextInputConfig{..} pageSize mText = \case
+     -- Ignore Tab chars, if they leak through.
+     V.EvKey (V.KChar '\t') [] -> (Nothing,)
      -- Special characters
      V.EvKey (V.KChar c) [] ->
        \z -> if completep (lookCharLeft z) c
@@ -198,14 +200,14 @@ completingInput completep completion prompt text0 (Column col0) = do
        V.EvKey V.KPageDown [] -> pageDown pageSize
        _ -> id
 
-selectionMenu ::
+selectionMenuStatic ::
   forall t m a
   . (MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m, Reflex t)
   => (a -> VtyWidget t m (Event t a))
   -> Index
   -> [a]
   -> VtyWidget t m (Dynamic t (Maybe a))
-selectionMenu displayMenuRow (Index selIx) =
+selectionMenuStatic displayMenuRow (Index selIx) =
   (id &&& displayPipeline)
   >>> \(xs, evW) ->
         evW >>= holdDyn (xs `atMay` selIx)
@@ -225,6 +227,39 @@ selectionMenu displayMenuRow (Index selIx) =
      -- Merge lists of events:  XXX: efficiency?
      >>> fmap (fmap Just . leftmost)
 
+selectionMenu ::
+  forall t m a
+  . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m, Reflex t)
+  => (a -> VtyWidget t m (Event t a))
+  -> Index
+  -> Event t [a]
+  -> VtyWidget t m (Dynamic t (Maybe a))
+selectionMenu displayMenuRow (Index selIx) xsE = do
+  menuE :: Event t (Maybe a) <- fmap switchDyn $ networkHold
+    -- start with an empty list on display:
+    (xsMenuW [])
+    -- then on each list update
+    . (xsE <&>) $
+        (\xs -> do
+            xsMenuW xs
+            -- sel :: Event t (Maybe a) <- xsMenuW xs
+            -- holdDyn (xs `atMay` selIx) sel
+        )
+  holdDyn Nothing menuE
+ where
+   xsMenuW :: [a] -> VtyWidget t m (Event t (Maybe a))
+   xsMenuW
+     -- Display rows as a sequence of widgets,
+     =   traverse (fixed 1 . displayMenuRow)
+     -- Wrap in an arrow-navigable layout,
+     >>> (\child -> do
+             nav <- upDownNavigation
+             runLayout (pure Orientation_Column) selIx nav child)
+     -- -- Constrain in a pane
+     -- >>> pane region (constDyn True)
+     -- Merge lists of events:  XXX: efficiency?
+     >>> fmap (fmap Just . leftmost)
+
 instance (Show a, Show b) => Show (Selection a b) where
   show Selection{..} = unpack $ mconcat
     [ "#<Sel "
@@ -234,6 +269,7 @@ instance (Show a, Show b) => Show (Selection a b) where
     , "e:", pack $ show selExt
     , ">"
     ]
+
 
 emptySelection :: b -> Selection a b
 emptySelection = Selection Nothing (Index 0) (Column 0) Nothing ""

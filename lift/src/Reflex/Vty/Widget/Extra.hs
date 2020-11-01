@@ -103,12 +103,33 @@ data FocusButton t a =
   , fbFocused :: !(Event t a)
   }
 
-focusButton
-  :: (Reflex t, MonadHold t m, MonadFix m, MonadNodeId m)
+richTextFocusConfigDef :: Reflex t => Behavior t Bool -> RichTextConfig t
+richTextFocusConfigDef = richTextFocusConfig V.defAttr
+
+richTextFocusConfig :: Reflex t => V.Attr -> Behavior t Bool -> RichTextConfig t
+richTextFocusConfig attr focB =
+  RichTextConfig $
+    selecting (flip V.withBackColor $ V.rgbColor @Integer 1 1 1)
+              (pure attr)
+              focB
+
+buttonPresentText ::
+     (Monad m, Reflex t)
+  => (Behavior t Bool -> RichTextConfig t)
+  -> (a -> Text)
+  -> a
+  -> Behavior t Bool
+  -> VtyWidget t m a
+buttonPresentText focusStyle showT x focusB =
+  richText (focusStyle focusB) (pure $ showT x)
+  >> pure x
+
+focusButton ::
+     (Reflex t, MonadHold t m, MonadFix m, MonadNodeId m)
   => (a -> Behavior t Bool -> VtyWidget t m a)
   -> a
   -> VtyWidget t m (FocusButton t a)
-focusButton child a = do
+focusButton renderChild a = do
   f <- focus
   focused <- scanDynMaybe
              (const (False, a))
@@ -116,7 +137,7 @@ focusButton child a = do
                  (True, (False, _)) -> Just (True, a)
                  _ -> Nothing)
              f
-  void $ child a (current f)
+  void $ renderChild a (current f)
   m <- mouseUp
   k <- key V.KEnter
   pure FocusButton

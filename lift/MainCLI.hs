@@ -91,7 +91,7 @@ reflexVtyApp = do
      -> VtyWidget t m (Event t SomeValue)
    spawnHostChatterThread WSAddr{..} exeSendR exeSendW logfd postBuild = performEventAsync $
      ffor postBuild $ \_ fire -> liftIO $ do
-       postExec exeSendW (mkExecution TPoint VPipeSpace "space" never)
+       postExec exeSendW (Execution TPoint VPipeSpace "space" "space" never)
        thd <- Async.async $ WS.runClient wsaHost wsaPort wsaPath $
          \(channelFromWebsocket -> webSockChan) ->
            void $ Wire.runClient logfd webSockChan $
@@ -109,22 +109,11 @@ data Execution t =
   forall c a.
   (Typeable c, Typeable a, Show a) =>
   Execution
-  { eExpr     :: Expr (Located (QName Pipe))
-  , eResCTag  :: CTag c
+  { eResCTag  :: CTag c
   , eResVTag  :: VTag a
+  , eText     :: Text
+  , eExpr     :: Expr (Located (QName Pipe))
   , eReply    :: Event t (Value c a)
-  }
-
-mkExecution ::
-  (Typeable a, Typeable c, Show a)
-  => CTag c -> VTag a -> Expr (Located (QName Pipe))
-  -> Event t (Value c a) -> Execution t
-mkExecution ctag vtag expr e =
-  Execution
-  { eExpr    = expr
-  , eResCTag = ctag
-  , eResVTag = vtag
-  , eReply   = e
   }
 
 client :: forall rej m a t
@@ -163,9 +152,10 @@ client tr fire reqsChan =
 
 data Assembly
   = Runnable
+    { aText  :: !Text
+    , aExpr  :: !(Expr (Located (QName Pipe)))
     -- XXX: this is a terrible conflation:
     --      one does not describe the other!
-    { aExpr  :: !(Expr (Located (QName Pipe)))
     , aPipe  :: !(SomePipe ())
     }
   | Incomplete
@@ -251,18 +241,21 @@ spaceInteraction postExe someValueRepliesE = mdo
   -- Another problem is that runnableD fires even if we don't have
   -- a complete pipe to run.
   let showErr :: Error -> VtyWidget t m (Maybe (Execution t))
-      showErr = (>> pure Nothing) . boxStatic roundedBoxStyle . text . pure . showError
-  executionE :: Event t (Maybe (Execution t))
-    <- performEvent $
+      showErr =
+        (>> pure Nothing)
+        . boxTitle (pure roundedBoxStyle) "Error"
+        . text . pure . showError
+  executionE :: Event t (Execution t)
+    <- fmap catMaybes . performEvent $
        (updated (trdyn (("runnable: "<>) . show) runnableD) <&>) $
        either (pure . const Nothing) $
        \case
-         Runnable{aPipe, ..} -> do
+         Runnable{..} -> do
            case withSomeGroundPipe aPipe $
                  \(Pipe{pDesc} :: Pipe Ground kas o ()) ->
                    let ctag = descOutCTag pDesc :: CTag (TypesC o)
                        vtag = descOutVTag pDesc :: VTag (TypesV o)
-                   in mkExecution ctag vtag aExpr $
+                   in Execution ctag vtag aText aExpr $
                         selectG (splitSVKByTypes $ selectG (splitSVByKinds someValueRepliesE) ctag) vtag of
              Just exe -> do
                traceM "Ground-pipe Runnable"
@@ -274,11 +267,14 @@ spaceInteraction postExe someValueRepliesE = mdo
                pure Nothing
          _ -> pure Nothing
 
-  (((selrFrameParamsD, selr), _), _) <-
+  ((((selrFrameParamsD, selr), _), _), _) <-
     splitV (pure (\x->x-8)) (pure $ join (,) True)
            (splitH (pure $ flip div 2) (pure $ join (,) True)
-                   (selectorWidget spaceD)
-                   (presentWidget $ catMaybes executionE)) $
+                   (splitV (pure (\x->x-2)) (pure $ join (,) True)
+                      (selectorWidget spaceD)
+                      (blank
+                       >> summaryWidget executionE))
+                   (presentWidget executionE)) $
            (feedbackWidget
              selrFrameParamsD
              pipesFromD
@@ -288,26 +284,84 @@ spaceInteraction postExe someValueRepliesE = mdo
   waitForTheEndOf input
 
  where
+   summaryWidget ::
+        Event t (Execution t)
+     -> VtyWidget t m (Dynamic t ())
+   summaryWidget exE =
+     networkHold (res $ presentText "-- nothing was executed yet --") $
+       exE <&> \e -> res $
+           withExecutionReply
+             (pres . fmap (("• " <>) . showT . stripValue))
+             (pres . fmap (("list of " <>) . showT . length . stripValue))
+             (pres . fmap (("set of " <>) . showT . length . stripValue))
+             (const $ presentText "tree")
+             (const $ presentText "dag")
+             (const $ presentText "graph")
+             e
+    where
+      res x = row $ do
+        width <- displayWidth
+        fixed (pure 8) $
+          richTextStatic blue (pure "Result: ")
+        fixed (width - 8) x
+      pres = presentTextE "-- no data yet --"
+
    presentWidget ::
         Event t (Execution t)
      -> VtyWidget t m (Dynamic t ())
    presentWidget exE =
-     networkHold empty $ exE <&>
-       \Execution{..} -> boxStatic roundedBoxStyle $
-         case eResCTag of
-           TPoint -> do
-             rB <- hold "-- no results --" $
-                   eReply <&> pack . show . stripValue
-             text rB
-           -- TList -> do
-           --   rB <- hold [] $
-           --         eReply <&> pack . show . stripValue
-           --   selectionMenu
-           --     (fbFocused . focusButton sfpPresent)
-           --     0
-    where
-      empty :: VtyWidget t m ()
-      empty = boxStatic roundedBoxStyle (text $ pure "-- no results --")
+     networkHold
+       (boxStatic roundedBoxStyle $ presentText
+        "You are standing at the end of a road before a small brick building.") $
+       exE <&> \e@Execution{..} ->
+         boxTitle (pure roundedBoxStyle) (" "<>eText<>" ") $
+           withExecutionReply
+             presentPoint
+             (presentList . fmap stripValue)
+             (presentList . fmap stripValue)
+             (const $ presentText "trees not presentable yet")
+             (const $ presentText "DAGs not presentable yet")
+             (const $ presentText "graphs not presentable yet")
+             e
+
+   presentList :: Show a => Event t [a] -> VtyWidget t m ()
+   presentList e =
+     selectionMenu
+       (focusButton (buttonPresentText
+                      richTextFocusConfigDef
+                      showT)
+        >>> fmap fbFocused)
+       (Index 0)
+       e
+       <&> pure ()
+
+   presentPoint :: Show a => Event t (Value Point a) -> VtyWidget t m ()
+   presentPoint e =
+     text =<< hold "-- no data yet --" (e <&> pack . show . stripValue)
+
+   presentText :: Text -> VtyWidget t m ()
+   presentText = text . pure
+
+   presentTextE :: Text -> Event t Text -> VtyWidget t m ()
+   presentTextE def = (text =<<) . hold def
+
+   withExecutionReply ::
+        (forall a. Show a => Event t (Value Point a) -> b)
+     -> (forall a. Show a => Event t (Value List  a) -> b)
+     -> (forall a. Show a => Event t (Value 'Set  a) -> b)
+     -> (forall a. Show a => Event t (Value Tree  a) -> b)
+     -> (forall a. Show a => Event t (Value Dag   a) -> b)
+     -> (forall a. Show a => Event t (Value Graph a) -> b)
+     -> Execution t
+     -> b
+   withExecutionReply fp fl fs ft fd fg Execution{..} =
+     case eResCTag of
+       TPoint -> fp eReply
+       TList  -> fl eReply
+       TSet   -> fs eReply
+       TTree  -> ft eReply
+       TDag   -> fd eReply
+       TGraph -> fg eReply
 
    feedbackWidget ::
         Dynamic t (SelectorFrameParams t m Acceptable Acceptance)
@@ -418,7 +472,7 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
                 & restrictByPartPipe inputPartPipe
       subScopes = catMaybes $ flip pipeScopeAt spc <$> subScNames
       --
-      sels = (AAssembly . Runnable ast <$> scPipes)
+      sels = (AAssembly . Runnable selInput ast <$> scPipes)
              -- So, here we're ignoring the _selected_ pipe,
              -- only collecting the _accepted_ AST.
              --
@@ -497,16 +551,16 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
      -> Acceptable
      -> Behavior t Bool
      -> VtyWidget t m Acceptable
-   somePipeSelectable (Width nameW, Width sigW) x@(AAssembly (Runnable exp sp)) focusB =
+   somePipeSelectable (Width nameW, Width sigW) x@(AAssembly (Runnable t exp sp)) focusB =
     row $ withSomePipe sp $ \(Pipe pd _) -> do
      fixed (pure nameW) $
-       richText (textFocusStyle (foregro V.green) focusB)
+       richText (richTextFocusConfig (foregro V.green) focusB)
          (pure $ T.justifyRight nameW ' ' . showName $ pdName pd)
      fixed 4 $
-       richText (textFocusStyle V.defAttr focusB)
+       richText (richTextFocusConfigDef focusB)
          (pure " :: ")
      fixed (pure sigW) $
-       richText (textFocusStyle (foregro V.blue) focusB)
+       richText (richTextFocusConfig (foregro V.blue) focusB)
          (pd & (pdSig
                 >>> showSig
                 >>> T.justifyLeft  sigW ' '
@@ -515,21 +569,15 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
    somePipeSelectable (Width nameW, Width sigW) x@(AScope scope) focusB =
     row $ do
      fixed (pure nameW) $
-       richText (textFocusStyle (foregro V.green) focusB)
+       richText (richTextFocusConfig (foregro V.green) focusB)
          (pure $ T.justifyRight nameW ' ' . showName $ scopeName scope)
      fixed 4 $
-       richText (textFocusStyle V.defAttr focusB)
+       richText (richTextFocusConfigDef focusB)
          (pure " :: ")
      fixed (pure sigW) $
-       richText (textFocusStyle (foregro V.blue) focusB)
+       richText (richTextFocusConfig (foregro V.blue) focusB)
          (pure . pack . show $ scopeSize scope)
      pure x
-
-   textFocusStyle attr focB =
-     RichTextConfig $
-       selecting (flip V.withBackColor $ V.rgbColor @Integer 1 1 1)
-                 (pure attr)
-                 focB
 
    presentCtx ::
      Width
