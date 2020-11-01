@@ -103,7 +103,7 @@ _runPipe pd@Desc{pdOut=Tags{tCTag, tVTag}} dyn =
 --
 genG
   :: forall ct tt
-  .  (ReifyCTag ct, ReifyVTag tt, Typeable (Repr ct tt), Typeable ct, Ground tt)
+  .  (ReifyCTag ct, ReifyVTag tt, Typeable ct, Ground tt)
   => Name Pipe
   -> Types ct tt
   -> Result (Repr ct tt)
@@ -112,9 +112,8 @@ genG n to pf = G mempty $ genPipe n to pf
 
 gen
   :: forall ct tt
-  .  ( ReifyCTag ct
-     , ReifyVTag tt
-     , Typeable (Repr ct tt), Typeable ct, Typeable tt)
+  .  ( ReifyCTag ct, ReifyVTag tt
+     , Typeable ct, Typeable tt)
   => Name Pipe
   -> Types ct tt
   -> Result (Repr ct tt)
@@ -125,7 +124,6 @@ linkG
   :: forall cf tf ct tt
   . ( ReifyCTag cf, ReifyCTag ct
     , ReifyVTag tf, ReifyVTag tt
-    , Typeable (Repr cf tf), Typeable (Repr ct tt)
     , Typeable cf, Typeable tf, Typeable ct
     , Ground tt)
   => Name Pipe
@@ -139,7 +137,6 @@ link
   :: forall cf tf ct tt
   . ( ReifyCTag cf, ReifyCTag ct
     , ReifyVTag tf, ReifyVTag tt
-    , Typeable (Repr cf tf), Typeable (Repr ct tt)
     , Typeable cf, Typeable tf, Typeable ct
     , Typeable tt)
   => Name Pipe

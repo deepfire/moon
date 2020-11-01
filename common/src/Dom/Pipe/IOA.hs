@@ -87,7 +87,7 @@ genPipe
   :: forall cf tf ct tt c
   .  ( cf ~ 'Point, tf ~ ()
      , ReifyCTag ct, ReifyVTag tt
-     , Typeable (Repr ct tt), Typeable ct, Typeable tt, Typeable c
+     , Typeable ct, Typeable tt, Typeable c
      , c tt)
   => Name Pipe
   -> Types ct tt
@@ -109,7 +109,6 @@ linkPipe ::
     forall cf tf ct tt c
   . ( ReifyCTag cf, ReifyCTag ct
     , ReifyVTag tf, ReifyVTag tt
-    , Typeable (Repr cf tf), Typeable (Repr ct tt)
     , Typeable cf, Typeable tf, Typeable ct, Typeable tt, Typeable c
     , c tt)
   => Name Pipe
