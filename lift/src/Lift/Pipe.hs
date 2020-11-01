@@ -23,8 +23,11 @@ import Dom.SomeType
 import Dom.Space.Pipe
 import Dom.Space.SomePipe
 
+import Ground.Table
+
 import Lift.Hackage as Hackage
 import Lift.Haskell as Haskell
+
 
 
 initialPipeSpace :: SomePipeSpace Dynamic
@@ -64,6 +67,9 @@ rootPipeSpace =
   emptySomePipeSpace "Root"
   & spsInsertScopeAt mempty rootScope
 
+mkJust :: Typeable a => a -> Maybe a
+mkJust = Just
+
 rootScope :: SomePipeScope Dynamic
 rootScope =
   pipeScope ""
@@ -85,6 +91,9 @@ rootScope =
      , linkG "strlen"  TPoint' TPoint' $
        \(str :: Text) ->
          pure . Right $ Text.length str
+
+     -- , link "just"  TPoint' TPoint' $
+     --     pure . Right . mkJust
 
      -- Listing pipes and scopes:
      --

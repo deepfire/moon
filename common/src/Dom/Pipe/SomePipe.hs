@@ -98,53 +98,6 @@ _runPipe pd@Desc{pdOut=Tags{tCTag, tVTag}} dyn =
     Just (IOA io _c _as _o) ->
       (SomeValue tCTag . SomeValueKinded tVTag . mkValue tCTag tVTag <$>) <$> io
 
-
--- * Constructors
---
-genG
-  :: forall ct tt
-  .  (ReifyCTag ct, ReifyVTag tt, Typeable ct, Ground tt)
-  => Name Pipe
-  -> Types ct tt
-  -> Result (Repr ct tt)
-  -> SomePipe Dynamic
-genG n to pf = G mempty $ genPipe n to pf
-
-gen
-  :: forall ct tt
-  .  ( ReifyCTag ct, ReifyVTag tt
-     , Typeable ct, Typeable tt)
-  => Name Pipe
-  -> Types ct tt
-  -> Result (Repr ct tt)
-  -> SomePipe Dynamic
-gen n to pf = T mempty $ genPipe n to pf
-
-linkG
-  :: forall cf tf ct tt
-  . ( ReifyCTag cf, ReifyCTag ct
-    , ReifyVTag tf, ReifyVTag tt
-    , Typeable cf, Typeable tf, Typeable ct
-    , Ground tt)
-  => Name Pipe
-  -> Types cf tf
-  -> Types ct tt
-  -> (Repr cf tf -> Result (Repr ct tt))
-  -> SomePipe Dynamic
-linkG n from to pf = G mempty $ linkPipe n from to pf
-
-link
-  :: forall cf tf ct tt
-  . ( ReifyCTag cf, ReifyCTag ct
-    , ReifyVTag tf, ReifyVTag tt
-    , Typeable cf, Typeable tf, Typeable ct
-    , Typeable tt)
-  => Name Pipe
-  -> Types cf tf
-  -> Types ct tt
-  -> (Repr cf tf -> Result (Repr ct tt))
-  -> SomePipe Dynamic
-link n from to pf = T mempty $ linkPipe n from to pf
 
 recoverPipe ::
      QName Pipe
@@ -205,7 +158,7 @@ recoverPipe qname name sig struct rep xs =
      case (rc `eqTypeRep` typeRep @c,  rv `eqTypeRep` typeRep @a)
      of
        (Just HRefl, Just HRefl) ->
-         withTypeable rc $ withTypeable rv $ withReifyCTag tc $
+         withTypeable rc $ withTypeable rv $ withCTag tc $
            f (Tags tc tv :: Tags (Types c a))
              (Proxy @c) (Proxy @a)
        (,) Nothing _ -> error $ mconcat

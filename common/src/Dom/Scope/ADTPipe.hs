@@ -18,6 +18,8 @@ import Dom.Scope
 import Dom.Scope.SomePipe
 import Dom.VTag
 
+import Ground.Table
+
 
 --------------------------------------------------------------------------------
 -- * Scope of pipes, that offer projections for a GroundData-constrained ADT.

@@ -1,5 +1,64 @@
 #+TITLE: Domain conflicts: dependencies and types
 
+* GHC bugs?
+*** (.) losing constraints?
+    #+BEGIN_SRC haskell
+  withVTag (tVTag tagsf) $ withVTag (tVTag tagst)
+  /=
+  withVTag (tVTag tagsf) . withVTag (tVTag tagst)
+    #+END_SRC
+
+    #+BEGIN_SRC haskell
+withVTag (tVTag tagsf) . withVTag (tVTag tagst) $
+  let dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
+  in Pipe (mkDesc name tagsf tagst (dynRep dyn) mf) dyn
+    #+END_SRC
+
+    #+BEGIN_SRC haskell
+src/Ground/Table.hs:191:15: error:
+    • Could not deduce (Typeable * tf) arising from a use of ‘toDyn’
+      from the context: (ReifyCTag cf, ReifyCTag ct, ReifyVTag tf,
+                         ReifyVTag tt, Typeable Con cf, Typeable Con ct, Typeable * tt,
+                         Typeable (* -> Constraint) c, c tt,
+                         (ioa :: *)
+                         ~ (IOA c ((':) * (Types cf tf) ('[] *)) (Types ct tt) :: *))
+        bound by the type signature for:
+                   linkPipe :: forall (cf :: Con) tf (ct :: Con) tt (c :: *
+                                                                          -> Constraint) ioa.
+                               (ReifyCTag cf, ReifyCTag ct, ReifyVTag tf, ReifyVTag tt,
+                                Typeable Con cf, Typeable Con ct, Typeable * tt,
+                                Typeable (* -> Constraint) c, c tt,
+                                (ioa :: *)
+                                ~ (IOA c ((':) * (Types cf tf) ('[] *)) (Types ct tt) :: *)) =>
+                               Name ((* -> Constraint) -> [*] -> * -> * -> *) Pipe
+                               -> Types cf tf
+                               -> Types ct tt
+                               -> (Repr cf tf -> Result (Repr ct tt))
+                               -> Pipe c ((':) * (Types cf tf) ('[] *)) (Types ct tt) Dynamic
+        at src/Ground/Table.hs:(177,1)-(188,48)
+    • In the expression: toDyn (IOA mf Proxy Proxy Proxy :: ioa)
+      In an equation for ‘dyn’:
+          dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
+      In the second argument of ‘($)’, namely
+        ‘let dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
+         in Pipe (mkDesc name tagsf tagst (dynRep dyn) mf) dyn’
+    #+END_SRC
+
+  where:
+
+    #+BEGIN_SRC haskell
+withVTag :: VTag a -> ((Typeable a, ReifyVTag a) => r) -> r
+withVTag x f = case x of
+  VTop -> f
+    ...
+
+mkDesc :: (Typeable tf, Typeable tt)
+       => Name Pipe -> Tags (Types cf tf) -> Tags (Types ct tt)
+       -> SomeTypeRep
+       -> (Repr cf tf -> Result (Repr ct tt))
+       -> Desc c '[Types cf tf] (Types ct tt)
+    #+END_SRC
+
 * Granularity of Ground
   1. Ground serves several needs:
      - interactivity

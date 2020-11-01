@@ -46,7 +46,7 @@ data TagDecl
 defineGroundTypes :: Q [Dec] -> Q [Dec]
 defineGroundTypes qDec = emit <$> qDec
  where
-   (,,,) a b c v = (mkName "a", mkName "b", mkName "c", mkName "v")
+   [a, b, c, f, r, v, x] = mkName <$> ["a", "b", "c", "f", "r", "v", "x"]
    refl            = mkName "Refl"
    just            = mkName "Just"
    nothing         = mkName "Nothing"
@@ -59,6 +59,7 @@ defineGroundTypes qDec = emit <$> qDec
    dot             = mkName "."
    typeable        = mkName "Typeable"
    reifyctag       = mkName "ReifyCTag"
+   reifyvtag       = mkName "ReifyVTag"
    ctag            = mkName "CTag"
    repr            = mkName "Repr"
    somevalue       = mkName "SomeValue"
@@ -76,11 +77,20 @@ defineGroundTypes qDec = emit <$> qDec
          Nothing    -- no kind spec
          (decls <&>
           \TagDecl{..} ->
-             GadtC [Name (OccName ('V':tdStem)) NameS] []
-                   (promoteTyToTag $
-                     -- Here again, 'Nothing' for the type means catchall.
-                     fromMaybe (VarT tyIxName) tdTy))
-         derivs                         -- no derive clauses
+             let conTname = 'V':tdStem in
+             GadtC [Name (OccName conTname) NameS] []
+                   (ForallT
+                      []
+                      (let cty = maybe (VarT tyIxName)
+                                       id
+                                       tdTy
+                       in [ AppT (ConT typeable)  cty
+                          , AppT (ConT reifyvtag) cty
+                          ]) $
+                     (AppT (AppT (ConT dataName) (ConT unit)) $
+                       -- Here again, 'Nothing' for the type means catchall.
+                           fromMaybe (VarT tyIxName) tdTy)))
+         derivs     -- no derive clauses
      , InstanceD Nothing []
          (AppT (ConT $ mkName "Eq") (AppT (AppT (ConT vtag') (ConT unit))
                                           (VarT a)))
@@ -258,6 +268,25 @@ defineGroundTypes qDec = emit <$> qDec
        ValD (VarP $ mkName "groundTable")
             (NormalB $ foldr step (VarE (qualRef "Dict" "empty")) decls) []
 
+     -- withVTag :: VTag a -> ((Typeable a, ReifyVTag a) => r) -> r
+     -- withVTag x f = case x of
+     --   VTop -> f
+     , SigD (mkName "withVTag") $
+         funT [ AppT (ConT vtag) (VarT a)
+              , ForallT []
+                  [ AppT (ConT typeable)  (VarT a)
+                  , AppT (ConT reifyvtag) (VarT a)] $
+                  VarT r
+              , VarT r ]
+     , FunD (mkName "withVTag") . (:[]) $
+         Clause
+           [VarP x, VarP f]
+           (NormalB $
+             CaseE (VarE x) $
+               decls <&>
+                \TagDecl{..} ->
+                   Match (ConP (mkName $ 'V':tdStem) [])
+                    (NormalB $ VarE f) []) []
      -- mkSomeValue ::
      --   (Typeable c, ReifyCTag c)
      --   => CTag c -> VTag v -> Repr c v -> SomeValue
@@ -291,11 +320,12 @@ defineGroundTypes qDec = emit <$> qDec
                  -- overlap for the catchall (supposed to be VTop)
                 (const $ Just Incoherent)
                 tdTy)
-         [] -- no context
-         (AppT (ConT $ mkName "ReifyVTag")
+         (maybe [AppT (ConT typeable) (VarT a)] -- Top requires Typeable.
+                (const []) tdTy)
+         (AppT (ConT reifyvtag)
                (fromMaybe (VarT a) tdTy))
          -- reifyVTag = const VSomething
-         [ FunD (mkName "reifyVTag")
+         [ FunD (mkName $ "reifyVTag")
                 [ Clause
                   []
                   (NormalB $
@@ -371,10 +401,6 @@ defineGroundTypes qDec = emit <$> qDec
         GadtC (_:_:_) _ _ -> error "Broken GADT variant:  multiple names"
         GadtC [name@(Name (OccName str) _)] _ _ -> (str, name)
         _                 -> error "Non-GADT constructor"
-
-      promoteTyToTag :: Type -> Type
-      promoteTyToTag =
-        AppT (AppT (ConT dataName) (ConT unit))
 
    emit (x:xs) = x : emit xs
    emit []     = []

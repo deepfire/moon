@@ -33,12 +33,12 @@ data Con
   deriving (Eq, Generic, Ord, Read, Show, Typeable)
 
 data CTag (c :: Con) where
-  TPoint :: CTag Point
-  TList  :: CTag List
-  TSet   :: CTag 'Set
-  TTree  :: CTag Tree
-  TDag   :: CTag Dag
-  TGraph :: CTag Graph
+  TPoint :: Typeable Point => CTag Point
+  TList  :: Typeable List  => CTag List
+  TSet   :: Typeable 'Set  => CTag 'Set
+  TTree  :: Typeable Tree  => CTag Tree
+  TDag   :: Typeable Dag   => CTag Dag
+  TGraph :: Typeable Graph => CTag Graph
   deriving (Typeable)
 
 data Types (c :: Con) (a :: *) where
@@ -205,14 +205,14 @@ mapRepr TGraph f = fmap f
 --------------------------------------------------------------------------------
 -- * Utilities
 --
-withReifyCTag :: CTag c -> (ReifyCTag c => r) -> r
-withReifyCTag = \case
-  TPoint -> id
-  TList  -> id
-  TSet   -> id
-  TTree  -> id
-  TDag   -> id
-  TGraph -> id
+withCTag :: CTag c -> ((Typeable c, ReifyCTag c) => r) -> r
+withCTag c f = case c of
+  TPoint -> f
+  TList  -> f
+  TSet   -> f
+  TTree  -> f
+  TDag   -> f
+  TGraph -> f
 
 parseCTag
   :: forall m

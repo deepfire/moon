@@ -9,6 +9,7 @@ import Basis
 
 import Dom.CTag
 import Dom.Name
+import Dom.Tags
 
 
 --------------------------------------------------------------------------------
@@ -49,11 +50,17 @@ someTypeFromConType CSomeType{tCon} CSomeType{tName, tRep} = CSomeType{..}
 unitSomeType :: SomeType
 unitSomeType = ctagSomeType TPoint (Proxy @())
 
-someType ::
+typesSomeType ::
   forall c a
   . (ReifyCTag c, Typeable c, Typeable a)
   => Types c a -> SomeType
-someType _ = proxySomeType (Proxy @c) (Proxy @a)
+typesSomeType _ = proxySomeType (Proxy @c) (Proxy @a)
+
+tagsSomeType ::
+  forall c a
+  . (ReifyCTag c, Typeable c, Typeable a)
+  => Tags (Types c a) -> SomeType
+tagsSomeType _ = proxySomeType (Proxy @c) (Proxy @a)
 
 --------------------------------------------------------------------------------
 -- * Instances

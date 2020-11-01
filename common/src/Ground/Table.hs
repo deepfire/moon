@@ -5,13 +5,10 @@
 
 module Ground.Table (module Ground.Table) where
 
-import           Control.Monad.Fail (MonadFail)
-import           Codec.Serialise
-import           Codec.CBOR.Encoding                (Encoding, encodeListLen, encodeWord)
-import           Codec.CBOR.Decoding                (Decoder, decodeListLen, decodeWord)
-import           Control.Monad                      (forM, unless)
+import qualified Algebra.Graph                    as G
+-- import           Codec.Serialise
+import           Data.Dynamic                       (toDyn)
 import           Data.GADT.Compare
-import qualified Data.Kind                        as K
 import qualified Data.Set.Monad                   as Set
 import qualified Data.SOP                         as SOP
 
@@ -33,6 +30,7 @@ import Dom.Name
 import Dom.Parse
 import Dom.Pipe
 import Dom.Pipe.Constr
+import Dom.Pipe.IOA
 import Dom.Pipe.SomePipe
 import Dom.Scope
 import Dom.Sig
@@ -104,7 +102,7 @@ sealGround = setupGroundTypes groundTable
 decodeVTop :: Decoder s SomeVTag
 decodeVTop = do
   SomeTypeRep (a :: TypeRep b) :: SomeTypeRep <- decode
-  case typeRepKind a `eqTypeRep` typeRep @K.Type of
+  case typeRepKind a `eqTypeRep` typeRep @Type of
     Just HRefl ->
       pure $ withTypeable a $ SomeVTag $ VTop @b
     Nothing -> error "decodeVTop:  got a non-Type-kinded TypeRep"
@@ -130,10 +128,10 @@ instance Serialise (SomePipe ()) where
      encodeTagss :: All Top xs => NP Tags xs -> [Encoding]
      encodeTagss = SOP.hcollapse . SOP.hliftA
        (\(Tags (t :: CTag c) (v :: VTag a))
-         -> SOP.K $  encode (SomeCTag t)
-                  <> encode (SomeVTag v)
-                  <> encode (typeRep @c)
-                  <> encode (typeRep @a))
+         -> SOP.K $ withVTag v (   encode (SomeCTag t)
+                                <> encode (SomeVTag v)
+                                <> encode (typeRep @c)
+                                <> encode (typeRep @a)))
   decode :: Decoder s (SomePipe ())
   decode = do
     len <- decodeListLen
@@ -149,6 +147,119 @@ instance Serialise (SomePipe ()) where
       <*> (forM [0..(arity - 1)] $ const $
             (,,,) <$> decode <*> decode <*> decode <*> decode
            :: Decoder s [(SomeCTag, SomeVTag, SomeTypeRep, SomeTypeRep)])
+
+--------------------------------------------------------------------------------
+-- * Pipe construction:  due to withVTag
+--
+genPipe ::
+     forall cf tf ct tt c ioa.
+     ( cf ~ 'Point, tf ~ ()
+     , ReifyCTag ct, ReifyVTag tt
+     , Typeable ct, Typeable tt, Typeable c
+     , c tt
+     , ioa ~ IOA c '[] (Types ct tt))
+  => Name Pipe
+  -> Types ct tt
+  -> Result (Repr ct tt)
+  -> Pipe c '[] (Types ct tt) Dynamic
+genPipe name typ@(typesTags -> Tags cTag vTag) mv
+  -- TODO: validate types against the typerep/dynamic
+                = Pipe desc dyn
+  where ty      = typesSomeType typ
+        desc    = Desc name sig struct (dynRep dyn) Nil (Tags cTag vTag)
+        sig     = Sig [] (I ty)
+        struct  = Struct graph
+        graph   = G.vertex ty
+        dyn     = Dynamic typeRep pipeFun
+        pipeFun = IOA mv Proxy Proxy Proxy ::
+                  IOA c '[] (Types ct tt)
+
+linkPipe ::
+    forall cf tf ct tt c ioa
+  . ( ReifyCTag cf, ReifyCTag ct
+    , ReifyVTag tf, ReifyVTag tt
+    , Typeable cf, Typeable ct, Typeable c
+    , c tt
+    , ioa ~ IOA c '[Types cf tf] (Types ct tt))
+  => Name Pipe
+  -> Types cf tf
+  -> Types ct tt
+  -> (Repr cf tf -> Result (Repr ct tt))
+  -> Pipe c '[Types cf tf] (Types ct tt) Dynamic
+linkPipe name (typesTags -> tagsf) (typesTags -> tagst) mf =
+  withVTag (tVTag tagsf) $ withVTag (tVTag tagst) $
+    let dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
+    in Pipe (mkDesc name tagsf tagst (dynRep dyn)) dyn
+
+mkDesc :: ( ReifyCTag cf, ReifyCTag ct
+          , Typeable cf, Typeable ct
+          , Typeable tf, Typeable tt)
+       => Name Pipe -> Tags (Types cf tf) -> Tags (Types ct tt)
+       -> SomeTypeRep
+       -> Desc c '[Types cf tf] (Types ct tt)
+mkDesc name tagsf tagst pipeGutsRep =
+  Desc name sig struct pipeGutsRep (tagsf :* Nil) tagst
+ where
+    sig = Sig [I $ tagsSomeType tagsf] (I $ tagsSomeType tagst)
+    struct = Struct G.empty
+    -- G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
+
+genG
+  :: forall ct tt
+  .  (ReifyCTag ct, ReifyVTag tt, Typeable ct, Ground tt)
+  => Name Pipe
+  -> Types ct tt
+  -> Result (Repr ct tt)
+  -> SomePipe Dynamic
+genG n to pf = G mempty $ genPipe n to pf
+
+gen
+  :: forall ct tt
+  .  ( ReifyCTag ct, ReifyVTag tt
+     , Typeable ct, Typeable tt)
+  => Name Pipe
+  -> Types ct tt
+  -> Result (Repr ct tt)
+  -> SomePipe Dynamic
+gen n to pf = T mempty $ genPipe n to pf
+
+linkG
+  :: forall cf tf ct tt
+  . ( ReifyCTag cf, ReifyCTag ct
+    , ReifyVTag tf, ReifyVTag tt
+    , Typeable cf, Typeable tf, Typeable ct
+    , Ground tt)
+  => Name Pipe
+  -> Types cf tf
+  -> Types ct tt
+  -> (Repr cf tf -> Result (Repr ct tt))
+  -> SomePipe Dynamic
+linkG n from to pf = G mempty $ linkPipe n from to pf
+
+-- linkR
+--   :: forall cf tf ct tt
+--   . ( ReifyCTag cf, ReifyCTag ct
+--     , ReifyVTag tf, ReifyVTag tt
+--     , Typeable cf, Typeable ct)
+--   => Name Pipe
+--   -> Types cf tf
+--   -> Types ct tt
+--   -> (Repr cf tf -> Result (Repr ct tt))
+--   -> SomePipe Dynamic
+-- linkR n from to pf = T mempty $ linkPipe n from to pf
+
+link
+  :: forall cf tf ct tt
+  . ( ReifyCTag cf, ReifyCTag ct
+    , ReifyVTag tf, ReifyVTag tt
+    , Typeable cf, Typeable tf, Typeable ct
+    , Typeable tt)
+  => Name Pipe
+  -> Types cf tf
+  -> Types ct tt
+  -> (Repr cf tf -> Result (Repr ct tt))
+  -> SomePipe Dynamic
+link n from to pf = T mempty $ linkPipe n from to pf
 
 --------------------------------------------------------------------------------
 -- * SomeValue literals:  here, due to:
