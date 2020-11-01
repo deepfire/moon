@@ -107,6 +107,8 @@ library
                      , template-haskell
                      , text
                      , text-builder
+                     , transformers
+                     , transformers-except
                      , unordered-containers
                      , vector
                      -- , type-list

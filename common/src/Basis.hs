@@ -7,6 +7,9 @@ module Basis
   , module Control.Concurrent.STM
   , module Control.DeepSeq
   , module Control.Monad
+  , module Control.Monad.Trans.Except
+  , module Control.Monad.Trans.Except.Exit
+  , module Control.Monad.Trans.Except.Extra
   , module Control.Monad.Fail
   , module Control.Tracer
   , module Data.Bifunctor
@@ -62,6 +65,9 @@ import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, firs
 import Control.Concurrent.STM     (STM, atomically)
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (foldM, join, mapM, mapM_, forM, forM_, when, unless, void)
+import Control.Monad.Trans.Except (ExceptT)
+import Control.Monad.Trans.Except.Exit (orDie)
+import Control.Monad.Trans.Except.Extra (firstExceptT, handleIOExceptT, hoistEither, newExceptT, runExceptT)
 import Control.Monad.Fail         (MonadFail)
 import Control.Tracer             (Tracer(..), traceWith)
 import Data.Bifunctor             (bimap)
@@ -107,15 +113,19 @@ import Type.Reflection            ((:~:)(..), (:~~:)(..),
                                    TypeRep, SomeTypeRep(..),
                                    eqTypeRep, someTypeRep, typeRep, typeRepKind, withTypeable)
 
+import qualified Control.Monad.Trans.Except.Extra as ExceptT
 import qualified Data.Map.Strict as Map
 import qualified Data.Map.Monoidal.Strict as MMap
 import qualified Data.Set.Monad  as Set
 import qualified Data.Set        as Set'
 import qualified Data.Text       as T
 import qualified GHC.Types       as GHC
-import qualified Text.Builder    as TB
 import qualified Type.Reflection as Refl
 
+
+-- | 'Control.Monad.Trans.Except.Extra.left' is too conflicting of a name.
+leftExceptT :: Monad m => x -> ExceptT x m a
+leftExceptT = ExceptT.left
 
 liftSet :: Ord a => Set'.Set a -> Set.Set a
 liftSet = Set.fromDistinctAscList . Set'.toAscList

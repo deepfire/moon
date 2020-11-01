@@ -32,6 +32,7 @@ library
                        Lift.Haskell
                        Lift.Hackage
                        Lift.Orphanage
+                       TopHandler
 
   build-depends:       common
 
@@ -58,6 +59,8 @@ library
                      , text
                      , these
                      , time
+                     , transformers
+                     , transformers-except
                      , tuple
                      -- , type-list
                      , witherable

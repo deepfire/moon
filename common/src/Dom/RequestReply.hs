@@ -26,15 +26,15 @@ import Ground.Expr
 -- | Request/Reply:  asks with expectance of certain type of reply.
 --
 data Request
-  = Run (Expr (Located (QName Pipe)))
-  | Compile (QName Pipe) (Expr (Located (QName Pipe)))
+  = Run    (Expr (Located (QName Pipe)))
+  | Define (Expr (Located (QName Pipe))) (QName Pipe)
 
 data Reply
   = ReplyValue SomeValue
 
 instance Show Request where
-  show (Run       expr) = "Run "                      <> show expr
-  show (Compile n expr) = "Compile " <> show n <> " " <> show expr
+  show (Run    expr)   = "Run "                     <> show expr
+  show (Define expr n) = "Define " <> show n <> " " <> show expr
 instance Show Reply where show (ReplyValue n) = "ReplyValue " <> show n
 
 parseRequest :: Opt.Parser Request
@@ -42,10 +42,10 @@ parseRequest = subparser $ mconcat
   [ cmd "run" $
     Run
       <$> pipedesc
-  , cmd "compile" $
-    Compile
-      <$> (QName <$> argument auto (metavar "NAME"))
-      <*> pipedesc
+  , cmd "define" $
+    Define
+      <$> pipedesc
+      <*> (QName <$> argument auto (metavar "NAME"))
   ]
   where
     cmd name p = command name $ info (p <**> helper) mempty
@@ -63,13 +63,13 @@ tagReply     = 27--182818284
 instance Serialise Request where
   encode x = case x of
     Run e -> encodeListLen 2 <> encodeWord (tagRequest + 0) <> encode e
-    Compile n e -> encodeListLen 3 <> encodeWord (tagRequest + 1) <> encode n <> encode e
+    Define e n -> encodeListLen 3 <> encodeWord (tagRequest + 1) <> encode n <> encode e
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (2, 31) -> Run     <$> decode
-      (3, 32) -> Compile <$> decode <*> decode
+      (2, 31) -> Run    <$> decode
+      (3, 32) -> Define <$> decode <*> decode
       _ -> failLenTag len tag
 
 instance Serialise Reply where

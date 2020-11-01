@@ -35,7 +35,7 @@ import           Control.Monad                      (forever)
 import           Control.Tracer
 import           Data.Time
 import qualified Network.WebSockets               as WS
-import           Shelly                             (run, shelly)
+import           Shelly                             (liftIO, run, shelly)
 import           System.Environment
 import qualified Unsafe.Coerce                    as Unsafe
 
@@ -70,17 +70,19 @@ import Dom.Value
 import Ground.Expr
 import Ground.Table
 
-import Lift.Pipe
-
 import Wire.Peer
 import Wire.Protocol
+
+import Lift.Pipe
+
+import TopHandler
 
 
 
 -- * Actually do things.
 --
 main :: IO ()
-main = do
+main = toplevelExceptionHandler $ do
   sealGround
   cmd <- execParser opts
   let preConfig@Config{..} = defaultConfig
@@ -197,35 +199,34 @@ haskellServer env@Env{..} =
     }
 
 handleRequest :: Env -> Request -> IO (Fallible Reply)
-handleRequest Env{..} x = case x of
-  Compile name pipe ->
-    Lift.compile name pipe
-    <&> (ReplyValue . SomeValue TPoint . SomeValueKinded VSig . VPoint <$>)
-  Run nameTree -> do
-    putStrLn $ unpack $ Data.Text.unlines
-      ["Pipe:", pack $ show (locVal <$> nameTree) ]
-    spc :: SomePipeSpace Dynamic <- atomically getState
-    case Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) nameTree of
-      Left (Error e) -> pure $ fallDesc "Compilation" e
-      Right (runnable :: SomePipe Dynamic) -> do
-        putStrLn "ok, runnable"
-        res :: Fallible SomeValue <- runSomePipe runnable
-        putStrLn "ok, ran (?)"
-        case res of
-          Left (Error e) -> pure $ fallDesc "Runtime" e
-          Right x -> pure . Right . ReplyValue $ x
+handleRequest Env{..} req = runExceptT $ case req of
+  Run expr         -> runRun expr
+  Define expr name -> runDefine expr name
 
-compile :: QName Pipe -> Expr (Located (QName Pipe)) -> Result ISig
-compile newname e = do
-      putStrLn $ unpack $ Data.Text.unlines
-        ["Pipe:", pack $ show (locVal <$> e) ]
-      atomically $ do
-        spc <- getState
-        let old = lookupSomePipe spc newname
-            res = Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) e
-        case (old, res) of
-          (Just _,  _)    -> fallM $ "Already exists: " <> pack (show newname)
-          (_,  Left e)    -> pure $ Left e
-          (_, Right pipe) -> do
-            addPipe newname pipe
-            pure . Right . somePipeSig $ pipe
+runRun :: Expr (Located (QName Pipe)) -> ExceptT Error IO Reply
+runRun expr = do
+  spc <- liftIO $ atomically getState
+
+  runnable <- newQualExceptErr "Compilation" . pure $
+    Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) expr
+
+  ReplyValue <$> newQualExceptErr "Runtime" (runSomePipe runnable)
+
+runDefine :: Expr (Located (QName Pipe)) -> QName Pipe -> ExceptT Error IO Reply
+runDefine expr name = do
+    liftIO $ putStrLn $ unpack $ Data.Text.unlines
+      ["Pipe:", pack $ show (locVal <$> expr) ]
+
+    spc <- liftIO $ atomically getState
+
+    newQualExceptErr "Already exists" . pure $
+      maybeLeft ((Error (showQName name) <$) . lookupSomePipe spc) name
+
+    pipe <- newQualExceptErr "Compilation" . pure $
+      Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) expr
+
+    liftIO . atomically $ addPipe name pipe
+
+    pure . ReplyValue . SomeValue TPoint . SomeValueKinded VSig . VPoint $
+      somePipeSig pipe
+
