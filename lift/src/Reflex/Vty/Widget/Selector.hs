@@ -69,8 +69,9 @@ selector ::
   forall t m a b
   . (CWidget t m, Show a, Show b)
   => Reflex.Dynamic t (SelectorFrameParams t m a b)
+  -> VtyWidget t m ()
   -> VtyWidget t m (Selector t m a b)
-selector sfpD = mdo
+selector sfpD summaryW = mdo
   sfp0 <- sample (current sfpD)
 
   selectE :: Event t (Selection a b) <-
@@ -97,11 +98,14 @@ selector sfpD = mdo
                                               -> sfpIndexed), ..} = mdo
 
      -- widgets:  menu + incremental input
-     ((_, menuChoiceD), offtInputE) <-
-       splitV (pure (\x->x-1)) (pure $ join (,) True)
-      (splitV (pure (\x->x-length sfpElems-2)) (pure $ join (,) True) (pure ())
-        (menuWidget sfpIndexed))
-        (inputWidget menuChoiceD)
+     ((_, menuChoiceD), (_, offtInputE)) <-
+       splitV (pure (\x->x-2)) (pure $ join (,) True)
+        (splitV (pure (\x->x-length sfpElems-2)) (pure $ join (,) True)
+          blank
+          (menuWidget sfpIndexed))
+        (splitV (pure $ const 1) (pure $ join (,) True)
+          summaryW
+          (inputWidget menuChoiceD))
 
      pure $
        attachPromptlyDyn menuChoiceD offtInputE

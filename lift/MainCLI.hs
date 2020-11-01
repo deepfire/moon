@@ -271,9 +271,8 @@ spaceInteraction postExe someValueRepliesE = mdo
     splitV (pure (\x->x-8)) (pure $ join (,) True)
            (splitH (pure $ flip div 2) (pure $ join (,) True)
                    (splitV (pure (\x->x-2)) (pure $ join (,) True)
-                      (selectorWidget spaceD)
-                      (blank
-                       >> summaryWidget executionE))
+                      (selectorWidget spaceD (summaryWidget executionE))
+                      blank)
                    (presentWidget executionE)) $
            (feedbackWidget
              selrFrameParamsD
@@ -286,9 +285,9 @@ spaceInteraction postExe someValueRepliesE = mdo
  where
    summaryWidget ::
         Event t (Execution t)
-     -> VtyWidget t m (Dynamic t ())
-   summaryWidget exE =
-     networkHold (res $ presentText "-- nothing was executed yet --") $
+     -> VtyWidget t m ()
+   summaryWidget exE = do
+     networkHold (res $ presentText "-- no valid pipe --") $
        exE <&> \e -> res $
            withExecutionReply
              (pres . fmap (("• " <>) . showT . stripValue))
@@ -298,6 +297,7 @@ spaceInteraction postExe someValueRepliesE = mdo
              (const $ presentText "dag")
              (const $ presentText "graph")
              e
+     pure ()
     where
       res x = row $ do
         width <- displayWidth
@@ -399,9 +399,10 @@ spaceInteraction postExe someValueRepliesE = mdo
 
    selectorWidget ::
         Dynamic t (PipeSpace (SomePipe ()))
+     -> VtyWidget t m ()
      -> VtyWidget t m (Dynamic t (SelectorFrameParams t m Acceptable Acceptance),
                        Selector t m Acceptable Acceptance)
-   selectorWidget spaceD = mdo
+   selectorWidget spaceD summaryW = mdo
      width <- displayWidth
 
      sfp0 :: SelectorFrameParams t m Acceptable Acceptance <-
@@ -417,7 +418,7 @@ spaceInteraction postExe someValueRepliesE = mdo
          <&> uncurry3 selToSelrFrameParams
 
      selr :: Selector t m Acceptable Acceptance <-
-       (selector sfpD
+       (selector sfpD summaryW
         :: VtyWidget t m (Selector t m Acceptable Acceptance))
 
      pure (sfpD, selr)
