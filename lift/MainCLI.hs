@@ -28,6 +28,7 @@ import Debug.Reflex
 -- import Debug.TraceErr
 
 import Dom.CTag
+import Dom.Command
 import Dom.Error
 import Dom.Expr
 import Dom.Ground
@@ -61,42 +62,37 @@ import Reflex.SomeValue
 
 main :: IO ()
 main = do
-  sealGround
+  sealGround -- TODO:  fix the stupid name
   mainWidget reflexVtyApp
 
 reflexVtyApp :: forall t m.
   (MonadIO (Performable m), ReflexVty t m, PerformEvent t m, PostBuild t m, TriggerEvent t m, MonadIO m)
   => VtyWidget t m (Event t ())
 reflexVtyApp = do
-  init <- getPostBuild
-
   (exeSendW, exeSendR) :: (InChan (Execution t), OutChan (Execution t)) <-
     liftIO Unagi.newChan
 
-  someValuE <- spawnHostChatterThread hostAddr exeSendR exeSendW stderr init
-
-  spaceInteraction (postExec exeSendW) someValuE
+  getPostBuild
+    >>= spawnHostChatterThread stderr hostAddr exeSendR
+    >>= spaceInteraction (Unagi.writeChan exeSendW)
  where
+   -- XXX:  yeah, deal with that
    hostAddr = WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
 
-   postExec :: InChan (Execution t) -> Execution t -> IO ()
-   postExec = Unagi.writeChan
-
    spawnHostChatterThread ::
-        WSAddr
+        Tracer IO Text
+     -> WSAddr
      -> OutChan (Execution t)
-     -> InChan (Execution t)
-     -> Tracer IO Text
      -> Event t ()
      -> VtyWidget t m (Event t SomeValue)
-   spawnHostChatterThread WSAddr{..} exeSendR exeSendW logfd postBuild = performEventAsync $
-     ffor postBuild $ \_ fire -> liftIO $ do
-       postExec exeSendW (Execution TPoint VPipeSpace "space" "space" never)
-       thd <- Async.async $ WS.runClient wsaHost wsaPort wsaPath $
-         \(channelFromWebsocket -> webSockChan) ->
-           void $ Wire.runClient logfd webSockChan $
-             client stderr fire exeSendR
-       Async.link thd
+   spawnHostChatterThread tr WSAddr{..} exeSendW postBuild =
+     performEventAsync $
+       ffor postBuild $ \_ fire -> liftIO $
+         (Async.link =<<) . Async.async $
+           WS.runClient wsaHost wsaPort wsaPath $
+             \(channelFromWebsocket -> webSockChan) ->
+               void $ Wire.runClient tr webSockChan $
+                 client tr fire exeSendW
 
 data WSAddr
   = WSAddr
@@ -113,6 +109,8 @@ data Execution t =
   , eResVTag  :: VTag a
   , eText     :: Text
   , eExpr     :: Expr (Located (QName Pipe))
+  -- TODO:  what does it mean for eText not to correspond to eExpr?
+  --        a need for a smart constructor?
   , eReply    :: Event t (Value c a)
   }
 
@@ -162,6 +160,15 @@ data Assembly
     { aError :: !Error
     }
 
+compileAssembly ::
+     (QName Pipe -> Maybe (SomePipe ()))
+  -> Acceptable
+  -> Fallible Assembly
+compileAssembly look = \case
+  AAssembly a -> enrich a <$> compile opsDesc look (aExpr a)
+  _ -> fall "Not a pipe"
+ where enrich a p = a { aPipe = p }
+
 instance Show Assembly where
   show = \case
     Runnable{..} -> "#<ASM " <> show aExpr <> ">"
@@ -189,27 +196,23 @@ acceptableName = \case
 type Acceptance
   = Fallible (Expr (QName Pipe), Expr (Located (PartPipe ())))
 
-mkAssembly ::
-     (QName Pipe -> Maybe (SomePipe ()))
-  -> Acceptable
-  -> Fallible Assembly
-mkAssembly look = \case
-  AAssembly a -> enrich a <$> compile opsDesc look (aExpr a)
-  _ -> fall "Not a pipe"
- where enrich a p = a { aPipe = p }
-
 spaceInteraction ::
      forall    t m
-  .  (ReflexVty t m, PerformEvent t m, MonadIO (Performable m))
+  .  (ReflexVty t m, PerformEvent t m, MonadIO (Performable m), MonadIO m)
   => (Execution t -> IO ())
   -> Event t SomeValue
   -> VtyWidget t m (Event t ())
 spaceInteraction postExe someValueRepliesE = mdo
+  -- First -- ask for some space.
+  liftIO $ postExe (Execution TPoint VPipeSpace "space" "space" never)
+
   let pointRepliesE :: Event t (SomeValueKinded Point)
       pointRepliesE = selectG (splitSVByKinds someValueRepliesE) TPoint
+
       spacePointRepliesE :: Event t (Value Point (PipeSpace (SomePipe ())))
       spacePointRepliesE = selectG (splitSVKByTypes pointRepliesE) VPipeSpace
 
+  -- server -> spaceD
   spaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
     holdDyn mempty (stripValue <$> spacePointRepliesE)
 
@@ -217,7 +220,7 @@ spaceInteraction postExe someValueRepliesE = mdo
     holdDyn (Left $ Error "- no pipe -") $
     attach (current spaceD) (selrAccepted selr)
     <&> uncurry (\spc acceptedAsm ->
-                   mkAssembly (lookupSomePipe spc) acceptedAsm)
+                   compileAssembly (lookupSomePipe spc) acceptedAsm)
 
     -- accD <- holdDyn Nothing (Just <$> selrAccepted selr)
     -- (\acc spc -> Just $ runnablePipe (lookupSomePipe spc) acc)
@@ -240,30 +243,23 @@ spaceInteraction postExe someValueRepliesE = mdo
   --
   -- Another problem is that runnableD fires even if we don't have
   -- a complete pipe to run.
-  let showErr :: Error -> VtyWidget t m (Maybe (Execution t))
-      showErr =
-        (>> pure Nothing)
-        . boxTitle (pure roundedBoxStyle) "Error"
-        . text . pure . showError
   executionE :: Event t (Execution t)
     <- fmap catMaybes . performEvent $
        (updated (trdyn (("runnable: "<>) . show) runnableD) <&>) $
        either (pure . const Nothing) $
        \case
-         Runnable{..} -> do
+         Runnable{..} ->
            case withSomeGroundPipe aPipe $
                  \(Pipe{pDesc} :: Pipe Ground kas o ()) ->
                    let ctag = descOutCTag pDesc :: CTag (TypesC o)
                        vtag = descOutVTag pDesc :: VTag (TypesV o)
+       -- Runnable -> Execution
                    in Execution ctag vtag aText aExpr $
                         selectG (splitSVKByTypes $ selectG (splitSVByKinds someValueRepliesE) ctag) vtag of
              Just exe -> do
-               traceM "Ground-pipe Runnable"
                liftIO $ postExe exe
-               traceM "posted exe"
                pure $ Just exe
-             Nothing -> do
-               traceM "non-Ground-pipe Runnable"
+             Nothing ->
                pure Nothing
          _ -> pure Nothing
 
@@ -271,22 +267,22 @@ spaceInteraction postExe someValueRepliesE = mdo
     splitV (pure (\x->x-8)) (pure $ join (,) True)
            (splitH (pure $ flip div 2) (pure $ join (,) True)
                    (splitV (pure (\x->x-2)) (pure $ join (,) True)
-                      (selectorWidget spaceD (summaryWidget executionE))
+                      (selectorWidget spaceD (execResSummaryWidget executionE))
                       blank)
-                   (presentWidget executionE)) $
+                   (presentWidget executionE))
            (feedbackWidget
              selrFrameParamsD
              pipesFromD
              constraintD
              runnableD)
 
-  waitForTheEndOf input
+  exitOnTheEndOf input
 
  where
-   summaryWidget ::
+   execResSummaryWidget ::
         Event t (Execution t)
      -> VtyWidget t m ()
-   summaryWidget exE = do
+   execResSummaryWidget exE = do
      networkHold (res $ presentText "-- no valid pipe --") $
        exE <&> \e -> res $
            withExecutionReply
@@ -396,6 +392,11 @@ spaceInteraction postExe someValueRepliesE = mdo
         mconcat [ "pipes matching ", pack $ show cstr
                 , ": ", pack $ show (length pipes)
                 ]
+      showErr :: Error -> VtyWidget t m (Maybe (Execution t))
+      showErr =
+        (>> pure Nothing)
+        . boxTitle (pure roundedBoxStyle) "Error"
+        . text . pure . showError
 
    selectorWidget ::
         Dynamic t (PipeSpace (SomePipe ()))
@@ -427,7 +428,7 @@ spaceInteraction postExe someValueRepliesE = mdo
    (,,,) red blue green yellow =
     (,,,) (foregro V.red) (foregro V.blue) (foregro V.green) (foregro V.yellow)
 
-   waitForTheEndOf inp =
+   exitOnTheEndOf inp =
     inp <&>
       fmapMaybe
         (\case
@@ -449,7 +450,8 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
   let focusChar = if T.length selInput >= coln && coln > 0 then T.index selInput (coln - 1) else 'Ø'
       look = lookupSomePipe spc
 
-  ast :: Expr (Located (QName Pipe)) <- parseGroundExpr selInput
+  cmd :: Command (Located (QName Pipe)) <- parseGroundCommand selInput
+  let ast = cmdExpr cmd
   partPipe <- analyse look ast
 
   let -- determine the completable
@@ -581,7 +583,7 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
      pure x
 
    presentCtx ::
-     Width
+        Width
      -> Width
      -> [Acceptable]
      -> (Width, Width)

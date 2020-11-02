@@ -27,6 +27,7 @@ library
                        Generics.SOP.Traversal
 
                        Dom.CTag
+                       Dom.Command
                        Dom.Error
                        Dom.Expr
                        Dom.Ground

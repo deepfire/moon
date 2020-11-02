@@ -14,6 +14,7 @@ import Text.Parser.Token
 import Basis
 import Data.Parsing
 
+import Dom.Command
 import Dom.Expr
 import Dom.Error
 import Dom.Located
@@ -27,28 +28,32 @@ import Ground.Table (parseSomeValueLiteral, someValueText)
 -- * Ground table-dependent parsing (due to ground literals)
 --
 parseGroundExpr :: Text -> Fallible (Expr (Located (QName Pipe)))
-parseGroundExpr = _parse parseQName'
+parseGroundExpr = _parse parseQName' (Dom.Expr.parseExpr
+                                      parseSomeValueLiteral)
+
+parseGroundCommand :: Text -> Fallible (Command (Located (QName Pipe)))
+parseGroundCommand = _parse parseQName' (Dom.Command.parseCommand
+                                         parseSomeValueLiteral)
 
 instance IsString (Expr (Located (QName Pipe))) where
   fromString = either err id . parseGroundExpr . pack
     where err = PVal . someValueText . ("parse error: " <>) . showError
 
 _parse
-  :: forall n
+  :: forall (f :: * -> *) (n :: *)
   .  (Bool -> Parser n)
+  -> (Parser n -> Parser (Either Text (f n)))
   -> Text
-  -> Fallible (Expr n)
-_parse nameParser = tryParse True
+  -> Fallible (f n)
+_parse nameParser parser = tryParse True
  where
-   tryParse :: Bool -> Text -> Fallible (Expr n)
+   tryParse :: Bool -> Text -> Fallible (f n)
    tryParse mayExtend s =
      case (,)
           (runIdentity $ runParserT
            (do
                x <- unParsecT $
-                 Dom.Expr.parseExpr
-                   parseSomeValueLiteral
-                   (nameParser (not mayExtend))
+                 parser (nameParser (not mayExtend))
                Text.Megaparsec.eof
                pure x)
             "" s)
