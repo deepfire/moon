@@ -74,7 +74,7 @@ instance ( Generic u, HasDatatypeInfo u, Typeable u
 mkData
   :: forall (u :: *) c xss. (All2 (And Typeable c) xss, Typeable u)
   => ForgetADT u c xss (Data 'Fun c u)
-mkData (ADTDesc _ _ (ADT modname ty _) ctors) =
+mkData (ADTDesc _ _ (ADT modname ty _ _) ctors) =
   Data (pack modname) (pack ty)
        (collapse_NP
         (cliftA_NP (Proxy @(All (And Typeable c)))

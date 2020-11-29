@@ -26,24 +26,23 @@ in (import ./../reflex-platform {
   };
 
   overrides = self: old: with pkgs.haskell.lib;
-  let inherit (pkgs.haskell.lib) overrideCabal;
-      l = repo: path: cabalExtras:
-      dontCheck (doJailbreak
-      (self.callCabal2nixWithOptions repo path cabalExtras {}));
-      c = owner: repo: rev: sha256: cabalExtras:
-      doJailbreak
-      (self.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub {
-          inherit owner repo rev sha256;
+    let inherit (pkgs.haskell.lib) overrideCabal;
+        simp = x: dontCheck (doJailbreak x);
+        l = repo: path: cabalExtras:
+          simp (self.callCabal2nixWithOptions repo path cabalExtras {});
+        gh = owner: repo: rev: sha256: cabalExtras:
+          simp (self.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub {
+            inherit owner repo rev sha256;
           }) cabalExtras {});
       unbreak = name: (overrideCabal old.${name} (old: { broken = false; }));
-      df = c "deepfire";
-      ds = c "deepshared";
-      io = repo: rev: s: subdir: c "input-output-hk" repo rev s "--subpath ${subdir}";
+      df = gh "deepfire";
+      ds = gh "deepshared";
+      io = repo: rev: s: subdir:
+           gh "input-output-hk" repo rev s "--subpath ${subdir}";
       io-on = x: l x (../ouroboros-network + "/${x}") "";
       # io-on = x: dontCheck (io "ouroboros-network" "edfdf732f051ac513277a83065b928a5db8e652c" "sha256:1qssfmixm88khcxmsn6zdg1bczwjgn7av47g3gmi06f0xf18xm7b" x);
-      io-mf = io "iohk-monitoring-framework" "6e3047f785efe874819e8654ab928b0d9e9ff499" "0jqig5csj6yqfndvx047pbyxyw40fjzp0i4wxhpdh6wjx5ykwy8w";
-      microlen = c "monadfix" "microlens"       "adec46f45a5feb8df15014124773e2bacd9f3afe" "sha256:00iach6gy3srv66dshjzlrdlxhbmzw9mhlk7f6shspz778sf45j0";
-      sop = c "well-typed" "generics-sop"       "770bf3fb50b2fa8ea5f33e3abcdc01a973ed3754" "sha256:0fn0555sc4lmd2rbddyypg90f4rwcprvvqg2rgd6ss59waflz61g";
+      io-mf = io "iohk-monitoring-framework" "65834fcfde3d86461a8f8525b04e4bdf9cc06e41" "0vlxfbfa4skagngwirx5fnyhl8bycskgk0gnhaawrbi3w9qxbd1s";
+      sop = gh "well-typed" "generics-sop"       "770bf3fb50b2fa8ea5f33e3abcdc01a973ed3754" "sha256:0fn0555sc4lmd2rbddyypg90f4rwcprvvqg2rgd6ss59waflz61g";
   in {
     ### Locals
     common                   = self.callCabal2nix "common" ./common {};
@@ -57,18 +56,8 @@ in (import ./../reflex-platform {
     typed-protocols-examples = io-on "typed-protocols-examples";
 
     ### Externals
-    ## 0.4 (that comes in Nixpkgs with for 8.8) doesn't have Generic instances.
-    algebraic-graphs         = dontCheck (c "snowleopard" "alga" "d6a91d10a8132d93c4ba7004e8dd15692a4ab8b0" "02pgdykdndnizga9b92cpp2nby4lhq4vd7nx94jpmxc57fg871s4" "");
-    ## 0.2.2.0 is buggy wrt. SomeTypeRep, and is what we get from Nixpkgs
-    cborg                    = dontCheck (c "well-typed" "cborg" "44163bd78da5e80e5ec90f7c66f3ebf4d19db6f8" "0s4hvn3b3addm1fb9g8dkrkqihpv2h0vmiqdz6f6px24hsh4w5kb" "--subpath cborg");
-    serialise                = dontCheck (c "well-typed" "cborg" "44163bd78da5e80e5ec90f7c66f3ebf4d19db6f8" "0s4hvn3b3addm1fb9g8dkrkqihpv2h0vmiqdz6f6px24hsh4w5kb" "--subpath serialise");
-    patch                    = dontCheck old.patch;
-    quiet                    = c "jacobstanley" "quiet"
-                             "f5f551d5f71541f68c3379178a359e768a1c8c81"
-                             "18kgybc9wdyjcpy73j3wfdkzmrd1i19zwb6hxcp4xd3r442jv93l"
-                             "";
-    reflex                   = dontCheck old.reflex;
-    reflex-vty               = l "reflex-vty" ../reflex-vty "";
+    parsers-megaparsec         = simp (unbreak "parsers-megaparsec");
+    ghc-lib-parser             = self.callHackage "ghc-lib-parser" "8.10.2.20200916" {};
 
     ### Luna IDE
     frontend-common       = dontCheck (doJailbreak (self.callCabal2nix "frontend-common"           ./lib                           {}));

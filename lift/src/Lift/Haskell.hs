@@ -41,7 +41,6 @@ import           FileCleanup
 import           GHC hiding (Module, Name)
 import           GHC.LanguageExtensions
 import           HeaderInfo
-import           HsSyn
 import           HscTypes
 import           Lexer
 import           Outputable
@@ -50,7 +49,6 @@ import qualified Parser
 import           Panic
 import           Panic
 import           PipelineMonad
-import           Platform
 import           Prelude
 import           Pretty
 import           RdrName
@@ -103,15 +101,19 @@ fileToModule
   -> IO (Fallible Module)
 
 fileToModule libDir hsFile = do
-  let parseErr (PFailed _ _ x) = pack $ showSDocUnsafe x
-      parseErr _               = ""
-  (,) dflags parseR <-
-    catchIO ( second (id &&& parseErr) <$> fileToHsModule libDir hsFile) $
-    pure . (error "fileToModule",) . (PFailed (error "fileToModule") (error "fileToModule") (error "fileToModule"),)
-         . pack . show
-  case parseR of
-    (PFailed _ _ _, err) -> fallM $ err
-    (POk _s m, _) -> do
+  let parseErr df (PFailed ps) = pack $ show $
+                                 mconcat $ fmap showSDocUnsafe $
+                                 pprErrMsgBagWithLoc $ getErrorMessages ps df
+      parseErr _ _ = ""
+  mRes <- catchIO
+      (fileToHsModule libDir hsFile <&>
+       \(dflags, res) ->
+         Right (dflags, (res, parseErr dflags res)))
+      (pure . Left . pack . show)
+  case mRes of
+    Left err -> fallM err
+    Right (_, (PFailed ps, err)) -> fallM $ err
+    Right (dflags, (POk _s m, _)) -> do
       -- liftIO $ printSDocLn PageMode dflags stdout (mkCodeStyle CStyle) $ ppr m
       pure . Right $ liftHsModule dflags m
 
