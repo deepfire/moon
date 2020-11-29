@@ -7,6 +7,7 @@ module Basis
   , module Control.Concurrent.STM
   , module Control.DeepSeq
   , module Control.Monad
+  , module Control.Monad.Fix
   , module Control.Monad.Trans.Except
   , module Control.Monad.Trans.Except.Exit
   , module Control.Monad.Trans.Except.Extra
@@ -41,6 +42,7 @@ module Basis
   , module Data.SOP.Constraint
   , module Data.String
   , module Data.Text
+  , module Data.These
   , module Data.Tuple.Extra
   , module Data.Type.Equality
   , module Data.Type.List
@@ -49,6 +51,7 @@ module Basis
   , module Debug.Trace
   , module Debug.TraceErr
   , module Generics.SOP
+  , module Quiet
   , module Text.Printf
   , module Text.Read
   , module Type.Reflection
@@ -65,6 +68,7 @@ import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, firs
 import Control.Concurrent.STM     (STM, atomically)
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (foldM, join, mapM, mapM_, forM, forM_, when, unless, void)
+import Control.Monad.Fix          (MonadFix)
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Except.Exit (orDie)
 import Control.Monad.Trans.Except.Extra (firstExceptT, handleIOExceptT, hoistEither, newExceptT, runExceptT)
@@ -98,6 +102,7 @@ import Data.SOP.Dict              (Dict(..))
 import Data.SOP.Constraint        (Head, Tail)
 import Data.String                (IsString)
 import Data.Text                  (Text, pack, unpack)
+import Data.These
 import Data.Tuple.Extra           (fst3, snd3, thd3, uncurry3)
 import Data.Type.Equality         ((:~:)(..), (:~~:)(..))
 import Data.Type.List             (spineConstraint)
@@ -107,6 +112,7 @@ import Debug.Trace                (trace, traceM)
 import Debug.TraceErr             (traceErr, traceIOErr)
 import Generics.SOP               (All, All2, And, Compose, Code, NP(..), NS, Top
                                   , I(..), unI, K(..), unK)
+import Quiet
 import Text.Printf                (printf)
 import Text.Read                  (Read(..))
 import Type.Reflection            ((:~:)(..), (:~~:)(..),
@@ -234,8 +240,26 @@ lcons3 a (b, c, d) = (a, b, c, d)
 luncons3 :: (a, b, c) -> (a, (b, c))
 luncons3 (a, b, c) = (a, (b, c))
 
+runcons3 :: (a, b, c) -> ((a, b), c)
+runcons3 (a, b, c) = ((a, b), c)
+
+lpop3 :: (a, b, c) -> (b, c)
+lpop3 (_, b, c) = (b, c)
+
 rpop3 :: (a, b, c) -> (a, b)
 rpop3 (a, b, _) = (a, b)
+
+luncons4 :: (a, b, c, d) -> (a, (b, c, d))
+luncons4 (a, b, c, d) = (a, (b, c, d))
+
+runcons4 :: (a, b, c, d) -> ((a, b, c), d)
+runcons4 (a, b, c, d) = ((a, b, c), d)
+
+lpop4 :: (a, b, c, d) -> (b, c, d)
+lpop4 (_, b, c, d) = (b, c, d)
+
+rpop4 :: (a, b, c, d) -> (a, b, c)
+rpop4 (a, b, c, _) = (a, b, c)
 
 listTyCon, tuple2TyCon, tuple3TyCon, charTyCon :: GHC.TyCon
 listTyCon   = Refl.typeRepTyCon $ typeRep @[()]
@@ -245,3 +269,25 @@ charTyCon   = Refl.typeRepTyCon $ typeRep @Char
 
 stderr :: Tracer IO Text
 stderr = Tracer $ traceIOErr . T.unpack
+
+
+eitherOfThese :: These a b -> Maybe (Either a b)
+eitherOfThese = \case
+  This a -> Just $ Left a
+  That b -> Just $ Right b
+  _ -> Nothing
+
+eitherOfTheseR :: These a b -> Either a b
+eitherOfTheseR = \case
+  This a -> Left a
+  That b -> Right b
+  These _ b -> Right b
+
+eitherOfTheseL :: These a b -> Either a b
+eitherOfTheseL = \case
+  This a -> Left a
+  That b -> Right b
+  These a _ -> Left a
+
+showT :: Show a => a -> Text
+showT = pack . show

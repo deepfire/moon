@@ -1,19 +1,19 @@
+:set -XBlockArguments
+:set -XLambdaCase
 :set -XOverloadedStrings
 :set -XPackageImports
+:set -XTupleSections
 
-import           Control.Applicative                ((<|>))
+import Control.Applicative (some)
 
-import "common" Type as T hiding ((<|>))
+import Text.Megaparsec (runParserT, eof, parseTest)
+import Text.Megaparsec.Char (string)
+import Text.Megaparsec.Parsers (unParsecT, sepBy1)
+import Text.Parser.Token
 
-import Basis
-import Pipe
-import Namespace
+import Data.Parsing
 
-import Pipe.Expr as Pipe
-import Data.Sequence as Seq
-import Data.Text.Zipper as TZ
-import Data.Map.Monoidal.Strict as MMap
+import Dom.RequestReply
 
--- import Ground.Parser as G
--- import Text.Parsec as P hiding ((<|>))
--- import Text.Parsec.Expr as P hiding ((<|>))
+import Ground.Expr
+import Ground.Table

@@ -169,6 +169,11 @@ alterSpace fqname ns f =
         alterSpaceScope
         (failNoEntity "scope" (coerceQName scName)
          $ (sequence . Just <$>)
+         $ trace (unpack $ mconcat
+                  [ "alterSpace: scope=", showQName scName
+                  , ", name=", showName name
+                  , ", fqname=", showQName fqname
+                  ])
          $ alterScope f name)
         scName ns
 

@@ -2,7 +2,6 @@
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeInType                 #-}
-{-# LANGUAGE UnboxedTuples              #-}
 module Data.Dict (module Data.Dict) where
 
 import           Data.Kind                          (Constraint, Type)

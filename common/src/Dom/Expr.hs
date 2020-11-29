@@ -5,16 +5,16 @@ import           Control.Monad                      (foldM)
 import           Data.Either                        (partitionEithers)
 import qualified Data.IntervalMap.FingerTree      as IMap
 import           Data.Text                          (Text, pack)
-import           Data.Typeable                      (Proxy, Typeable, (:~:)(..), (:~~:)(..))
+import           Data.Typeable                      (Typeable)
 import           GHC.Generics                       (Generic)
 import           Text.Read                          (Read(..))
+import           Quiet
 
-import Data.Orphanage
 import Data.Parsing
+import Data.Orphanage
 
 import Dom.Located
 import Dom.SomeValue
-import Dom.Value
 
 
 --------------------------------------------------------------------------------
@@ -37,18 +37,13 @@ data Expr p where
     , coG :: Expr p
     } -> Expr p
   deriving (Foldable, Functor, Generic, Traversable)
+  deriving (Show) via (Quiet (Expr p))
+
+instance Typeable p => Read (Expr p) where readPrec = failRead
 
 --------------------------------------------------------------------------------
 -- * Instances
 --
-instance Typeable p => Read (Expr p) where readPrec = failRead
-
-instance Show p => Show (Expr p) where
-  show (PVal    x) =   "Val "<>show x
-  show (PPipe   x) =  "Pipe "<>show x
-  show (PApp  f x) =  "App ("<>show f<>") ("<>show x<>")"
-  show (PComp f g) = "Comp ("<>show f<>") ("<>show g<>")"
-
 instance Serialise p => Serialise (Expr p)
 
 --------------------------------------------------------------------------------
@@ -64,9 +59,9 @@ parseExpr litParser nameParser =
   comps
  where
    term
-     =   parens comps
-     <|> (pure . PVal  <$> parseSomeValue litParser)
-     <|> (pure . PPipe <$> nameParser)
+     =   try (pure . PVal  <$> parseSomeValue litParser)
+     <|> try (parens comps)
+     <|>     (pure . PPipe <$> nameParser)
    applys = do
      xss <- some term
      case xss of

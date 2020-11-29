@@ -78,13 +78,13 @@ mkData (ADTDesc _ _ (ADT modname ty _) ctors) =
   Data (pack modname) (pack ty)
        (collapse_NP
         (cliftA_NP (Proxy @(All (And Typeable c)))
-         (K . (mkCtor @u @c))
+         (K . mkCtor @u @c)
          (ctors :: NP (CtorDesc u c) xss)))
 mkData (ADTDesc _ _ (Newtype modname ty _) ctors) =
   Data (pack modname) (pack ty)
        (collapse_NP
         (cliftA_NP (Proxy @(All (And Typeable c)))
-         (K . (mkCtor @u @c))
+         (K . mkCtor @u @c)
          (ctors :: NP (CtorDesc u c) xss)))
 
 data Ctor  (f :: Form) (c :: Type -> Constraint) u = Ctor
@@ -100,17 +100,17 @@ mkCtor
 mkCtor (CtorDesc _ _ (Constructor name) fields) =
   Ctor (pack name)
        (hcollapse $ hcliftA (Proxy @(And Typeable c))
-         (K . (mkField @u))
+         (K . mkField @u)
          fields)
 mkCtor (CtorDesc _ _ (Record cname _finfos) fields) =
   Ctor (pack cname)
        (hcollapse $ hcliftA (Proxy @(And Typeable c))
-         (K . (mkField @u))
+         (K . mkField @u)
          fields)
 mkCtor (CtorDesc _ _ (Infix name _ass _fix) fields) =
   Ctor (pack name)
        (hcollapse $ hcliftA (Proxy @(And Typeable c))
-         (K . (mkField @u))
+         (K . mkField @u)
          fields)
 
 -- WTF:

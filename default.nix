@@ -63,6 +63,10 @@ in (import ./../reflex-platform {
     cborg                    = dontCheck (c "well-typed" "cborg" "44163bd78da5e80e5ec90f7c66f3ebf4d19db6f8" "0s4hvn3b3addm1fb9g8dkrkqihpv2h0vmiqdz6f6px24hsh4w5kb" "--subpath cborg");
     serialise                = dontCheck (c "well-typed" "cborg" "44163bd78da5e80e5ec90f7c66f3ebf4d19db6f8" "0s4hvn3b3addm1fb9g8dkrkqihpv2h0vmiqdz6f6px24hsh4w5kb" "--subpath serialise");
     patch                    = dontCheck old.patch;
+    quiet                    = c "jacobstanley" "quiet"
+                             "f5f551d5f71541f68c3379178a359e768a1c8c81"
+                             "18kgybc9wdyjcpy73j3wfdkzmrd1i19zwb6hxcp4xd3r442jv93l"
+                             "";
     reflex                   = dontCheck old.reflex;
     reflex-vty               = l "reflex-vty" ../reflex-vty "";
 

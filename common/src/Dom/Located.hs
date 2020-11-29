@@ -8,7 +8,7 @@ import           Codec.Serialise                    (Serialise)
 import           Data.IntervalMap.FingerTree        (Interval(..))
 import           GHC.Generics                       (Generic)
 
-import Data.Orphanage
+import Data.Orphanage ()
 
 
 --------------------------------------------------------------------------------

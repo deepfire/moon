@@ -5,6 +5,7 @@ import qualified Data.Dependent.Map                     as DMap
 import Reflex
 
 import Dom.CTag
+import Dom.Pipe.EPipe
 import Dom.SomeValue
 import Dom.Value
 import Dom.VTag
@@ -12,17 +13,31 @@ import Dom.VTag
 import Ground.Table ()
 
 
+--------------------------------------------------------------------------------
+-- * EPipe
+--
+newtype Wrap f a c =
+  Wrap { unWrap :: f (a c) }
+
 splitSVByKinds ::
-  forall t. (Reflex t)
-  => Event t SomeValue
-  -> EventSelectorG t CTag SomeValueKinded
-splitSVByKinds =
-  fanG . fmap (\(SomeValue t v) -> DMap.singleton t v)
+  forall t c. (Reflex t)
+  => CTag c
+  -> Event t (PFallible SomeValue)
+  -> EventSelectorG t CTag (Wrap PFallible SomeValueKinded)
+splitSVByKinds et =
+  fanG . fmap (\case
+                  Right (SomeValue t v) -> DMap.singleton t (Wrap $ Right v)
+                  Left e -> DMap.singleton et (Wrap $ Left e))
 
 splitSVKByTypes ::
-     forall (c :: Con) t. (ReifyCTag c, Reflex t)
-  => Event t (SomeValueKinded c)
-  -> EventSelectorG t (VTag' ()) (Value c)
-splitSVKByTypes =
-  fanG . fmap (\(SomeValueKinded t v) -> DMap.singleton t v)
+     forall t (c :: Con) v. (ReifyCTag c, Reflex t)
+  => VTag v
+  -> Event t (Wrap PFallible SomeValueKinded c)
+  -> EventSelectorG t (VTag' ()) (Wrap PFallible (Value c))
+splitSVKByTypes et =
+  fanG . fmap (\case
+                  Wrap (Right (SomeValueKinded t v)) ->
+                    DMap.singleton  t (Wrap $ Right v)
+                  Wrap (Left e) ->
+                    DMap.singleton et (Wrap $ Left e))
 

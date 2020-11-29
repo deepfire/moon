@@ -11,8 +11,11 @@ cli vty:
 	cabal exec   $@ 2>stderr.log || true
 	cat stderr.log
 
-exec exe:
-	cabal run -- exe:lift exec run 'strlen "a"'
+ghci-parse:
+	true ## cabal v2-repl cli -O0
+	cabal v2-repl cli -O0 --repl-options=-ghci-script=lift/.ghci.parse
+	true ## cabal v2-repl cli -O0 --ghc-option -ghci-script=lift/.ghci.parse
+	true ## Why the fucking hell does that not load the specified file?
 
 debug:
 	cabal --ghc-options=-dshow-passes --ghc-options=-dppr-debug --ghc-options=-ddump-rn --ghc-options=-ddump-tc build 'exe:cli'

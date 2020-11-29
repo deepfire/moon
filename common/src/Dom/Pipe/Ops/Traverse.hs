@@ -11,6 +11,7 @@ import Dom.CTag
 import Dom.Error
 import Dom.Name
 import Dom.Pipe
+import Dom.Pipe.EPipe
 import Dom.Pipe.Constr
 import Dom.Pipe.IOA
 import Dom.Pipe.SomePipe
@@ -48,7 +49,7 @@ traverseP ::
         , ro  ~ Types tt    b
         )
       => Desc cf fas fo -> p -> Desc ct tas to -> p -> Fallible p)
-  -> SomePipe p -> SomePipe p -> Fallible (SomePipe p)
+  -> SomePipe p -> SomePipe p -> PFallible (SomePipe p)
 traverseP _ _ = undefined
   -- case f of
   --   G f' ->

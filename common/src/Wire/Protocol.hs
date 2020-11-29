@@ -19,7 +19,6 @@ import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
-import           Type.Reflection
 
 import qualified Codec.CBOR.Read                  as CBOR
 import qualified Codec.CBOR.Write                 as CBOR
@@ -30,9 +29,7 @@ import           Network.TypedProtocol.Codec hiding (encode, decode)
 import           Network.TypedProtocol.Core         (Protocol(..))
 
 import Basis
-import Dom.Name
 import Dom.RequestReply
-import Dom.SomeValue
 
 
 --------------------------------------------------------------------------------
@@ -52,10 +49,10 @@ instance Show (ServerHasAgency (st :: Piping rej)) where show TokBusy = "TokBusy
 --
 instance Protocol (Piping rej) where
   data Message (Piping rej) from to where
-    MsgRequest    :: Request  -> Message (Piping rej) StIdle StBusy
-    MsgReply      :: Reply    -> Message (Piping rej) StBusy StIdle
-    MsgBadRequest ::      rej -> Message (Piping rej) StBusy StIdle
-    MsgDone       ::             Message (Piping rej) StIdle StDone
+    MsgRequest    :: StandardRequest -> Message (Piping rej) StIdle StBusy
+    MsgReply      :: Reply           -> Message (Piping rej) StBusy StIdle
+    MsgBadRequest ::       rej       -> Message (Piping rej) StBusy StIdle
+    MsgDone       ::                    Message (Piping rej) StIdle StDone
 
   data ClientHasAgency st where TokIdle :: ClientHasAgency StIdle
   data ServerHasAgency st where TokBusy :: ServerHasAgency StBusy
@@ -126,11 +123,11 @@ mkCodecCborLazyBS'  cborMsgEncode cborMsgDecode =
       :: (forall s. Decoder s a)
       -> m (DecodeStep LBS.ByteString CBOR.DeserialiseFailure m a)
     convertCborDecoder cborDecode =
-        (convertCborDecoderLBS cborDecode stToIO)
+        convertCborDecoderLBS cborDecode stToIO
 
 convertCborDecoderLBS
   :: forall s m a. Monad m
-  => (Decoder s a)
+  => Decoder s a
   -> (forall b. ST s b -> m b)
   -> m (DecodeStep LBS.ByteString CBOR.DeserialiseFailure m a)
 convertCborDecoderLBS cborDecode liftST =

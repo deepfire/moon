@@ -1,5 +1,5 @@
 --{-# OPTIONS_GHC -dshow-passes -dppr-debug -ddump-rn -ddump-tc #-}
-{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wall -Wno-name-shadowing -Wno-unticked-promoted-constructors#-}
 
 import qualified Control.Concurrent.Async               as Async
 import           Control.Concurrent.Chan.Unagi            (InChan, OutChan)
@@ -9,6 +9,8 @@ import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Fix
 import           Control.Monad.NodeId
 import           Control.Tracer                           (Tracer(..), traceWith)
+import           Data.Char                                (isDigit)
+import           Data.Semialign                           (align)
 import           Data.Text                                (Text)
 
 import           Reflex                            hiding (Request)
@@ -28,35 +30,34 @@ import Debug.Reflex
 -- import Debug.TraceErr
 
 import Dom.CTag
-import Dom.Command
 import Dom.Error
 import Dom.Expr
-import Dom.Ground
 import Dom.Located
 import Dom.Name
 import Dom.Pipe
+import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
+import Dom.RequestReply
 import Dom.Scope
 import Dom.Sig
 import Dom.SomeType
 import Dom.SomeValue
 import Dom.Space
 import Dom.Space.Pipe
-import Dom.Space.SomePipe
 import Dom.Value
-import Dom.VTag
 
-import Ground.Expr
 import Ground.Table
 
-import qualified Wire.Peer                        as Wire
-import qualified Wire.Protocol                    as Wire
+import qualified Wire.Peer                              as Wire
+import qualified Wire.Protocol                          as Wire
 
 import Lift hiding (main)
 import Lift.Pipe
 
 import Reflex.SomeValue
+
+import Execution
 
 
 
@@ -72,9 +73,9 @@ reflexVtyApp = do
   (exeSendW, exeSendR) :: (InChan (Execution t), OutChan (Execution t)) <-
     liftIO Unagi.newChan
 
-  getPostBuild
+  (getPostBuild <&> trevs "======= reflexVtyApp: reflexVtyApp started =======")
     >>= spawnHostChatterThread stderr hostAddr exeSendR
-    >>= spaceInteraction (Unagi.writeChan exeSendW)
+    >>= spaceInteraction . ExecutionPort (Unagi.writeChan exeSendW)
  where
    -- XXX:  yeah, deal with that
    hostAddr = WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
@@ -84,12 +85,12 @@ reflexVtyApp = do
      -> WSAddr
      -> OutChan (Execution t)
      -> Event t ()
-     -> VtyWidget t m (Event t SomeValue)
+     -> VtyWidget t m (Event t (PFallible SomeValue))
    spawnHostChatterThread tr WSAddr{..} exeSendW postBuild =
      performEventAsync $
-       ffor postBuild $ \_ fire -> liftIO $
+       ffor postBuild \_ fire -> liftIO $
          (Async.link =<<) . Async.async $
-           WS.runClient wsaHost wsaPort wsaPath $
+           WS.runClient wsaHost wsaPort wsaPath
              \(channelFromWebsocket -> webSockChan) ->
                void $ Wire.runClient tr webSockChan $
                  client tr fire exeSendW
@@ -101,23 +102,10 @@ data WSAddr
   , wsaPath :: String
   }
 
-data Execution t =
-  forall c a.
-  (Typeable c, Typeable a, Show a) =>
-  Execution
-  { eResCTag  :: CTag c
-  , eResVTag  :: VTag a
-  , eText     :: Text
-  , eExpr     :: Expr (Located (QName Pipe))
-  -- TODO:  what does it mean for eText not to correspond to eExpr?
-  --        a need for a smart constructor?
-  , eReply    :: Event t (Value c a)
-  }
-
 client :: forall rej m a t
-          . (rej ~ Error, m ~ IO, a ~ Wire.Reply)
+          . (rej ~ EPipe, m ~ IO, a ~ Wire.Reply)
        => Tracer m Text
-       -> (SomeValue -> IO ())
+       -> (PFallible SomeValue -> IO ())
        -> OutChan (Execution t)
        -> m (Wire.ClientState rej m a)
 client tr fire reqsChan =
@@ -126,367 +114,298 @@ client tr fire reqsChan =
    go :: m (Wire.ClientState rej m a)
    go = do
      exe <- Unagi.readChan reqsChan
-     pure . Wire.ClientRequesting (Wire.Run $ eExpr exe)
-          . handleReply $ handler exe
-
-   handler :: Execution t -> Wire.Reply -> IO ()
-   handler Execution{..} (Wire.ReplyValue rep) =
-     case withSomeValue eResCTag eResVTag rep stripValue of
-       Right{} -> fire rep
-       Left (Error e) -> fail . unpack $
-         "Server response doesn't match Execution: " <> e
+     pure . Wire.ClientRequesting (eRequest exe)
+          . handleReply $ handleExecution fire exe
 
    handleReply
-     :: (Wire.Reply -> IO ())
-     -> Fallible Wire.Reply
+     :: (PFallible Wire.Reply -> IO ())
+     -> PFallible Wire.Reply
      -> IO (Wire.ClientState rej IO Wire.Reply)
-   handleReply _      x@(Left (Error e)) = traceWith tr' x >>               go
-   handleReply handle x@(Right rep)      = traceWith tr' x >> handle rep >> go
+   handleReply handle x = traceWith tr' x >> handle x >> go
 
-   tr' :: Tracer m (Either Error a)
-   tr' = Tracer $ traceWith tr . \case
-     Left (Error x) -> "error: " <> x
+   tr' :: Tracer m (PFallible a)
+   tr' = Tracer $ traceWith tr . presError
+   presError = \case
+     Left ep -> "error: " <> showError (unEPipe ep)
      Right x -> "reply: " <> pack (show x)
 
-data Assembly
-  = Runnable
-    { aText  :: !Text
-    , aExpr  :: !(Expr (Located (QName Pipe)))
-    -- XXX: this is a terrible conflation:
-    --      one does not describe the other!
-    , aPipe  :: !(SomePipe ())
-    }
-  | Incomplete
-    { aError :: !Error
-    }
-
-compileAssembly ::
-     (QName Pipe -> Maybe (SomePipe ()))
-  -> Acceptable
-  -> Fallible Assembly
-compileAssembly look = \case
-  AAssembly a -> enrich a <$> compile opsDesc look (aExpr a)
-  _ -> fall "Not a pipe"
- where enrich a p = a { aPipe = p }
-
-instance Show Assembly where
-  show = \case
-    Runnable{..} -> "#<ASM " <> show aExpr <> ">"
-    Incomplete e -> unpack $ showError e
-
 data Acceptable
-  = AAssembly { unAAssembly :: !Assembly }
-  | AScope { unAScope :: !(PointScope (SomePipe ())) }
+  = APipe  !(SomePipe ())
+  | AScope !(PointScope (SomePipe ()))
 
 instance Show Acceptable where
-  show = \case
-    AAssembly r -> show $ aExpr r
-    AScope x -> "Scope " <> T.unpack (showName (scopeName x))
+  show x = T.unpack $ case x of
+    APipe{}  -> "Pipe "  <> acceptablePresent x
+    AScope{} -> "Scope " <> acceptablePresent x
 
 acceptablePresent :: Acceptable -> Text
 acceptablePresent = \case
-  AAssembly r -> showQName . somePipeQName $ aPipe r
+  APipe  x -> showQName . somePipeQName $ x
   AScope x -> showName . scopeName $ x
-
-acceptableName :: Acceptable -> Name Pipe
-acceptableName = \case
-  AAssembly r -> somePipeName $ aPipe r
-  AScope x -> coerceName . scopeName $ x
-
-type Acceptance
-  = Fallible (Expr (QName Pipe), Expr (Located (PartPipe ())))
 
 spaceInteraction ::
      forall    t m
   .  (ReflexVty t m, PerformEvent t m, MonadIO (Performable m), MonadIO m)
-  => (Execution t -> IO ())
-  -> Event t SomeValue
+  => ExecutionPort t
   -> VtyWidget t m (Event t ())
-spaceInteraction postExe someValueRepliesE = mdo
+spaceInteraction ep@ExecutionPort{..} = mdo
   -- First -- ask for some space.
-  liftIO $ postExe (Execution TPoint VPipeSpace "space" "space" never)
+  liftIO $ postExecution ep $
+    Execution TPoint VPipeSpace "space" "space" (Run "space") never
 
-  let pointRepliesE :: Event t (SomeValueKinded Point)
-      pointRepliesE = selectG (splitSVByKinds someValueRepliesE) TPoint
-
-      spacePointRepliesE :: Event t (Value Point (PipeSpace (SomePipe ())))
-      spacePointRepliesE = selectG (splitSVKByTypes pointRepliesE) VPipeSpace
-
+  let pointRepliesE :: Event t (Wrap PFallible SomeValueKinded Point)
+      pointRepliesE = selectG (splitSVByKinds TPoint epReplies) TPoint
+      spacePointRepliesE :: Event t (PFallible (Value Point (PipeSpace (SomePipe ()))))
+      spacePointRepliesE =
+        unWrap <$> selectG (splitSVKByTypes VPipeSpace pointRepliesE) VPipeSpace
   -- server -> spaceD
   spaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
-    holdDyn mempty (stripValue <$> spacePointRepliesE)
+    holdDyn mempty (stripValue <$> snd (fanEither spacePointRepliesE))
 
-  runnableD :: Dynamic t (Fallible Assembly) <-
-    holdDyn (Left $ Error "- no pipe -") $
-    attach (current spaceD) (selrAccepted selr)
-    <&> uncurry (\spc acceptedAsm ->
-                   compileAssembly (lookupSomePipe spc) acceptedAsm)
+  let (failRunnablE  :: Event t EPipe,
+       maybeRunnablE :: Event t (Runnable I)) =
+        fanEither (updated $ finaliseRunnable <$> fMaybeRunnableD)
 
-    -- accD <- holdDyn Nothing (Just <$> selrAccepted selr)
-    -- (\acc spc -> Just $ runnablePipe (lookupSomePipe spc) acc)
-    --   <$> accD
-    --   <*> spaceD
-    -- >>= holdUniqDyn
-
-  let constraintD :: Dynamic t (Maybe SomeTypeRep)
-      constraintD = -- trdyn (\c-> mconcat ["choice: ", show c])
-                    runnableD
-                    <&> (fmap (aPipe >>> somePipeOutSomeCTagType >>> snd)
-                         >>> either (const Nothing) Just)
-      pipesFromD :: Dynamic t [SomePipe ()]
-      pipesFromD  = zipDynWith pipesFromCstr spaceD constraintD
-                    <&> sortBy (compare `on` somePipeName)
-
-  -- Ok, so
-  -- One problem is that the selector is apparently only triggered
-  -- on what it considers significant event, like completion.  Whew!
-  --
-  -- Another problem is that runnableD fires even if we don't have
-  -- a complete pipe to run.
+  -- maybeRunnablE | filter isRight -> executionE
   executionE :: Event t (Execution t)
     <- fmap catMaybes . performEvent $
-       (updated (trdyn (("runnable: "<>) . show) runnableD) <&>) $
-       either (pure . const Nothing) $
-       \case
-         Runnable{..} ->
-           case withSomeGroundPipe aPipe $
-                 \(Pipe{pDesc} :: Pipe Ground kas o ()) ->
-                   let ctag = descOutCTag pDesc :: CTag (TypesC o)
-                       vtag = descOutVTag pDesc :: VTag (TypesV o)
-       -- Runnable -> Execution
-                   in Execution ctag vtag aText aExpr $
-                        selectG (splitSVKByTypes $ selectG (splitSVByKinds someValueRepliesE) ctag) vtag of
-             Just exe -> do
-               liftIO $ postExe exe
-               pure $ Just exe
-             Nothing ->
-               pure Nothing
-         _ -> pure Nothing
+       (maybeRunnablE <&>) $
+       liftIO .
+       (\case
+          r@Runnable{..} ->
+            maybe (pure $ error "runnableExecution returned Nothing")
+            (\e -> postExecution ep e >> pure (Just e)) $
+              runnableExecution ep r)
 
-  ((((selrFrameParamsD, selr), _), _), _) <-
-    splitV (pure (\x->x-8)) (pure $ join (,) True)
-           (splitH (pure $ flip div 2) (pure $ join (,) True)
-                   (splitV (pure (\x->x-2)) (pure $ join (,) True)
-                      (selectorWidget spaceD (execResSummaryWidget executionE))
-                      blank)
-                   (presentWidget executionE))
-           (feedbackWidget
-             selrFrameParamsD
-             pipesFromD
-             constraintD
-             runnableD)
+  fMaybeRunnableD :: Dynamic t (PFallible (Runnable PFallible)) <-
+    holdUniqDynBy eqFRunnable =<<
+    mainSceneWidget
+      (pipeEditorWidget spaceD
+        (summaryWidget executionE failRunnablE))
+      (presentExecution
+        (trevs "-- spaceInteraction: new execution" executionE) >> pure ())
+      (feedbackWidget
+        pipesFromD
+        constraintD
+        fMaybeRunnableD)
+
+  let -- runnableD -> constraintD
+      constraintD :: Dynamic t (Maybe SomeTypeRep) =
+        -- trdyn (\c-> mconcat ["choice: ", show c])
+        fMaybeRunnableD <&>
+          (fmap (rPipe
+                  >>> fmap (somePipeOutSomeCTagType >>> snd)
+                  >>> eitherToMaybe)
+           >>> eitherToMaybe
+           >>> join)
+
+  let -- spaceD + constraintD -> pipesFromD
+      pipesFromD :: Dynamic t [SomePipe ()] =
+        zipDynWith pipesFromCstr spaceD constraintD
+          <&> sortBy (compare `on` somePipeName)
 
   exitOnTheEndOf input
 
  where
-   execResSummaryWidget ::
-        Event t (Execution t)
-     -> VtyWidget t m ()
-   execResSummaryWidget exE = do
-     networkHold (res $ presentText "-- no valid pipe --") $
-       exE <&> \e -> res $
-           withExecutionReply
-             (pres . fmap (("• " <>) . showT . stripValue))
-             (pres . fmap (("list of " <>) . showT . length . stripValue))
-             (pres . fmap (("set of " <>) . showT . length . stripValue))
-             (const $ presentText "tree")
-             (const $ presentText "dag")
-             (const $ presentText "graph")
-             e
-     pure ()
-    where
-      res x = row $ do
-        width <- displayWidth
-        fixed (pure 8) $
-          richTextStatic blue (pure "Result: ")
-        fixed (width - 8) x
-      pres = presentTextE "-- no data yet --"
+   finaliseRunnable ::
+        PFallible (Runnable PFallible)
+     -> PFallible (Runnable I)
+   finaliseRunnable = either Left $
+     \r@Runnable{..} -> do
+         pipe <- rPipe
+         void $ maybeLeft checkPipeRunnability pipe
+         void rPExpr
+         pure r { rPipe = I pipe }
 
-   presentWidget ::
-        Event t (Execution t)
-     -> VtyWidget t m (Dynamic t ())
-   presentWidget exE =
-     networkHold
-       (boxStatic roundedBoxStyle $ presentText
-        "You are standing at the end of a road before a small brick building.") $
-       exE <&> \e@Execution{..} ->
-         boxTitle (pure roundedBoxStyle) (" "<>eText<>" ") $
-           withExecutionReply
-             presentPoint
-             (presentList . fmap stripValue)
-             (presentList . fmap stripValue)
-             (const $ presentText "trees not presentable yet")
-             (const $ presentText "DAGs not presentable yet")
-             (const $ presentText "graphs not presentable yet")
-             e
-
-   presentList :: Show a => Event t [a] -> VtyWidget t m ()
-   presentList e =
-     selectionMenu
-       (focusButton (buttonPresentText
-                      richTextFocusConfigDef
-                      showT)
-        >>> fmap fbFocused)
-       (Index 0)
-       e
-       <&> pure ()
-
-   presentPoint :: Show a => Event t (Value Point a) -> VtyWidget t m ()
-   presentPoint e =
-     text =<< hold "-- no data yet --" (e <&> pack . show . stripValue)
-
-   presentText :: Text -> VtyWidget t m ()
-   presentText = text . pure
-
-   presentTextE :: Text -> Event t Text -> VtyWidget t m ()
-   presentTextE def = (text =<<) . hold def
-
-   withExecutionReply ::
-        (forall a. Show a => Event t (Value Point a) -> b)
-     -> (forall a. Show a => Event t (Value List  a) -> b)
-     -> (forall a. Show a => Event t (Value 'Set  a) -> b)
-     -> (forall a. Show a => Event t (Value Tree  a) -> b)
-     -> (forall a. Show a => Event t (Value Dag   a) -> b)
-     -> (forall a. Show a => Event t (Value Graph a) -> b)
-     -> Execution t
-     -> b
-   withExecutionReply fp fl fs ft fd fg Execution{..} =
-     case eResCTag of
-       TPoint -> fp eReply
-       TList  -> fl eReply
-       TSet   -> fs eReply
-       TTree  -> ft eReply
-       TDag   -> fd eReply
-       TGraph -> fg eReply
-
-   feedbackWidget ::
-        Dynamic t (SelectorFrameParams t m Acceptable Acceptance)
-     -> Dynamic t [SomePipe ()]
-     -> Dynamic t (Maybe SomeTypeRep)
-     -> Dynamic t (Fallible Assembly)
-     -> VtyWidget t m ()
-   feedbackWidget selrFrameParamsD pipesFromD constraintD runnableD = do
-     let astExpE = selExt . sfpSelection <$> updated selrFrameParamsD
-
-     visD   <- holdDyn "" $ either showError (pack . show . snd) <$> astExpE
-     redD   <- hold ""    $ either showError (pack . show . fst) <$> astExpE
-     blueD  <- pure . current $ zipDynWith showCstrEnv constraintD pipesFromD
-     greenD <- hold ""    $ either showError (showT . aExpr)
-                              <$> updated runnableD
-
-     splitV (pure $ const 1) (pure $ join (,) True)
-       (richTextStatic yellow . current $
-         visD)
-      (splitV (pure $ const 3) (pure $ join (,) True)
-       (richTextStatic red $
-         redD)
-      (splitV (pure $ const 1) (pure $ join (,) True)
-       (richTextStatic blue $
-         blueD)
-      (richTextStatic green $
-         greenD)))
-
-     pure ()
-    where
-      showCstrEnv cstr pipes =
-        mconcat [ "pipes matching ", pack $ show cstr
-                , ": ", pack $ show (length pipes)
-                ]
-      showErr :: Error -> VtyWidget t m (Maybe (Execution t))
-      showErr =
-        (>> pure Nothing)
-        . boxTitle (pure roundedBoxStyle) "Error"
-        . text . pure . showError
-
-   selectorWidget ::
+   pipeEditorWidget ::
         Dynamic t (PipeSpace (SomePipe ()))
      -> VtyWidget t m ()
-     -> VtyWidget t m (Dynamic t (SelectorFrameParams t m Acceptable Acceptance),
-                       Selector t m Acceptable Acceptance)
-   selectorWidget spaceD summaryW = mdo
-     width <- displayWidth
+     -> VtyWidget t m (Dynamic t (PFallible (Runnable PFallible)))
+   pipeEditorWidget spaceD resultSummaryW = mdo
+     selrWidthD :: Dynamic t Width <- fmap Width <$> displayWidth
 
-     sfp0 :: SelectorFrameParams t m Acceptable Acceptance <-
-       selToSelrFrameParams
-         <$> sample (current spaceD)
-         <*> (Width <$> sample (current width))
-         <*> pure (emptySelection $ Left $ Error "")
+     -- Input (selrInputOfftComplD) guides selection among pipes of the space.
+     runnableAccbleD :: Dynamic t (PFallible (Runnable PFallible, [Acceptable])) <-
+       pure $
+         (\spc (rText, coln, _mcompld) ->
+            parseGroundRequest Nothing rText
+            >>= \rReq@(reqExpr -> rExpr) ->
+             let rPExpr :: PFallible (Expr (Located (PartPipe ()))) =
+                   analyse (lookupSomePipe spc) rExpr
+             in pure (Runnable{rPipe  = compile opsDesc (lookupSomePipe spc) rExpr
+                              ,..}
+                     ,either (const []) id $
+                      inputCompletionsForExprAndColumn spc coln rExpr <$> rPExpr))
+         <$> spaceD
+         <*> selrInputOfftComplD
 
-     sfpD :: Dynamic t (SelectorFrameParams t m Acceptable Acceptance) <- holdDyn sfp0 $
-       attachPromptlyDynWith rcons2
-         (zipDyn spaceD (Width <$> width))
-         (selrSelection selr)
-         <&> uncurry3 selToSelrFrameParams
+     accbleRightsD :: Dynamic t [Acceptable] <-
+       -- this ignores errors!
+       holdDyn [] (fmap snd . snd . fanEither $
+                   updated runnableAccbleD)
 
-     selr :: Selector t m Acceptable Acceptance <-
-       (selector sfpD summaryW
-        :: VtyWidget t m (Selector t m Acceptable Acceptance))
+     Selector{..} <- selector
+       SelectorParams
+       { sfpCompletep  = completion
+       , sfpShow       = acceptablePresent
+       , sfpPresent    = presentAcceptable $
+                           zipDyn selrWidthD accbleRightsD <&>
+                             uncurry (mkPipePresentCtx " :: ")
+       , sfpElemsE     = updated accbleRightsD
+       , sfpInsertW    = resultSummaryW
+       }
 
-     pure (sfpD, selr)
+     pure $ fmap fst <$> runnableAccbleD
 
-   red, blue, green, yellow :: V.Attr
-   (,,,) red blue green yellow =
-    (,,,) (foregro V.red) (foregro V.blue) (foregro V.green) (foregro V.yellow)
+   summaryWidget :: (Adjustable t m, PostBuild t m, MonadNodeId m, MonadHold t m, NotReady t m, MonadFix m)
+     => Event t (Execution t)
+     -> Event t EPipe
+     -> VtyWidget t m ()
+   summaryWidget exE locErrE =
+     void $ networkHold (pres red "Pipe: " $ text $ pure "-- no valid pipe --") $
+       align exE locErrE <&> \case
+         These _ _ -> error "summary -> align -> These exE frE -> Boom"
+         This exe  -> pres blue "Result: " $ presentExecutionSummary exe
+         That  err ->
+           case err of
+             EParse     e -> presErr red "Parse"     e
+             EAnal      e -> presErr red "Analysis"  e
+             EName      e -> presErr red "Name"      e
+             ECompile   e -> presErr red "Compile"   e
 
-   exitOnTheEndOf inp =
-    inp <&>
-      fmapMaybe
-        (\case
-            V.EvKey (V.KChar 'c') [V.MCtrl]
-              -> Just () -- terminate
-            _ -> Nothing)
+             ENonGround e -> presErr red "NonGround" e
+             EUnsat _ s o -> presUnsat "Args needed" s o
 
-selToSelrFrameParams :: forall t m
-   . (PostBuild t m, MonadNodeId m, MonadHold t m, MonadFix m)
-  => SomePipeSpace ()
-  -> Width
-  -> Selection
-       Acceptable
-       (Fallible ( Expr (QName Pipe)
-                 , Expr (Located (PartPipe ()))))
-  -> SelectorFrameParams t m Acceptable Acceptance
-selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} = either errFrameParams id $ do
+             EApply     e -> presErr red "Apply"     e
+             ETrav      e -> presErr red "Traverse"  e
+             EComp      e -> presErr red "Compose"   e
 
-  let focusChar = if T.length selInput >= coln && coln > 0 then T.index selInput (coln - 1) else 'Ø'
-      look = lookupSomePipe spc
+             EType      e -> presErr red "Type"      e
+             EExec      e -> presErr red "Runtime"   e
+          where
+            presErr col pfx = pres col (pfx <> ": ") . text . pure . showError
+            presUnsat desc args out = row $ do
+              let txt col t = fixed (pure $ T.length t) $
+                                richTextStatic col (pure t)
+              txt red (desc <> ": ")
+              txt white (head args & showSomeType False)
+              forM_ (tail args) $
+                (txt grey " -> " >>) . txt blue . showSomeType False
+              txt grey " -> "
+              txt grey (out & showSomeType False)
+    where
+      pres :: V.Attr -> Text -> VtyWidget t m a -> VtyWidget t m a
+      pres col pref x = row $ do
+        width <- displayWidth
+        let len = T.length pref
+        fixed (pure len) $
+          richTextStatic col (pure pref)
+        fixed (width <&> (\x->x-len)) x
 
-  cmd :: Command (Located (QName Pipe)) <- parseGroundCommand selInput
-  let ast = cmdExpr cmd
-  partPipe <- analyse look ast
+   feedbackWidget ::
+        Dynamic t [SomePipe ()]
+     -> Dynamic t (Maybe SomeTypeRep)
+     -> Dynamic t (PFallible (Runnable PFallible))
+     -> VtyWidget t m ()
+   feedbackWidget pipesFromD constraintD runnableD = do
+     -- visD   <- holdDyn "" $ either (showError . unEPipe) (pack . show . snd) <$> astExpE
+     -- redD   <- hold ""    $ either (showError . unEPipe) (pack . show . fst) <$> astExpE
+     blueD  <- pure . current $ zipDynWith showCstrEnv constraintD pipesFromD
+     redD   <- hold "" $ either (showError . unEPipe) (const "") <$> errOkE
+     greenD <- hold "" $ either (const "")       (showT . rExpr) <$> errOkE
 
-  let -- determine the completable
-      indexAst = indexLocated ast
-      indexPartPipe = indexLocated partPipe
-      inputName = fromMaybe mempty $ lookupLocated coln indexAst
-      inputPartPipe = lookupLocated coln indexPartPipe
-      -- componentise into scope name and tail
-      (scopeName, Name rawName) = unconsQName inputName &
-                                  fromMaybe (mempty, Name "")
-      -- determine the current scope
-      mScope = lookupSpaceScope (coerceQName scopeName) (psSpace spc)
-      -- determine immediate children of named scope, matching the stem restriction
-      subScNames = childPipeScopeQNamesAt (coerceQName scopeName) spc
-                   & Prelude.filter (T.isInfixOf rawName . showName . lastQName)
-      -- determine pipes within named scope
-      scPipes = selectFromScope
-                  (\k _ -> rawName `T.isInfixOf` showName k)
-                  <$> mScope
-                & fromMaybe mempty
-                & restrictByPartPipe inputPartPipe
-      subScopes = catMaybes $ flip pipeScopeAt spc <$> subScNames
-      --
-      sels = (AAssembly . Runnable selInput ast <$> scPipes)
-             -- So, here we're ignoring the _selected_ pipe,
-             -- only collecting the _accepted_ AST.
-             --
-             -- Important distinction.
-             <> (AScope <$> subScopes)
-      --
-      compR = compile opsDesc look ast
+     void $ splitV (pure $ const 1) (pure $ join (,) True)
+      (richTextStatic blue  blueD)
+      (richTextStatic   red redD >>
+       richTextStatic green greenD >> pure ())
+    where
+      errOkE = updated runnableD
+      showCstrEnv cstr pipes =
+        mconcat [ "pipes matching ",
+                  fromMaybe "Nothing" $ showSomeTypeRepNoKind <$> cstr
+                , ": ", pack $ show (length pipes)
+                ]
 
-  pure $ computeFrameParams (locVal <$> ast) partPipe sels
+   mainSceneWidget ::
+        VtyWidget t m (Dynamic t (PFallible (Runnable PFallible)))
+     -> VtyWidget t m ()
+     -> VtyWidget t m ()
+     -> VtyWidget t m (Dynamic t (PFallible (Runnable PFallible)))
+   mainSceneWidget editor executionResults feedback = do
+     (((runnable :: Dynamic t (PFallible (Runnable PFallible)),
+        _blank), _present),
+      _feedb) <-
+       splitV (pure $ \x->x-8) (pure $ join (,) True)
+              (splitH (pure $ flip div 2) (pure $ join (,) True)
+                      (splitV (pure \x->x-1) (pure $ join (,) True)
+                        editor
+                        blank)
+                      executionResults)
+              feedback
+     pure runnable
 
+   completion :: Maybe Char -> Char -> Acceptable -> Maybe Text
+   completion leftC newC acc =
+     let completable =
+           newC == ' ' ||
+           (newC == '.' && isJust leftC
+            && leftC /= Just ' '
+            && fmap isDigit leftC == Just False)
+     in if not completable
+        then Nothing
+        else Just $
+             case acc of -- yes, completion is context-dependent, huh!
+               AScope _ -> (<>           ".") $ acceptablePresent acc
+               APipe  _ -> (<> T.pack [newC]) $ acceptablePresent acc
+
+   eqFRunnable :: PFallible (Runnable p) -> PFallible (Runnable p) -> Bool
+   eqFRunnable (Right l) (Right r) =
+     rText l == rText r
+   eqFRunnable _ _ = False
+
+inputCompletionsForExprAndColumn ::
+     PipeSpace (SomePipe ())
+  -> Column
+  -> Expr (Located (QName Pipe))
+  -> Expr (Located (PartPipe ()))
+  -> [Acceptable]
+inputCompletionsForExprAndColumn spc (Column coln) ast partialPipe =
+  -- XXX: so we replicate the same pipe.  UGH!
+  (APipe <$> scPipes)
+  -- So, here we're ignoring the _selected_ pipe,
+  -- only collecting the _accepted_ AST.
+  --
+  -- Important distinction.
+  <> (AScope <$> subScopes)
  where
+   -- 0. map char position to scope/pipe name
+   astIndex = indexLocated ast
+   -- determine the completable
+   inputName = fromMaybe mempty $ lookupLocated coln astIndex
+   -- componentise into scope name and tail
+   (scopeName, Name rawName) = unconsQName inputName &
+                               fromMaybe (mempty, Name "")
+   -- 1. find scope
+   -- determine immediate children of named scope, matching the stem restriction
+   mScope :: Maybe (PointScope (SomePipe ()))
+   mScope = lookupSpaceScope (coerceQName scopeName) (psSpace spc)
+
+   -- 2. find scope's children
+   subScNames = childPipeScopeQNamesAt (coerceQName scopeName) spc
+     & Prelude.filter (T.isInfixOf rawName . showName . lastQName)
+   subScopes = catMaybes $ flip pipeScopeAt spc <$> subScNames
+
+   -- 3. map char position to partial pipe in supplied expr
+   indexPartPipe = indexLocated partialPipe
+   inputPartPipe = lookupLocated coln indexPartPipe
+
+   -- 4. select scope's pipes that match the provided partial pipe
+   scPipes = selectFromScope
+     (\k _ -> rawName `T.isInfixOf` showName k)
+     <$> mScope
+     & fromMaybe mempty
+     & restrictByPartPipe inputPartPipe
+
    -- | Given a set of available pipes,
    --   restrict that,
    --   by matching them against the pipe signature provided by type checker
@@ -517,81 +436,70 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
                      ": " <> show (x == y))
            $ x == y
 
-   computeFrameParams
-     :: Expr (QName Pipe)
-     -> Expr (Located (PartPipe ()))
-     -> [Acceptable]
-     -> SelectorFrameParams t m Acceptable Acceptance
-   computeFrameParams ast expr@(indexLocated -> index) sels =
-     SelectorFrameParams
-       sels
-       charCompletionP
-       (selection { selExt =
-                    -- traceErr (mconcat
-                    --           [ show coln, " "
-                    --           , show focusChar, " "
-                    --           , unpack selInput, " -> "
-                    --           , show exp
-                    --           ]) $
-                    Right (ast, expr) })
-       acceptablePresent
-       (somePipeSelectable (presentCtx screenW reservedW sels))
+presentAcceptable
+  :: (MonadFix m, MonadHold t m, PostBuild t m, MonadNodeId m, Reflex t)
+  => Dynamic t PipePresentCtx
+  -> Behavior t Bool
+  -> Acceptable
+  -> VtyWidget t m Acceptable
+presentAcceptable ppcD focusB x = row (present x >> pure x)
+ where
+   present x = case x of
+     APipe sp -> do
+       let justNameLSigR = -- XXX: clearly subopt to do this here
+             ppcB <&> \PipePresentCtx{..} ->
+               withSomePipe sp
+                 \(Pipe pd _) ->
+                   (,)
+                   (T.justifyRight (unWidth ppcName) ' ' . showName $ pdName pd)
+                   (T.justifyLeft  (unWidth ppcSig)  ' ' . showSig  $ pdSig  pd)
+       fixed (T.length . leftPad <$> ppcD) $
+         richText (richTextFocusConfigDef focusB)
+           (ppcB <&> leftPad)
+       fixed (unWidth . ppcName <$> ppcD) $
+         richText (richTextFocusConfig (foregro V.green) focusB) $
+           fst <$> justNameLSigR
+       fixed (T.length . ppcSep <$> ppcD) $
+         richText (richTextFocusConfigDef focusB)
+           (ppcB <&> ppcSep)
+       fixed (unWidth . ppcSig <$> ppcD) $
+         richText (richTextFocusConfig (foregro V.blue) focusB) $
+           snd <$> justNameLSigR
+     AScope scope -> do
+       fixed (T.length . leftPad <$> ppcD) $
+         richText (richTextFocusConfigDef focusB)
+           (ppcB <&> leftPad)
+       fixed (unWidth . ppcName <$> ppcD) $
+         richText (richTextFocusConfig (foregro V.green) focusB)
+           (ppcB <&> \PipePresentCtx{..} ->
+             T.justifyRight (unWidth ppcName) ' ' (showName $ scopeName scope))
+       fixed (T.length . ppcSep <$> ppcD) $
+         richText (richTextFocusConfigDef focusB)
+           (ppcB <&> ppcSep)
+       fixed (unWidth . ppcSig <$> ppcD) $
+         richText (richTextFocusConfig (foregro V.blue) focusB)
+           (pure . pack . show $ scopeSize scope)
+   ppcB = current ppcD
+   leftPad PipePresentCtx{..} =
+     T.replicate (unWidth ppcReserved `div` 2) " "
 
-   errFrameParams err =
-     SelectorFrameParams []
-       charCompletionP
-       (selection { selExt = Left err })
-       (showName . acceptableName)
-       (somePipeSelectable (reservedW, reservedW))
-   reservedW = Width 4
-   charCompletionP leftC newC =
-     newC == ' ' || newC == '\t' || (newC == '.' && isJust leftC && leftC /= Just ' ')
-   infixNameFilter needle = T.isInfixOf needle . showName . somePipeName
+data PipePresentCtx =
+  PipePresentCtx
+  { ppcFull     :: !Width
+  , ppcSep      :: !Text
+  , ppcReserved :: !Width
+  , ppcName     :: !Width
+  , ppcSig      :: !Width
+  }
 
-   somePipeSelectable
-     :: (MonadFix m, MonadHold t m, PostBuild t m, MonadNodeId m, Reflex t)
-     => (Width, Width)
-     -> Acceptable
-     -> Behavior t Bool
-     -> VtyWidget t m Acceptable
-   somePipeSelectable (Width nameW, Width sigW) x@(AAssembly (Runnable t exp sp)) focusB =
-    row $ withSomePipe sp $ \(Pipe pd _) -> do
-     fixed (pure nameW) $
-       richText (richTextFocusConfig (foregro V.green) focusB)
-         (pure $ T.justifyRight nameW ' ' . showName $ pdName pd)
-     fixed 4 $
-       richText (richTextFocusConfigDef focusB)
-         (pure " :: ")
-     fixed (pure sigW) $
-       richText (richTextFocusConfig (foregro V.blue) focusB)
-         (pd & (pdSig
-                >>> showSig
-                >>> T.justifyLeft  sigW ' '
-                >>> pure))
-     pure x
-   somePipeSelectable (Width nameW, Width sigW) x@(AScope scope) focusB =
-    row $ do
-     fixed (pure nameW) $
-       richText (richTextFocusConfig (foregro V.green) focusB)
-         (pure $ T.justifyRight nameW ' ' . showName $ scopeName scope)
-     fixed 4 $
-       richText (richTextFocusConfigDef focusB)
-         (pure " :: ")
-     fixed (pure sigW) $
-       richText (richTextFocusConfig (foregro V.blue) focusB)
-         (pure . pack . show $ scopeSize scope)
-     pure x
-
-   presentCtx ::
-        Width
-     -> Width
-     -> [Acceptable]
-     -> (Width, Width)
-   presentCtx (Width total) (Width reserved) =
-     fmap acceptablePresent
-     >>> (Prelude.maximum . (T.length <$>))
-     >>> (\nameWi -> ( Width nameWi
-                     , Width $ total - reserved - nameWi))
+mkPipePresentCtx :: Text -> Width -> [Acceptable] -> PipePresentCtx
+mkPipePresentCtx sep selrWidth xs =
+  PipePresentCtx { ppcSep = sep, ..}
+ where
+   ppcReserved = Width $ T.length sep + 2
+   ppcName     = Width $ Prelude.maximum . (T.length . acceptablePresent <$>) $ xs
+   ppcSig      = ppcFull - ppcReserved - ppcName
+   ppcFull     = selrWidth
 
 -- * UI
 --
@@ -602,7 +510,6 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
    --   return $ fforMaybe i $ \case
    --     V.EvKey V.KEsc [] -> Just Nothing
    --     _ -> Nothing
-
    -- look :: PipeSpace (SomePipe ()) -> QName Pipe -> Fallible (SomePipe ())
    -- look space name = lookupSpace name space &
    --   maybeToEither ("No such pipe: " <> showQName name)
@@ -631,3 +538,35 @@ selToSelrFrameParams spc screenW selection@Selection{selColumn=Column coln, ..} 
    --                 TPoint (VPoint (Name "Unit" :: Name Type)))) of
    --            Left e -> putStrLn (unpack e)
    --            Right p -> putStrLn (show p)
+
+-- _reflexVtyApp :: forall t m.
+--   (MonadIO (Performable m), ReflexVty t m, PerformEvent t m, PostBuild t m, TriggerEvent t m, MonadIO m)
+--   => VtyWidget t m (Event t ())
+-- _reflexVtyApp = mdo
+--   init <- getPostBuild
+--   let sp = SelectorParams
+--         { sfpElemsE = init <&> const ["one", "two", "three"]
+--         , sfpCompletep = charCompletionP
+--         , sfpShow = id
+--         , sfpPresent = \sel x ->
+--             richText (richTextFocusConfig (foregro V.blue) sel) (pure x)
+--             >> pure x
+--         }
+--   (_,
+--     (Selector{..} :: Selector t m Text,
+--       (_,
+--          _text))) <-
+--     splitV (pure \x->x-8) (pure (False, True))
+--     blank $ splitV (pure $ const 5) (pure (True, False))
+--     (selector sp blank) $ splitV (pure $ const 1) (pure (False, False))
+--     blank $ splitV (pure $ const 1) (pure (False, False))
+--     (richText (richTextFocusConfig (foregro V.green) (pure False)) (current selD))
+--     (richText (richTextFocusConfig (foregro V.red)   (pure False)) (current accD))
+
+--   selD <- ("sel: " <>) <$> holdDyn "" (snd <$> selrSelectionE)
+--   accD <- ("acc: " <>) <$> holdDyn "" selrAcceptedE
+
+--   exitOnTheEndOf input
+--  where
+--    charCompletionP leftC newC =
+--      newC == ' ' || newC == '\t' || (newC == '.' && isJust leftC && leftC /= Just ' ')

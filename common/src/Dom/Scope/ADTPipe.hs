@@ -12,7 +12,6 @@ import Dom.Ground
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.Constr
-import Dom.Pipe.IOA
 import Dom.Pipe.SomePipe
 import Dom.Scope
 import Dom.Scope.SomePipe
@@ -47,6 +46,7 @@ dataProjScope'
 dataProjScope' _p ps = pipeScope name ps
   where name  = Name $ pack $ show (Refl.typeRepTyCon (typeRep @u))
 
+-- XXX: all dataProjPipes pipes are ungrounded on output.
 dataProjPipes
   :: forall c c' u
   . ( Typeable c, Typeable u
@@ -74,7 +74,7 @@ dataProjPipes ctor _c u =
         case SOP.fAccess f of
           SOP.SomeAccessors (SOP.Accessors getter _ :: SOP.Accessors u c' a) ->
             ctor $
-            (linkPipe
+            (pipe1
              (Name $ SOP.fName f)
              TPoint'
              TPoint' -- XXX: Kind can be non-Point!

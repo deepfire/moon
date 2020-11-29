@@ -2,6 +2,7 @@ module Dom.Name (module Dom.Name) where
 
 import Codec.Serialise (Serialise)
 import Control.DeepSeq
+import Data.Char (isAlphaNum)
 import Data.Foldable (toList)
 import Data.IntervalMap.FingerTree (Interval(..))
 import Data.Sequence
@@ -102,12 +103,20 @@ parseName' allowHole =
             else nameIdentifier)
   <?> "Name"
 
+nameStart, nameConstituent, nameConstituent' :: Char -> Bool
+nameStart        c = isAlphaNum c||c=='*'||c=='+'||c=='_'
+nameConstituent  c = isAlphaNum c||c=='*'||c=='+'||c=='-'||c=='_'
+nameConstituent' c = isAlphaNum c||c=='.'||c=='*'||c=='+'||c=='-'||c=='_'
+{-# INLINE nameStart #-}
+{-# INLINE nameConstituent #-}
+{-# INLINE nameConstituent' #-}
+
 nameIdentifier :: (Monad m, TokenParsing m) => m Text
 nameIdentifier = ident $ IdentifierStyle
-  { _styleName = "Name"
-  , _styleStart = alphaNum
-  , _styleLetter = alphaNum <|> char '.'
-  , _styleReserved = mempty
+  { _styleName      = "Name"
+  , _styleStart     = satisfy nameStart
+  , _styleLetter    = satisfy nameConstituent
+  , _styleReserved  = mempty
   , _styleHighlight = Identifier
   , _styleReservedHighlight = ReservedIdentifier
   }
@@ -117,18 +126,15 @@ holeToken :: Text
 holeToken = "!"
 
 parseQName
-  :: forall e a
-  . (e ~ Text)
-  => ParsecT e Text Identity (QName a)
+  :: Parser (QName a)
 parseQName = locVal <$> parseQName' False
 
 parseQName'
-  :: forall e a. (e ~ Text)
-  => Bool -> ParsecT Text Text Identity (Located (QName a))
+  :: Bool -> Parser (Located (QName a))
 parseQName' allowHole =
   if allowHole
-  then doParse tok <|> doParse (QName mempty
-                                 <$ string (unpack holeToken))
+  then try (doParse tok)
+       <|> doParse (QName mempty <$ string (unpack holeToken))
   else doParse tok
  where
    tok = textQName <$> alnumTokenDotty
@@ -138,5 +144,6 @@ parseQName' allowHole =
      flip Locn v . Interval pre <$> getOffset
    alnumTokenDotty :: (TokenParsing m, Monad m) => m Text
    alnumTokenDotty = fmap pack . try $
-     (:) <$> alphaNum <*> many constituent
-       where constituent = alphaNum <|> char '.'
+     (:)
+     <$> satisfy nameStart
+     <*> many (satisfy nameConstituent')

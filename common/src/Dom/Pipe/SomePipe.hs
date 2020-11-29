@@ -81,12 +81,6 @@ runSomePipe :: SomePipe Dynamic -> Result SomeValue
 runSomePipe T{tPipe=t@Pipe{}} = fallM $ "runPipe:  non-Ground pipe: " <> showPipe t
 runSomePipe G{gPipe=  Pipe{pDesc, p}} = _runPipe pDesc p
 
-somePipeRunnabilityIssues :: SomePipe a -> Maybe Error
-somePipeRunnabilityIssues = \case
-  T{} -> Just "Not a ground pipe"
-  G{gPipe=Pipe{pDesc=Desc{pdArgs=_:*_}}} -> Just "Not a saturated pipe"
-  G{gPipe=Pipe{pDesc=Desc{pdArgs=Nil}}} -> Nothing
-
 _runPipe
   :: forall c (as :: [*]) o. PipeConstr c as o
   => Desc c as o
@@ -98,7 +92,6 @@ _runPipe pd@Desc{pdOut=Tags{tCTag, tVTag}} dyn =
     Just (IOA io _c _as _o) ->
       (SomeValue tCTag . SomeValueKinded tVTag . mkValue tCTag tVTag <$>) <$> io
 
-
 recoverPipe ::
      QName Pipe
   -> Name Pipe
@@ -107,8 +100,8 @@ recoverPipe ::
   -> SomeTypeRep
   -> [(SomeCTag, SomeVTag, SomeTypeRep, SomeTypeRep)]
   -> SomePipe ()
-recoverPipe qname name sig struct rep xs =
-  somePipeSetQName qname $ withRecoveredTags (head xs) $
+recoverPipe qn name sig struct rep xs =
+  somePipeSetQName qn $ withRecoveredTags (head xs) $
   -- Start with a saturated pipe, and then build it up with arguments.
   \out _ _ -> go xs $
     mkPipeBase (Proxy @Top) out name sig struct rep
@@ -179,13 +172,13 @@ mkPipeBase _c out name sig struct rep =
   case lookupGroundByRep outRep of
     Nothing ->
       -- Non-ground (unknown) type, nothing useful we can recapture about it.
-      trace ("no Ground for:  " <> show name <> "/" <> show outRep) $
+      -- trace ("no Ground for:  " <> show name <> "/" <> show outRep) $
       T mempty $
       Pipe (Desc name sig struct rep Nil out :: Desc Top '[] out) ()
     Just (_, _, _, TyDict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @(TypesV out) of
         Just HRefl ->
-          trace ("Ground for:  " <> show name <> "/" <> show outRep) $
+          -- trace ("Ground for:  " <> show name <> "/" <> show outRep) $
           G mempty
           (Pipe (Desc name sig struct rep Nil out :: Desc Ground '[] out)
                 () :: Pipe Ground '[] out ())
@@ -198,8 +191,8 @@ mkPipeBase _c out name sig struct rep =
 -- * Utils
 --
 somePipeSetQName :: QName Pipe -> SomePipe p -> SomePipe p
-somePipeSetQName x (G _ p) = G x p
-somePipeSetQName x (T _ p) = T x p
+somePipeSetQName x (G _ p) = G x p { pDesc = (pDesc p) { pdName = lastQName x } }
+somePipeSetQName x (T _ p) = T x p { pDesc = (pDesc p) { pdName = lastQName x } }
 
 somePipeQName :: SomePipe p -> QName Pipe
 somePipeQName = spQName

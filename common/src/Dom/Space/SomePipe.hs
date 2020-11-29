@@ -45,16 +45,18 @@ spsAdd ::
   -> SomePipe p
   -> SomePipeSpace p -> Either e (SomePipeSpace p)
 spsAdd name x ps = do
-  spc <- spaceAdd (coerceQName name) x' (psSpace ps)
-  pure $ PipeSpace
-    (psName ps)
-    spc
-    (MMap.alter (alteration name)
-     (Just $ if null . sArgs $ somePipeSig x then strTo else strFrom)
-     (psFrom ps))
-    (MMap.alter (alteration name) strTo   $ psTo ps)
+  spc <- spaceAdd (coerceQName name) (somePipeSetQName name x) (psSpace ps)
+  pure PipeSpace
+    { psName  = psName ps
+    , psSpace = spc
+    , psFrom  = MMap.alter (alteration name)
+                  (Just $ if null . sArgs $ somePipeSig x then strTo else strFrom)
+                  (psFrom ps)
+    , psTo    = MMap.alter (alteration name)
+                  strTo
+                  (psTo ps)
+    }
  where
-   x' = somePipeSetQName name x
    strFrom, strTo :: SomeTypeRep
    (,) strFrom strTo = join (***) (tRep . unI) . (head . sArgs &&& sOut) $ somePipeSig x
 

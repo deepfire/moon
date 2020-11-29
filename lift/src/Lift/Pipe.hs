@@ -1,6 +1,5 @@
 module Lift.Pipe (module Lift.Pipe) where
 
-import qualified Data.Set.Monad                   as Set
 import qualified Data.Text                        as Text
 
 import qualified Control.Concurrent.STM           as STM
@@ -38,6 +37,7 @@ initialPipeSpace
 
 getState :: STM (SomePipeSpace Dynamic)
 getState = STM.readTVar mutablePipeSpace
+{-# NOINLINE getState #-}
 
 mutablePipeSpace :: TVar (SomePipeSpace Dynamic)
 mutablePipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO initialPipeSpace
@@ -70,34 +70,45 @@ rootPipeSpace =
 mkJust :: Typeable a => a -> Maybe a
 mkJust = Just
 
+getThePipeSpace :: IO (PipeSpace (SomePipe ()))
+getThePipeSpace = STM.readTVarIO mutablePipeSpace <&> fmap void
+
 rootScope :: SomePipeScope Dynamic
 rootScope =
   pipeScope ""
      -- Generators:
      --
-     [ genG  "space"           TPoint' $
-       STM.readTVarIO mutablePipeSpace
-       <&> Right . fmap void
+     [ pipe0G  "space"           TPoint'
+       (Right <$> getThePipeSpace)
 
-     , genG  "ground"          TSet' $
+     , pipe0G  "ground"          TSet' $
        -- pure . Right $ Set.fromList groundTypeNames
        pure . Right $ groundTypeNames
 
-     , genG  "unit"            TPoint' $
+     , pipe0G  "unit"            TPoint' $
        pure (Right ())
+
+     , pipe0G  "two"             TPoint' $
+       pure (Right (2 :: Integer))
+
+     , pipe2G  "+"      TPoint' TPoint' TPoint' $
+       \x y -> pure (Right (x + y :: Integer))
+
+     , pipe2G  "*"      TPoint' TPoint' TPoint' $
+       \x y -> pure (Right (x * y :: Integer))
 
      -- Normal functions, lifted:
      --
-     , linkG "strlen"  TPoint' TPoint' $
+     , pipe1G "strlen"  TPoint' TPoint' $
        \(str :: Text) ->
          pure . Right $ Text.length str
 
-     -- , link "just"  TPoint' TPoint' $
+     -- , pipe1T "just"  TPoint' TPoint' $
      --     pure . Right . mkJust
 
      -- Listing pipes and scopes:
      --
-     , linkG "pipes"   TPoint' TSet' $
+     , pipe1G "pipes"   TPoint' TSet' $
        \name ->
          STM.readTVarIO mutablePipeSpace
          <&> (pipeScopeAt name
@@ -105,7 +116,7 @@ rootScope =
               >>> maybeToEither (Error $ "No scope for name: " <> pack (show name))
               >>> \x-> x :: Fallible [Name Pipe])
 
-     , linkG "scopes"  TPoint' TSet' $
+     , pipe1G "scopes"  TPoint' TSet' $
        \name ->
          STM.readTVarIO mutablePipeSpace
          -- <&> Right . Set.fromList . childScopeQNamesAt name
@@ -113,12 +124,12 @@ rootScope =
 
      -- Pipe sigs:
      --
-     , linkG "sig"     TPoint' TPoint' $
+     , pipe1G "sig"     TPoint' TPoint' $
        \name ->
          withPipePure name
          somePipeSig
 
-     , linkG "repsig"  TPoint' TPoint' $
+     , pipe1G "repsig"  TPoint' TPoint' $
        \name ->
          withPipePure name
          $ somePipeSig
@@ -127,7 +138,7 @@ rootScope =
 
      -- Listing pipes by from/to types&reps:
      --
-     , linkG "to"      TPoint' TSet' $
+     , pipe1G "to"      TPoint' TSet' $
        \name ->
          withPipe name
          $ somePipeSig >>> sOut >>> unI >>> tRep
@@ -137,7 +148,7 @@ rootScope =
                    -- <&> Right . pipeNamesFrom (Just toRep)
                    <&> Right . toList . pipeNamesFrom (Just toRep)
 
-     , linkG "from"    TPoint' TSet' $
+     , pipe1G "from"    TPoint' TSet' $
        \name ->
          withPipe name
          $ somePipeSig >>> sArgs
@@ -149,7 +160,7 @@ rootScope =
                  else Right . toList
                  . pipeNamesFrom (Just . tRep . unI $ head args) <$> STM.readTVar mutablePipeSpace
 
-     , linkG "fromrep" TPoint' TSet' $
+     , pipe1G "fromrep" TPoint' TSet' $
        \case
          Nothing   -> atomically $
            -- Right
@@ -163,7 +174,7 @@ rootScope =
                Right . toList
                . pipeNamesFrom (Just rep) <$> STM.readTVar mutablePipeSpace
 
-     , linkG "torep"   TPoint' TSet' $
+     , pipe1G "torep"   TPoint' TSet' $
        \name ->
          atomically
          $ case lookupGroundByName name of
@@ -175,7 +186,7 @@ rootScope =
 
      -- Debug:
      --
-     , genG "dump"     TPoint' $ do
+     , pipe0G "dump"     TPoint' $ do
          putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
          pure $ Right ()
 

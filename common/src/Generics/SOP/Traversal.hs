@@ -1,34 +1,22 @@
 {-# LANGUAGE AllowAmbiguousTypes        #-}
-{-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DuplicateRecordFields      #-}
-{-# LANGUAGE EmptyCase                  #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE NoMonomorphismRestriction  #-}
 {-# LANGUAGE OverloadedLabels           #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE PackageImports             #-}
 {-# LANGUAGE PartialTypeSignatures      #-}
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE Rank2Types                 #-}
 {-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE UndecidableInstances       #-}
-{-# LANGUAGE ViewPatterns               #-}
 -- | Generalized traversals
 --
 -- Intended to be imported qualified
@@ -118,9 +106,9 @@ gtraversals :: forall r w y xss . ( Generic y, Code y ~ xss
 gtraversals =
   hliftA
   (\(CTraversals p :: CTraversals r w xss xs)->
-   (hliftA
+   hliftA
     (\l -> l . p . sop . rep)
-    np))
+    np)
   nptraversals
 
 -- | Traversal pack selector for some constructor
@@ -146,10 +134,10 @@ nptraversals = case sList :: SList xss of
      :: (SListI xss', All SListI xss', SListI xs) =>    NP (CTraversals r w (xs ': xss')) xss')
 
 tail' :: (Arrow r, ArrowApply w, SListI xss, SListI xs) => GTraversal r w (NS (NP I) (xs ': xss)) (NS (NP I) xss)
-tail' = fromLens $ Lens.lens (\(S xs) -> xs) (\(f, S xs) -> (S (f xs)))
+tail' = fromLens $ Lens.lens (\(S xs) -> xs) (\(f, S xs) -> S (f xs))
 
 tail  :: (Arrow r, ArrowApply w) =>                        GTraversal r w (NP f       (x ': xs))      (NP f  xs)
-tail  = fromLens $ Lens.lens (\(_ :* xs) -> xs) (\(f, x :* xs) -> (x :* f xs))
+tail  = fromLens $ Lens.lens (\(_ :* xs) -> xs) (\(f, x :* xs) -> x :* f xs)
 
 np :: forall r w xs. (Arrow r, ArrowApply w, SListI xs) => NP (GTraversal r w (NP I xs)) xs
 np = case sList :: SList xs of
@@ -172,7 +160,7 @@ i = fromIso $ Iso unI I
 head :: (Arrow r, ArrowApply w) => GTraversal r w (NP f (x ': xs)) (f x)
 head = fromLens $ Lens.lens
   (\(x :* _) -> x)
-  (\(f, x :* xs) -> (f x :* xs))
+  (\(f, x :* xs) -> f x :* xs)
 
 rep :: (Arrow r, ArrowApply w, Generic a) => GTraversal r w a (Rep a)
 rep = fromIso $ Iso from to
@@ -182,7 +170,7 @@ rep = fromIso $ Iso from to
 -------------------------------------------------------------------------------}
 
 const :: Arrow arr => c -> arr b c
-const a = arr (\_ -> a)
+const a = arr (const a)
 
 curry :: Arrow cat => cat (a, b) c -> (a -> cat b c)
 curry m a = m . (const a &&& id)

@@ -37,12 +37,13 @@ import qualified Network.TypedProtocol.Core          as Net
 import qualified Network.TypedProtocol.Driver.Simple as Net
 
 import Basis (Text)
+import Dom.RequestReply
 import Wire.Protocol
 
 
 data Server rej m a =
      Server
-     { processRequest :: Request
+     { processRequest :: StandardRequest
                       -> m ( Either rej a
                            , Server rej m a )
      , processDone    :: ()
@@ -98,7 +99,7 @@ serverPeer server =
 
 data ClientState rej m a where
      ClientRequesting
-       :: Request
+       :: StandardRequest
        -> (Either rej a -> m (ClientState rej m a))
        -> ClientState rej m a
 

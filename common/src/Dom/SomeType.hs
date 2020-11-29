@@ -70,15 +70,8 @@ instance Read SomeType where readPrec = failRead
 instance Serialise SomeType
 
 instance Show SomeType where
-  show (CSomeType _ tycon sometyperep) =
-    show tycon<>":"<>unpack
-    -- cut out the middle part of a name: we don't care about the cind
-    (if Text.isPrefixOf "Name"  shownRep ||
-        Text.isPrefixOf "QName" shownRep
-     then Text.takeWhile (/= ' ') shownRep <> " " <>
-          (Text.reverse . Text.takeWhile (/= ' ') . Text.reverse $ shownRep)
-     else shownRep)
-    where shownRep = pack $ show sometyperep
+  show (CSomeType _ tycon (SomeTypeRep rep)) =
+    show tycon<>":"<>unpack (showTypeRepNoKind rep)
 
 --------------------------------------------------------------------------------
 showSomeTypeRepNoKind :: SomeTypeRep -> Text

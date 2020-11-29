@@ -24,7 +24,7 @@ import           Data.Text.Zipper.Extra
 
 import           Reflex
 import           Reflex.Network
-import           Reflex.Vty.Widget                 hiding (text)
+import           Reflex.Vty.Widget
 import           Reflex.Vty.Widget.Input.RichText
 import           Reflex.Vty.Widget.Layout
 
@@ -45,8 +45,8 @@ type ReflexVty t m =
   , Reflex t
   )
 
-newtype Width  = Width  { unWidth  :: Int }
-newtype Height = Height { unHeight :: Int }
+newtype Width  = Width  { unWidth  :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
+newtype Height = Height { unHeight :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
 newtype Index  = Index  { unIndex  :: Int } deriving Show
 newtype Column = Column { unColumn :: Int } deriving Show
 
@@ -89,10 +89,29 @@ clickable child = do
   a <- child
   return (() <$ click, a)
 
+exitOnTheEndOf :: ReflexVty t m => VtyWidget t m (Event t V.Event) -> VtyWidget t m (Event t ())
+exitOnTheEndOf inp =
+  inp <&>
+    fmapMaybe
+    \case
+      V.EvKey (V.KChar 'c') [V.MCtrl]
+        -> Just () -- terminate
+      _ -> Nothing
+
+--------------------------------------------------------------------------------
 -- * Attributery
 --
 foregro :: V.Color -> V.Attr
 foregro = V.withForeColor V.defAttr
+
+red, blue, green, yellow, white, grey :: V.Attr
+(,,,,,) red blue green yellow white grey =
+ (,,,,,) (foregro V.red) (foregro V.blue) (foregro V.green) (foregro V.yellow)
+         (foregro V.white) (foregro V.brightGreen)
+
+--------------------------------------------------------------------------------
+-- * Basic
+--
 
 --------------------------------------------------------------------------------
 -- * Focus button
@@ -124,6 +143,7 @@ buttonPresentText focusStyle showT x focusB =
   richText (focusStyle focusB) (pure $ showT x)
   >> pure x
 
+  -- XXX: this is a bullshit button -- doesn't fire focus immediately
 focusButton ::
      (Reflex t, MonadHold t m, MonadFix m, MonadNodeId m)
   => (a -> Behavior t Bool -> VtyWidget t m a)

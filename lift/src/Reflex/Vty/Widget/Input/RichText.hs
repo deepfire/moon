@@ -36,11 +36,11 @@ data TextInputConfig t s a = TextInputConfig
   , _textInputConfig_display :: Dynamic t (Char -> Char)
   -- ^ Transform the characters in a text input before displaying them. This is useful, e.g., for
   -- masking characters when entering passwords.
-  , _textInputConfig_handler :: TextInputConfig t s a -> Int -> a -> V.Event -> TextZipper -> (s, TextZipper)
+  , _textInputConfig_handler :: TextInputConfig t s a -> Int -> Maybe a -> V.Event -> TextZipper -> (s, TextZipper)
   }
 
 --instance Reflex t => Default (TextInputConfig t a) where
-defaultTextInputConfig :: Reflex t => b -> TextInputConfig t b a
+defaultTextInputConfig :: Reflex t => s -> TextInputConfig t s a
 defaultTextInputConfig s =
   TextInputConfig
   { _textInputConfig_initialValue = (s, "")
@@ -63,19 +63,19 @@ data TextInput t b = TextInput
 -- | A widget that allows text input
 textInput
   :: (Reflex t, MonadHold t m, MonadFix m, PostBuild t m)
-  => Behavior t a
+  => Behavior t (Maybe a)
   -> TextInputConfig t b a
   -> VtyWidget t m (TextInput t b)
-textInput dyn cfg = do
+textInput mComplB cfg = do
   i <- input
   f <- focus
   dh <- displayHeight
   dw <- displayWidth
   rec bv <- foldDyn ($) (_textInputConfig_initialValue cfg) $
         mergeWith (.)
-        [ attach (current dh) (attach dyn i)
-          <&> \(dhV, (dynV, iV)) (_, tz) ->
-                _textInputConfig_handler cfg cfg dhV dynV iV tz
+        [ attach (current dh) (attach mComplB i)
+          <&> \(dhV, (mCompl, iV)) (_, tz) ->
+                _textInputConfig_handler cfg cfg dhV mCompl iV tz
         , _textInputConfig_modify cfg
         , let displayInfo = (,) <$> current rows <*> scrollTop
           in ffor (attach displayInfo click) $
@@ -159,7 +159,7 @@ spanToImage (Span attrs t) = V.text' attrs t
 updateTextZipper
   :: TextInputConfig t b a
   -> Int -- ^ Page size
-  -> a
+  -> Maybe a
   -> V.Event -- ^ The vty event to handle
   -> TextZipper -- ^ The zipper to modify
   -> (b, TextZipper)

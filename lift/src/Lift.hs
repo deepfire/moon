@@ -60,8 +60,10 @@ import qualified Dom.Ground.Hask as Hask
 import Dom.Located
 import Dom.Name
 import Dom.Pipe
+import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
+import Dom.RequestReply
 import Dom.Sig
 import Dom.SomeValue
 import Dom.Space.SomePipe
@@ -78,13 +80,16 @@ import Lift.Pipe
 import TopHandler
 
 
+import Dom.Space.Pipe
+
+
 
 -- * Actually do things.
 --
 main :: IO ()
 main = toplevelExceptionHandler $ do
   sealGround
-  cmd <- execParser opts
+  commd <- execParser opts
   let preConfig@Config{..} = defaultConfig
 
   libDir <- case cfGhcLibDir of
@@ -96,7 +101,7 @@ main = toplevelExceptionHandler $ do
 
   config' <- finalise config
 
-  case cmd of
+  case commd of
     Daemon -> wsServer config'
     Exec rq -> handleRequest config' rq >>= print
 
@@ -108,13 +113,13 @@ main = toplevelExceptionHandler $ do
    cli :: Parser Cmd
    cli = subparser $ mconcat
      [ cmd "daemon" $ pure Daemon
-     , cmd "exec" $ Exec <$> parseRequest
+     , cmd "exec" $ Exec <$> cliRequest
      ]
    cmd name p = command name $ info (p <**> helper) mempty
 
 data Cmd
   = Daemon
-  | Exec Request
+  | Exec StandardRequest
 
 
 data ConfigPhase
@@ -186,7 +191,7 @@ haskellServer
   :: forall m a
   . (m ~ IO, a ~ Reply)
   => Env
-  -> Server Error m a
+  -> Server EPipe m a
 haskellServer env@Env{..} =
     server
   where
@@ -198,35 +203,43 @@ haskellServer env@Env{..} =
     , processDone = ()
     }
 
-handleRequest :: Env -> Request -> IO (Fallible Reply)
+handleRequest :: Env -> StandardRequest -> IO (Either EPipe Reply)
 handleRequest Env{..} req = runExceptT $ case req of
-  Run expr         -> runRun expr
-  Define expr name -> runDefine expr name
+  Run      expr -> runRun      expr
+  Let name expr -> runLet name expr
 
-runRun :: Expr (Located (QName Pipe)) -> ExceptT Error IO Reply
+runRun :: Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
 runRun expr = do
   spc <- liftIO $ atomically getState
 
-  runnable <- newQualExceptErr "Compilation" . pure $
-    Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) expr
+  runnable <- newExceptT . pure $
+    compile opsFull (lookupSomePipe spc) expr
 
-  ReplyValue <$> newQualExceptErr "Runtime" (runSomePipe runnable)
+  ReplyValue <$> newPipeExceptErr EExec (runSomePipe runnable)
 
-runDefine :: Expr (Located (QName Pipe)) -> QName Pipe -> ExceptT Error IO Reply
-runDefine expr name = do
-    liftIO $ putStrLn $ unpack $ Data.Text.unlines
-      ["Pipe:", pack $ show (locVal <$> expr) ]
+runLet :: QName Pipe -> Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
+runLet name expr = do
+    liftIO $ putStrLn $ unpack $ mconcat
+      ["let ", showQName name, " = ", pack $ show (locVal <$> expr) ]
 
     spc <- liftIO $ atomically getState
 
-    newQualExceptErr "Already exists" . pure $
-      maybeLeft ((Error (showQName name) <$) . lookupSomePipe spc) name
+    void . newPipeExceptErr EName . pure $
+      maybeLeft (lookupSomePipe spc
+                 >>> ($> Error ("Already exists: " <> showQName name)))
+                name
 
-    pipe <- newQualExceptErr "Compilation" . pure $
-      Dom.Pipe.Ops.compile opsFull (lookupSomePipe spc) expr
+    pipe <- newExceptT . pure $
+      compile opsFull (lookupSomePipe spc) expr
 
-    liftIO . atomically $ addPipe name pipe
+    void . newExceptT . fmap (left (EName . Error)) . liftIO . atomically $
+      addPipe name pipe
 
-    pure . ReplyValue . SomeValue TPoint . SomeValueKinded VSig . VPoint $
-      somePipeSig pipe
+    liftIO $
+      putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
+
+    liftIO $ ReplyValue
+      . SomeValue TPoint . SomeValueKinded VPipeSpace
+      . mkValue TPoint VPipeSpace <$>
+      getThePipeSpace
 

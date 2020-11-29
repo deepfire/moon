@@ -74,9 +74,9 @@ complete compChar mText tz@(TextZipper _ b _ _) =
       case ( lastW `isPrefixOf` x
            , commonPrefixes x (takeEnd (lastWordLen b) b)
            ) of
-        (True,  Nothing)         -> insert   (x  `snoc` compChar) tz
-        (True,  Just (_, tl, _)) -> insert   (tl `snoc` compChar) tz
+        (True,  Nothing)         -> insert   x tz
+        (True,  Just (_, tl, _)) -> insert   tl tz
         (False, _)               -> deleteLeftWord tz
-                                    & insert (x  `snoc` compChar)
-    (_,     True,  Just x) -> insert (x  `snoc` compChar) tz
+                                    & insert x
+    (_,     True,  Just x) -> insert x tz
     _                      -> insertChar compChar tz

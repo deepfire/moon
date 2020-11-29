@@ -54,7 +54,7 @@ fallDescShow desc = Left . Error . (desc <>) . (": " <>) . pack . show
 fallM :: Monad m => Text -> m (Fallible x)
 fallM = pure . fall
 
-mapFall :: (Error -> Error) -> Fallible x -> Fallible x
+mapFall :: (Error -> a) -> Either Error x -> Either a x
 mapFall f = \case
   Left e ->  Left (f e)
   Right x -> Right x

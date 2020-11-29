@@ -11,6 +11,7 @@ import Dom.CTag
 import Dom.Error
 import Dom.Name
 import Dom.Pipe
+import Dom.Pipe.EPipe
 import Dom.Pipe.Constr
 import Dom.Pipe.IOA
 import Dom.Pipe.SomePipe
@@ -34,7 +35,7 @@ import Dom.Value
 --     Right _ -> pure ()
 --  where
 --    pipe :: SomePipe Dynamic
---    pipe = linkG "demo pipe" TPoint' TPoint'
+--    pipe = pipe1G "demo pipe" TPoint' TPoint'
 --      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
 --    val :: SomeValue
@@ -54,12 +55,12 @@ apply ::
       => Desc g cas o -> Value (TypesC ca) (TypesV ca) -> p -> Fallible p)
   -> SomePipe p
   -> SomeValue
-  -> Fallible (SomePipe p)
+  -> PFallible (SomePipe p)
 apply pf sp x = somePipeUncons sp
-  (const $ Error "Cannot apply value to a saturated pipe.")
+  (const "EApply: Cannot apply value to a saturated pipe.")
   $ \unsat ->
       apply' pf unsat x
-      & mapFall (\(Error e) -> Error $ e
+      & mapFall (\(Error e) -> EApply . Error $ e
                   <> ".  Pipe rep: " <> showSomeTypeRep (somePipeRep sp)
                   <> ", Value rep: " <> showSomeTypeRep (someValueSomeTypeRep x)
                   <> ".")
@@ -115,7 +116,7 @@ doApply pf
         v
   = case spineConstraint of
       (Dict :: Dict Typeable cass) ->
-        trace ("doApply: g=" <> (show $ typeRep @g)) $
+        -- trace ("doApply: g=" <> (show $ typeRep @g)) $
         let desc'   = Desc name sig struct (SomeTypeRep rep) cass o
             name    = Name $ "app-"<>rn
             sig     = Sig (tail ras) ro

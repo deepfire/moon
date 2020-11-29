@@ -12,6 +12,7 @@ import Dom.CTag
 import Dom.Error
 import Dom.Name
 import Dom.Pipe
+import Dom.Pipe.EPipe
 import Dom.Pipe.Constr
 import Dom.Pipe.IOA
 import Dom.Pipe.SomePipe
@@ -32,11 +33,11 @@ import Dom.Struct
 --     Right _ -> pure ()
 --  where
 --    pipe :: SomePipe Dynamic
---    pipe = linkG "demo pipe" TPoint' TPoint'
+--    pipe = pipe1G "demo pipe" TPoint' TPoint'
 --      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
 --    val :: SomePipe Dynamic
---    val = genG "demo value" TPoint'
+--    val = pipe0G "demo value" TPoint'
 --      (pure $ Right ("demo!" :: String))
 
 --------------------------------------------------------------------------------
@@ -54,7 +55,7 @@ compose ::
       => (Desc cv vas vo -> p -> Desc cf fas fo -> p -> Fallible p))
   -> SomePipe p
   -> SomePipe p
-  -> Fallible (SomePipe p)
+  -> PFallible (SomePipe p)
 compose pf f v =
   somePipeUncons f
   (const "Cannot apply value to a saturated pipe.") $
@@ -62,7 +63,7 @@ compose pf f v =
     withSomePipe v $
     \(v' :: Pipe cv _vas vo p) ->
     case typeRep @ca  `eqTypeRep` typeRep @vo of
-      Just HRefl -> compose'' pf f' v'
+      Just HRefl -> left EComp $ compose'' pf f' v'
       _ -> error "compose"
 
 compose'' ::

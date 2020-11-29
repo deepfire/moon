@@ -6,6 +6,7 @@ import           Control.DeepSeq                    (NFData)
 import           Data.Text                          (Text)
 import           GHC.Generics                       (Generic)
 import           Generics.SOP                       (I(..), unI)
+import           Quiet
 import           Text.Read                          (Read(..))
 import           Type.Reflection                    (Typeable)
 
@@ -29,6 +30,8 @@ data Sig f =
   }
   deriving (Generic)
 
+deriving via (Quiet (Sig f)) instance Show (f SomeType) => Show (Sig f)
+
 newtype ListSig f = ListSig { unListSig :: [f SomeType] }
 
 --------------------------------------------------------------------------------
@@ -37,8 +40,6 @@ newtype ListSig f = ListSig { unListSig :: [f SomeType] }
 deriving instance (Eq  (f SomeType)) => Eq (Sig f)
 deriving instance (Ord (f SomeType)) => Ord (Sig f)
 instance NFData (f SomeType) => NFData (Sig f)
-instance Show ISig where
-  show x  =  "("<>T.unpack (showSig x)<>")"
 instance (Serialise (f SomeType)) => Serialise (Sig f)
 instance Typeable f => Read (Sig f) where readPrec = failRead
 

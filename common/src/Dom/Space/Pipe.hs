@@ -10,7 +10,6 @@ import Dom.CTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Scope
-import Dom.Scope.SomePipe
 import Dom.Sig
 import Dom.Pipe.SomePipe
 import Dom.Space
@@ -39,18 +38,17 @@ pipesFromCstr spc (Just x) = pipesFrom spc (Just x)
 
 pipesFrom :: PipeSpace a -> Maybe SomeTypeRep -> [a]
 pipesFrom spc mStr = setToList (pipeNamesFrom mStr spc) &
-  mapMaybe (flip lookupPipeSpace spc . coerceQName) &
-  (\xs -> --traceErr (mconcat ["pipesFrom ", show mStr, " -> ", show (length xs)])
-    xs)
+  mapMaybe (flip lookupPipeSpace spc . coerceQName)
+  --traceErr (mconcat ["pipesFrom ", show mStr, " -> ", show (length xs)])
 
 pipesTo :: PipeSpace a -> SomeTypeRep -> [a]
 pipesTo spc str = setToList (pipeNamesTo str spc) &
   mapMaybe (flip lookupPipeSpace spc . coerceQName)
 
 pipeNamesFrom :: Maybe SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
-pipeNamesFrom str = psFrom >>> MMap.lookup str >>> fromMaybe mempty
-                    >>> (\xs -> --traceErr (mconcat ["pipeNamesFrom ", show str, " -> ", show (length xs)])
-                          xs)
+pipeNamesFrom str =
+  psFrom >>> MMap.lookup str >>> fromMaybe mempty
+  --traceErr (mconcat ["pipeNamesFrom ", show str, " -> ", show (length xs)])
 
 pipeNamesTo :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
 pipeNamesTo   str = psTo   >>> MMap.lookup str >>> fromMaybe mempty

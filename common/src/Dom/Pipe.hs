@@ -170,5 +170,5 @@ descOutVTag :: Desc c cas (Types to o) -> VTag o
 descOutVTag = tVTag . pdOut
 
 showDesc, showDescP :: Desc c as o -> Text
-showDesc  p = pack $ show (pdName p) <>" :: "<>show (pdSig p)
+showDesc  p = pack $ show (pdName p) <>" :: "<>unpack (showSig $ pdSig p)
 showDescP = ("("<>) . (<>")") . showDesc

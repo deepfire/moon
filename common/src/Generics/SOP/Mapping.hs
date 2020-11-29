@@ -229,7 +229,7 @@ mapFields
   -> (           All c xs  => CollectCtor  r f u c xs)
   -> (forall x.      c x   => CollectField   f u c x)
   -> ConstructorInfo xs
-  -> NP (FieldInfo) xs
+  -> NP FieldInfo xs
   -> NP (GTraversal (->) (->) u) xs
   -> r c xs
 mapFields c ctor field cinfo finfos traversals =
