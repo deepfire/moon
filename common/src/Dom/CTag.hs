@@ -6,11 +6,9 @@ import qualified Codec.CBOR.Decoding              as CBOR (decodeWord)
 import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
 import           Codec.Serialise                    (Serialise(..))
 import           Control.DeepSeq                    (NFData(..))
-import           Control.Monad.Fail                 (MonadFail)
 import           Data.GADT.Compare                  (GEq(..), GCompare(..), GOrdering(..))
-import qualified Data.Set.Monad                   as S
 import qualified Data.Text                        as Text
-import           Data.Typeable                      (Proxy, Typeable, (:~:)(..), (:~~:)(..))
+import           Data.Typeable                      (Proxy, Typeable, (:~:)(..))
 import qualified Generics.SOP                     as SOP
 import           GHC.Generics                       (Generic)
 import           GHC.TypeLits
@@ -31,6 +29,8 @@ data Con
   | Dag
   | Graph
   deriving (Eq, Generic, Ord, Read, Show, Typeable)
+
+-- consider https://hackage.haskell.org/package/haskus-utils-variant
 
 data CTag (c :: Con) where
   CPoint :: Typeable Point => CTag Point
@@ -194,13 +194,49 @@ type family Repr (k :: Con) (a :: *) :: * where
   --            that which already exists?
   -- Option:    Set of pairs with enforced left hand uniqueness?
 
-mapRepr :: CTag c -> (a -> b) -> Repr c a -> Repr c b
-mapRepr CPoint f = f
-mapRepr CList  f = fmap f
-mapRepr CSet   f = fmap f
-mapRepr CTree  f = fmap f
-mapRepr CDag   f = fmap f
-mapRepr CGraph f = fmap f
+pureRepr :: forall c a. ReifyCTag c => a -> Repr c a
+pureRepr = case reifyCTag (SOP.Proxy @c) of
+  CPoint -> id
+  CList  -> (:[])
+  CSet   -> (:[])
+  CTree  -> G.Vertex
+  CDag   -> G.Vertex
+  CGraph -> G.Vertex
+
+-- | Partial function.
+pickRepr :: forall c a. ReifyCTag c => Repr c a -> a
+pickRepr = case reifyCTag (SOP.Proxy @c) of
+  CPoint -> id
+  CList  -> head
+  CSet   -> head
+  CTree  -> \(G.Vertex x) -> x
+  CDag   -> \(G.Vertex x) -> x
+  CGraph -> \(G.Vertex x) -> x
+
+mapRepr :: forall c a b. ReifyCTag c => (a -> b) -> Repr c a -> Repr c b
+mapRepr f = case reifyCTag (SOP.Proxy @c) of
+  CPoint -> f
+  CList  -> fmap f
+  CSet   -> fmap f
+  CTree  -> fmap f
+  CDag   -> fmap f
+  CGraph -> fmap f
+
+foldMapRepr :: forall c a m. (Monoid m, ReifyCTag c) => (a -> m) -> Repr c a -> m
+foldMapRepr f = case reifyCTag (SOP.Proxy @c) of
+  CPoint -> f
+  CList  -> foldMap f
+  CSet   -> foldMap f
+  CTree  -> G.foldg mempty f (<>) (<>)
+  CDag   -> G.foldg mempty f (<>) (<>)
+  CGraph -> G.foldg mempty f (<>) (<>)
+
+traverseRepr :: forall c f a b. (Applicative f, ReifyCTag c) => (a -> f b) -> Repr c a -> f (Repr c b)
+traverseRepr f = case reifyCTag (SOP.Proxy @c) of
+  CPoint -> f
+  CList  -> traverse f
+  CSet   -> traverse f
+  _ -> error "traverseRepr called on a graph-like kind."
 
 --------------------------------------------------------------------------------
 -- * Utilities

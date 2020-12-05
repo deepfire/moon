@@ -10,6 +10,7 @@ import           Control.Monad.Fix
 import           Control.Monad.NodeId
 import           Control.Tracer                           (Tracer(..), traceWith)
 import           Data.Char                                (isDigit)
+import qualified Data.Dynamic                           as Dyn
 import           Data.Semialign                           (align)
 import           Data.Text                                (Text)
 
@@ -54,10 +55,9 @@ import qualified Wire.Protocol                          as Wire
 
 import Lift hiding (main)
 import Lift.Pipe
+import Execution
 
 import Reflex.SomeValue
-
-import Execution
 
 
 
@@ -70,30 +70,75 @@ reflexVtyApp :: forall t m.
   (MonadIO (Performable m), ReflexVty t m, PerformEvent t m, PostBuild t m, TriggerEvent t m, MonadIO m)
   => VtyWidget t m (Event t ())
 reflexVtyApp = do
-  (exeSendW, exeSendR) :: (InChan (Execution t), OutChan (Execution t)) <-
-    liftIO Unagi.newChan
-
-  (getPostBuild <&> trevs "======= reflexVtyApp: reflexVtyApp started =======")
-    >>= spawnHostChatterThread stderr hostAddr exeSendR
-    >>= spaceInteraction . ExecutionPort (Unagi.writeChan exeSendW)
+  setupE <- getPostBuild <&> trevs "======= reflexVtyApp: reflexVtyApp started ======="
+  r <- mkRemoteExecutionPort stderr hostAddr setupE
+  l <- mkLocalExecutionPort stderr setupE
+  spaceInteraction r l
  where
    -- XXX:  yeah, deal with that
    hostAddr = WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
 
-   spawnHostChatterThread ::
-        Tracer IO Text
-     -> WSAddr
-     -> OutChan (Execution t)
-     -> Event t ()
-     -> VtyWidget t m (Event t (PFallible SomeValue))
-   spawnHostChatterThread tr WSAddr{..} exeSendW postBuild =
-     performEventAsync $
-       ffor postBuild \_ fire -> liftIO $
-         (Async.link =<<) . Async.async $
-           WS.runClient wsaHost wsaPort wsaPath
-             \(channelFromWebsocket -> webSockChan) ->
-               void $ Wire.runClient tr webSockChan $
-                 client tr fire exeSendW
+mkExecutionPort ::
+  forall t m p
+  .  (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
+  => (Event t (PFallible SomeValue)
+      -> Event t (PFallible (Value Point (PipeSpace (SomePipe p)))))
+  -> (OutChan (Execution t p) -> (PFallible SomeValue -> IO ()) -> IO ())
+  -> Event t ()
+  -> VtyWidget t m (ExecutionPort t p)
+mkExecutionPort selectSpaceEvents handler setupE = do
+  (exeSendW, exeSendR) :: (InChan (Execution t p), OutChan (Execution t p)) <-
+    liftIO Unagi.newChan
+
+  evs <- performEventAsync $
+    ffor setupE \_ fire -> liftIO $
+      (Async.link =<<) . Async.async $
+        handler exeSendR fire
+
+  pure ExecutionPort
+    { epPost    = Unagi.writeChan exeSendW
+    , epReplies = evs
+    , epSpacE   = stripValue <$> snd (fanEither (selectSpaceEvents evs))
+    }
+
+pointRepliesE :: Reflex t => Event t (PFallible SomeValue) -> Event t (Wrap PFallible SomeValueKinded Point)
+pointRepliesE evs = selectG (splitSVByCTag CPoint evs) CPoint
+
+mkRemoteExecutionPort ::
+  forall t m
+  . (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
+  => Tracer IO Text
+  -> WSAddr
+  -> Event t ()
+  -> VtyWidget t m (ExecutionPort t ())
+mkRemoteExecutionPort tr WSAddr{..} =
+  mkExecutionPort spacePointRepliesE $
+    \exeSendR fire ->
+      WS.runClient wsaHost wsaPort wsaPath
+        \(channelFromWebsocket -> webSockChan) ->
+          void $ Wire.runClient tr webSockChan $
+            client tr fire exeSendR
+ where
+   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (Value Point (PipeSpace (SomePipe ()))))
+   spacePointRepliesE evs =
+     unWrap <$> selectG (splitSVKByVTag VPipeSpace (pointRepliesE evs)) VPipeSpace
+
+mkLocalExecutionPort ::
+  forall t m
+  . (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
+  => Tracer IO Text
+  -> Event t ()
+  -> VtyWidget t m (ExecutionPort t Dyn.Dynamic)
+mkLocalExecutionPort tr =
+  mkExecutionPort spacePointRepliesE $
+    \exeSendR fire ->
+      forever $ do
+        Execution{..} <- Unagi.readChan exeSendR
+        fire =<< (left EExec <$> runSomePipe ePipe)
+ where
+   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (Value Point (PipeSpace (SomePipe Dyn.Dynamic))))
+   spacePointRepliesE evs =
+     unWrap <$> selectG (splitSVKByVTag (VTop @(PipeSpace (SomePipe Dyn.Dynamic))) (pointRepliesE evs)) VTop
 
 data WSAddr
   = WSAddr
@@ -106,7 +151,7 @@ client :: forall rej m a t
           . (rej ~ EPipe, m ~ IO, a ~ Wire.Reply)
        => Tracer m Text
        -> (PFallible SomeValue -> IO ())
-       -> OutChan (Execution t)
+       -> OutChan (Execution t ())
        -> m (Wire.ClientState rej m a)
 client tr fire reqsChan =
   go
@@ -130,8 +175,8 @@ client tr fire reqsChan =
      Right x -> "reply: " <> pack (show x)
 
 data Acceptable
-  = APipe  !(SomePipe ())
-  | AScope !(PointScope (SomePipe ()))
+  = APipe  !MixedPipe
+  | AScope !(PointScope MixedPipe)
 
 instance Show Acceptable where
   show x = T.unpack $ case x of
@@ -146,39 +191,62 @@ acceptablePresent = \case
 spaceInteraction ::
      forall    t m
   .  (ReflexVty t m, PerformEvent t m, MonadIO (Performable m), MonadIO m)
-  => ExecutionPort t
+  => ExecutionPort t ()
+  -> ExecutionPort t Dyn.Dynamic
   -> VtyWidget t m (Event t ())
-spaceInteraction ep@ExecutionPort{..} = mdo
-  -- First -- ask for some space.
-  liftIO $ postExecution ep $
-    Execution CPoint VPipeSpace "space" "space" (Run "space") never
+spaceInteraction epRemote epLocal = mdo
+  void $ liftIO $ postExecution epRemote $ -- Request remote's pipe space.
+    Execution @t @() CPoint VPipeSpace "space" (Run "space")
+      (G @() @'[] @(CTagV Point ())  mempty $ Pipe undefined undefined) never
 
-  let pointRepliesE :: Event t (Wrap PFallible SomeValueKinded Point)
-      pointRepliesE = selectG (splitSVByCTag CPoint epReplies) CPoint
-      spacePointRepliesE :: Event t (PFallible (Value Point (PipeSpace (SomePipe ()))))
-      spacePointRepliesE =
-        unWrap <$> selectG (splitSVKByVTag VPipeSpace pointRepliesE) VPipeSpace
-  -- server -> spaceD
-  spaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
-    holdDyn mempty (stripValue <$> snd (fanEither spacePointRepliesE))
-
-  let (failRunnablE  :: Event t EPipe,
-       maybeRunnablE :: Event t (Runnable I)) =
-        fanEither (updated $ finaliseRunnable <$> fMaybeRunnableD)
+  -- server + local -> spaceD
+  remoteSpaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
+    holdDyn mempty (epSpacE epRemote)
+  localSpaceD :: Dynamic t (PipeSpace (SomePipe Dyn.Dynamic)) <-
+    holdDyn mempty (epSpacE epLocal)
+  let spaceD :: Dynamic t (PipeSpace MixedPipe)
+      spaceD = zipDynWith (<>)
+                 (fmap (fmap Right) <$> localSpaceD)
+                 (fmap (fmap Left)  <$> remoteSpaceD)
 
   -- maybeRunnablE | filter isRight -> executionE
-  executionE :: Event t (Execution t)
-    <- fmap catMaybes . performEvent $
-       (maybeRunnablE <&>) $
-       liftIO .
-       (\case
-          r@Runnable{..} ->
-            maybe (pure $ error "runnableExecution returned Nothing")
-            (\e -> postExecution ep e >> pure (Just e)) $
-              runnableExecution ep r)
+  executionE ::
+    Event t (Execution t MixedPipeGuts)
+    <- performEvent $
+        (attachPromptlyDyn spaceD runnablE <&>) $
+        liftIO .
+        (\(spc, (pr@PreRunnable{..}, p)) ->
+           maybe (error "postMixedPipeRequest returned Nothing")
+           id <$>
+           (postMixedPipeRequest epRemote epLocal prText prReq p)
+           -- maybe (error "postMixedPipeRequest returned Nothing")
+           --   pure $
+           --   liftIO (postMixedPipeRequest epRemote epLocal prText prReq p)
+           )
 
-  fMaybeRunnableD :: Dynamic t (PFallible (Runnable PFallible)) <-
-    holdUniqDynBy eqFRunnable =<<
+  -- 1. Separate the syntactically valid requests from chaff.
+  let (failRunnablE :: Event t EPipe,
+       runnablE  :: Event t (PreRunnable MixedPipeGuts, SeparatedPipe)) =
+        fanEither (updated fRunnableD)
+
+  fRunnableD ::
+    Dynamic t (PFallible (PreRunnable MixedPipeGuts, SeparatedPipe))
+    <- pure $ zipDyn (zipDyn remoteSpaceD localSpaceD) fPreRunnableD <&>
+       \((spcRem, spcLoc), fpr) -> do
+         pr@PreRunnable{..} <- fpr
+         pexp <- prPExpr
+         p <- if | preRunnableIsT pr
+                 -> fmap Left  <$> compile opsDesc (lookupSomePipe spcRem) prExpr
+                 | preRunnableIsG pr
+                 -> fmap Right <$> compile opsFull (lookupSomePipe spcLoc) prExpr
+                 | otherwise -> Left $ ECompile "Inconsistent"
+         void $ maybeLeft checkPipeRunnability p
+         pure (pr, separateMixedPipe p)
+
+  -- 0. UI provides syntactically valid requests, and also
+  --    displays results of validation.
+  fPreRunnableD ::
+    Dynamic t (PFallible (PreRunnable MixedPipeGuts)) <-
     mainSceneWidget
       (pipeEditorWidget spaceD
         (summaryWidget executionE failRunnablE))
@@ -187,62 +255,52 @@ spaceInteraction ep@ExecutionPort{..} = mdo
       (feedbackWidget
         pipesFromD
         constraintD
-        fMaybeRunnableD)
+        (fmap fst <$> fRunnableD))
 
   let -- runnableD -> constraintD
       constraintD :: Dynamic t (Maybe SomeTypeRep) =
-        -- trdyn (\c-> mconcat ["choice: ", show c])
-        fMaybeRunnableD <&>
-          (fmap (rPipe
+        fRunnableD <&>
+          (fmap (snd
                   >>> fmap (somePipeOutSomeCTagType >>> snd)
                   >>> eitherToMaybe)
            >>> eitherToMaybe
            >>> join)
 
   let -- spaceD + constraintD -> pipesFromD
-      pipesFromD :: Dynamic t [SomePipe ()] =
+      pipesFromD :: Dynamic t [MixedPipe] =
         zipDynWith pipesFromCstr spaceD constraintD
           <&> sortBy (compare `on` somePipeName)
 
   exitOnTheEndOf input
 
  where
-   finaliseRunnable ::
-        PFallible (Runnable PFallible)
-     -> PFallible (Runnable I)
-   finaliseRunnable = either Left $
-     \r@Runnable{..} -> do
-         pipe <- rPipe
-         void $ maybeLeft checkPipeRunnability pipe
-         void rPExpr
-         pure r { rPipe = I pipe }
-
    pipeEditorWidget ::
-        Dynamic t (PipeSpace (SomePipe ()))
+        Dynamic t (PipeSpace MixedPipe)
      -> VtyWidget t m ()
-     -> VtyWidget t m (Dynamic t (PFallible (Runnable PFallible)))
+     -> VtyWidget t m (Dynamic t (PFallible (PreRunnable MixedPipeGuts)))
    pipeEditorWidget spaceD resultSummaryW = mdo
      selrWidthD :: Dynamic t Width <- fmap Width <$> displayWidth
 
      -- Input (selrInputOfftComplD) guides selection among pipes of the space.
-     runnableAccbleD :: Dynamic t (PFallible (Runnable PFallible, [Acceptable])) <-
+     reqAnalysedAccbleD ::
+       Dynamic t
+       (PFallible ( PreRunnable MixedPipeGuts
+                  , [Acceptable])) <-
        pure $
-         (\spc (rText, coln, _mcompld) ->
-            parseGroundRequest Nothing rText
-            >>= \rReq@(reqExpr -> rExpr) ->
-             let rPExpr :: PFallible (Expr (Located (PartPipe ()))) =
-                   analyse (lookupSomePipe spc) rExpr
-             in pure (Runnable{rPipe  = compile opsDesc (lookupSomePipe spc) rExpr
-                              ,..}
-                     ,either (const []) id $
-                      inputCompletionsForExprAndColumn spc coln rExpr <$> rPExpr))
+         (\spc (prText, coln, _mcompld) ->
+            parseGroundRequest Nothing prText
+            >>= \prReq@(reqExpr -> prExpr) -> pure
+             let prPExpr = analyse (lookupSomePipe spc) prExpr
+             in  ( PreRunnable{..}
+                 , either (const []) id $
+                   inputCompletionsForExprAndColumn spc coln prExpr <$> prPExpr))
          <$> spaceD
          <*> selrInputOfftComplD
 
      accbleRightsD :: Dynamic t [Acceptable] <-
        -- this ignores errors!
        holdDyn [] (fmap snd . snd . fanEither $
-                   updated runnableAccbleD)
+                   updated reqAnalysedAccbleD)
 
      Selector{..} <- selector
        SelectorParams
@@ -255,10 +313,14 @@ spaceInteraction ep@ExecutionPort{..} = mdo
        , sfpInsertW    = resultSummaryW
        }
 
-     pure $ fmap fst <$> runnableAccbleD
+     holdUniqDynBy eqFPreRunnable (fmap fst <$> reqAnalysedAccbleD)
+
+   eqFPreRunnable :: PFallible (PreRunnable MixedPipeGuts) -> PFallible (PreRunnable MixedPipeGuts) -> Bool
+   eqFPreRunnable (Right l) (Right r) = ((==) `on` prText) l r
+   eqFPreRunnable _ _ = False
 
    summaryWidget :: (Adjustable t m, PostBuild t m, MonadNodeId m, MonadHold t m, NotReady t m, MonadFix m)
-     => Event t (Execution t)
+     => Event t (Execution t MixedPipeGuts)
      -> Event t EPipe
      -> VtyWidget t m ()
    summaryWidget exE locErrE =
@@ -303,23 +365,23 @@ spaceInteraction ep@ExecutionPort{..} = mdo
         fixed (width <&> (\x->x-len)) x
 
    feedbackWidget ::
-        Dynamic t [SomePipe ()]
+        Dynamic t [MixedPipe]
      -> Dynamic t (Maybe SomeTypeRep)
-     -> Dynamic t (PFallible (Runnable PFallible))
+     -> Dynamic t (PFallible (PreRunnable MixedPipeGuts))
      -> VtyWidget t m ()
-   feedbackWidget pipesFromD constraintD runnableD = do
+   feedbackWidget pipesFromD constraintD preRunD = do
      -- visD   <- holdDyn "" $ either (showError . unEPipe) (pack . show . snd) <$> astExpE
      -- redD   <- hold ""    $ either (showError . unEPipe) (pack . show . fst) <$> astExpE
      blueD  <- pure . current $ zipDynWith showCstrEnv constraintD pipesFromD
      redD   <- hold "" $ either (showError . unEPipe) (const "") <$> errOkE
-     greenD <- hold "" $ either (const "")       (showT . rExpr) <$> errOkE
+     greenD <- hold "" $ either (const "")      (showT . prExpr) <$> errOkE
 
      void $ splitV (pure $ const 1) (pure $ join (,) True)
       (richTextStatic blue  blueD)
       (richTextStatic   red redD >>
        richTextStatic green greenD >> pure ())
     where
-      errOkE = updated runnableD
+      errOkE = updated preRunD
       showCstrEnv cstr pipes =
         mconcat [ "pipes matching ",
                   fromMaybe "Nothing" $ showSomeTypeRepNoKind <$> cstr
@@ -327,12 +389,12 @@ spaceInteraction ep@ExecutionPort{..} = mdo
                 ]
 
    mainSceneWidget ::
-        VtyWidget t m (Dynamic t (PFallible (Runnable PFallible)))
+        VtyWidget t m (Dynamic t a)
      -> VtyWidget t m ()
      -> VtyWidget t m ()
-     -> VtyWidget t m (Dynamic t (PFallible (Runnable PFallible)))
+     -> VtyWidget t m (Dynamic t a)
    mainSceneWidget editor executionResults feedback = do
-     (((runnable :: Dynamic t (PFallible (Runnable PFallible)),
+     (((runnable,
         _blank), _present),
       _feedb) <-
        splitV (pure $ \x->x-8) (pure $ join (,) True)
@@ -358,16 +420,11 @@ spaceInteraction ep@ExecutionPort{..} = mdo
                AScope _ -> (<>           ".") $ acceptablePresent acc
                APipe  _ -> (<> T.pack [newC]) $ acceptablePresent acc
 
-   eqFRunnable :: PFallible (Runnable p) -> PFallible (Runnable p) -> Bool
-   eqFRunnable (Right l) (Right r) =
-     rText l == rText r
-   eqFRunnable _ _ = False
-
 inputCompletionsForExprAndColumn ::
-     PipeSpace (SomePipe ())
+     PipeSpace MixedPipe
   -> Column
   -> Expr (Located (QName Pipe))
-  -> Expr (Located (PartPipe ()))
+  -> Expr (Located MixedPartPipe)
   -> [Acceptable]
 inputCompletionsForExprAndColumn spc (Column coln) ast partialPipe =
   -- XXX: so we replicate the same pipe.  UGH!
@@ -387,7 +444,7 @@ inputCompletionsForExprAndColumn spc (Column coln) ast partialPipe =
                                fromMaybe (mempty, Name "")
    -- 1. find scope
    -- determine immediate children of named scope, matching the stem restriction
-   mScope :: Maybe (PointScope (SomePipe ()))
+   mScope :: Maybe (PointScope MixedPipe)
    mScope = lookupSpaceScope (coerceQName scopeName) (psSpace spc)
 
    -- 2. find scope's children
@@ -410,11 +467,11 @@ inputCompletionsForExprAndColumn spc (Column coln) ast partialPipe =
    --   restrict that,
    --   by matching them against the pipe signature provided by type checker
    --   for the current input context (position inside partially resolved AST).
-   restrictByPartPipe :: Maybe (PartPipe ()) -> [SomePipe ()] -> [SomePipe ()]
+   restrictByPartPipe :: Maybe MixedPartPipe -> [MixedPipe] -> [MixedPipe]
    restrictByPartPipe Nothing  xs = xs
    restrictByPartPipe (Just p) xs = Prelude.filter (matchMSig $ cpArgs p) xs
     where
-      matchMSig :: MSig -> SomePipe () -> Bool
+      matchMSig :: MSig -> MixedPipe -> Bool
       matchMSig sig sp =
         -- traceErr ("verdict on " <> spname <> "::" <> show spsig <> " vs " <> show msig <> ": " <> show r)
         r

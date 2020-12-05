@@ -71,6 +71,16 @@ instance Functor SomePipe where
   fmap f (G h x) = G h (f <$> x)
   fmap f (T h x) = T h (f <$> x)
 
+instance Foldable SomePipe where
+  foldMap toM = \case
+    G _ (Pipe _ x) -> toM x
+    T _ (Pipe _ x) -> toM x
+
+instance Traversable SomePipe where
+  traverse f = \case
+    G n (Pipe d x) -> f x <&> \x' -> G n (Pipe d x')
+    T n (Pipe d x) -> f x <&> \x' -> T n (Pipe d x')
+
 instance Show (SomePipe p) where
   show (G _ p) = "GPipe "<>unpack (showPipe p)
   show (T _ p) = "TPipe "<>unpack (showPipe p)

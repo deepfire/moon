@@ -1,6 +1,5 @@
 module Dom.SomeType (module Dom.SomeType) where
 
-import qualified Data.Text                        as Text
 import           GHC.Generics                       (Generic)
 import qualified Text.Builder                     as TB
 import qualified Type.Reflection                  as Refl

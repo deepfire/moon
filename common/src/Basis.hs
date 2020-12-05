@@ -7,6 +7,7 @@ module Basis
   , module Control.Concurrent.STM
   , module Control.DeepSeq
   , module Control.Monad
+  , module Control.Monad.IO.Class
   , module Control.Monad.Fix
   , module Control.Monad.Trans.Except
   , module Control.Monad.Trans.Except.Exit
@@ -68,6 +69,7 @@ import Control.Arrow              ((>>>), (***), (&&&), (+++), left, right, firs
 import Control.Concurrent.STM     (STM, atomically)
 import Control.DeepSeq            (NFData(..))
 import Control.Monad              (foldM, join, mapM, mapM_, forM, forM_, when, unless, void)
+import Control.Monad.IO.Class     (MonadIO, liftIO)
 import Control.Monad.Fix          (MonadFix)
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Except.Exit (orDie)

@@ -1,14 +1,9 @@
 module Dom.RequestReply (module Dom.RequestReply) where
 
-import qualified Data.ByteString.Char8            as BSC
-import           Data.GADT.Compare                  (GEq(..), GCompare(..), GOrdering(..))
-import qualified Data.Set.Monad                   as S
 import qualified Data.Text                        as Text
-import qualified Generics.SOP                     as SOP
 import           GHC.Generics                       (Generic)
 import qualified Options.Applicative              as Opt
 import           Options.Applicative         hiding (Parser)
---import           Text.Megaparsec                  as M
 
 import Basis
 import Data.Parsing

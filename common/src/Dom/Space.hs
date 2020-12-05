@@ -2,13 +2,11 @@
 module Dom.Space (module Dom.Space) where
 
 import qualified Algebra.Graph.AdjacencyMap       as GA
-import           Data.Coerce                        (coerce)
 import qualified Data.HashMap.Strict              as HashMap
 import qualified Data.Map.Strict                  as Map
 import qualified Data.Map.Monoidal.Strict         as MMap
 import qualified Data.Sequence                    as Seq
 import qualified Data.Set                         as Set'
-import           Data.Text                          (Text)
 import           GHC.Generics                       (Generic)
 
 import Basis
@@ -33,6 +31,19 @@ type PointSpace a = Space 'Point a
 --
 instance ReifyCTag c => Functor (Space c) where
   fmap f s@Space{nsMap} = s { nsMap = (f <$>) <$> nsMap }
+
+-- Caveat:  non-law-abiding.
+instance ReifyCTag c => Applicative (Space c) where
+  pure x = Space (GA.vertex mempty) (MMap.singleton mempty (pure x))
+  Space _ f <*> Space n x =
+    Space n $ (fmap $ pickRepr @c $ head $ scopeEntries $ snd $ head $ MMap.toList f) <$> x
+
+instance ReifyCTag c => Foldable (Space c) where
+  foldMap toM Space{..} = mconcat $ foldMap toM <$> MMap.elems nsMap
+
+instance ReifyCTag c => Traversable (Space c) where
+  traverse f s@Space{..} =
+    traverse (traverse f) nsMap <&> \m -> s { nsMap = m }
 
 deriving instance Eq (Repr c a) => Eq (Space c a)
 deriving instance Ord (Repr c a) => Ord (Space c a)

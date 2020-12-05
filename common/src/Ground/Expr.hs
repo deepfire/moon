@@ -1,13 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Ground.Expr (module Ground.Expr) where
 
-import Control.Arrow (left)
 import Data.String (IsString(..))
 import qualified Data.Text as T
 
 import Text.Megaparsec (runParserT, eof)
 import Text.Megaparsec.Error
-import Text.Megaparsec.Parsers (unParsecT)
 
 import Basis
 import Data.Parsing

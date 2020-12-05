@@ -4,7 +4,6 @@ module Dom.Struct (module Dom.Struct) where
 import qualified Algebra.Graph                    as G
 import           Codec.Serialise                    (Serialise)
 import           Control.DeepSeq                    (NFData)
-import           Generics.SOP (I(..))
 import           GHC.Generics                       (Generic)
 import           Text.Read                          (Read(..))
 

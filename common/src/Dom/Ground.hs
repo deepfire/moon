@@ -7,8 +7,6 @@ import           Data.Text                          (Text, pack)
 import           Data.Typeable                      (Typeable)
 import           Generics.SOP
 import           Generics.SOP.Some                  (HasTypeData)
-import           GHC.Generics                       (Generic)
-import           Text.Read                          (Read(..))
 import           Type.Reflection                    (SomeTypeRep)
 
 import           Debug.Trace
@@ -20,7 +18,6 @@ import qualified System.IO.Unsafe                 as IO
 import Data.Dict
 import Data.Parsing
 
-import Dom.Name
 import Dom.Parse
 import Dom.VTag
 
@@ -31,7 +28,7 @@ import Dom.VTag
 type     GroundCtx a =
   ( -- Eq             a   -- for Ord instance of SomeValueKinded
   -- , Ord            a   -- for Set encoding
-  -- , 
+  -- ,
     Parse          a
   , Read           a
   , ReifyVTag      a

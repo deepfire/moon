@@ -141,6 +141,13 @@ doAnalyse = go emptyPipeCtx
    emptyPipeCtx :: MSig
    emptyPipeCtx = Sig [] Nothing
 
+   -- 0. Document how this works:
+   --    - we accumulate a restrictive context as we go
+   --    - at PPipe L Nm, we collect a hole for the point
+   --    - at PPipe R Pi, we 'checkApply' the accumulated context against the pipe
+   --      - which is -- go down the list, comparing constraints
+   --    - at PApp PVal, we grow the context and recurse
+   --    - at PVal we go boom
    go :: MSig
       -> Expr (Located (Either (QName Pipe) (SomePipe p)))
       -> PFallible (Expr (Located (PartPipe p)))
@@ -209,6 +216,7 @@ data PartPipe p
     { cpArgs  :: !MSig
     , cspPipe :: !(SomePipe p)
     }
+  deriving (Functor, Foldable, Traversable)
 
 instance Show (PartPipe p) where
   show (CFreePipe args name) = mconcat

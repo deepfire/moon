@@ -1,7 +1,10 @@
 module Execution where
 
+import           Control.Monad.Trans.Maybe
+import qualified Data.Dynamic                           as Dyn
+import qualified Data.Either                            as E
+import qualified Data.Semigroup                         as S
 import qualified Data.Text                              as T
-import qualified Graphics.Vty                           as V
 
 import           Reflex                            hiding (Request)
 import           Reflex.Network
@@ -19,6 +22,7 @@ import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
 import Dom.RequestReply
 import Dom.SomeValue
+import Dom.Space.Pipe
 import Dom.Value
 import Dom.VTag
 
@@ -34,41 +38,97 @@ import Reflex.Vty.Widget.Selector
 
 
 
-data Runnable p
-  = Runnable
-    { rText  :: !Text
-    , rExpr  :: !(Expr (Located (QName Pipe)))
-    , rPExpr :: !(PFallible (Expr (Located (PartPipe ()))))
-    , rReq   :: !(Request (Located (QName Pipe)))
-    , rPipe  :: !(p (SomePipe ()))
+type MixedPipeGuts = Either () Dyn.Dynamic
+type MixedPipe     = SomePipe MixedPipeGuts
+type MixedPartPipe = PartPipe MixedPipeGuts
+type SeparatedPipe = Either (SomePipe ()) (SomePipe Dyn.Dynamic)
+
+data PreRunnable p
+  = PreRunnable
+    { prText  :: !Text
+    , prExpr  :: !(Expr (Located (QName Pipe)))
+    , prPExpr :: !(PFallible (Expr (Located (PartPipe p))))
+    , prReq   :: !StandardRequest
     }
 
-instance Show (Runnable p) where
-  show Runnable{..} = "#<RUNN " <> show rExpr <> ">"
-
-
-data ExecutionPort t =
+data ExecutionPort t p =
   ExecutionPort
-  { epPost    :: Execution t -> IO ()
+  { epPost    :: Execution t p -> IO ()
   , epReplies :: Event t (PFallible SomeValue)
+  , epSpacE   :: Event t (PipeSpace (SomePipe p))
   }
 
-postExecution :: ExecutionPort t -> Execution t -> IO ()
-postExecution = epPost
+data Execution t p =
+  forall c a.
+  (Typeable c, Typeable a, Show a) =>
+  Execution
+  { eResCTag  :: !(CTag c)
+  , eResVTag  :: !(VTag a)
+  , eText     :: !Text
+  , eRequest  :: !StandardRequest
+  , ePipe     :: !(SomePipe p)
+  -- TODO:  what does it mean for eText not to correspond to eExpr?
+  --        a need for a smart constructor?
+  , eReply    :: !(Event t (PFallible (Value c a)))
+  }
 
+
+preRunnableIsT, preRunnableIsG :: PreRunnable MixedPipeGuts -> Bool
+preRunnableIsT =
+  (either (const False)
+          (S.getAll . foldMap (foldMap (S.All . E.isLeft) . locVal)))
+  . prPExpr
+preRunnableIsG =
+  (either (const False)
+          (S.getAll . foldMap (foldMap (S.All . E.isRight) . locVal)))
+  . prPExpr
+
+mixedPipeIsT, mixedPipeIsG :: MixedPipe -> Bool
+mixedPipeIsT = S.getAll . foldMap (S.All . E.isLeft)
+mixedPipeIsG = S.getAll . foldMap (S.All . E.isRight)
+
+separateMixedPipe :: MixedPipe -> SeparatedPipe
+separateMixedPipe p =
+  if | mixedPipeIsT p -> Left  $ fromLeft  (error "mixedPipeIsT but Right?") <$> p
+     | mixedPipeIsG p -> Right $ fromRight (error "mixedPipeIsG but Left?")  <$> p
+     | otherwise -> error "Mix pipe neither T nor G?"
+
+postMixedPipeRequest ::
+     (Reflex t, MonadIO m)
+  => ExecutionPort t ()
+  -> ExecutionPort t Dyn.Dynamic
+  -> Text
+  -> StandardRequest
+  -> SeparatedPipe
+  -> m (Maybe (Execution t MixedPipeGuts))
+postMixedPipeRequest epT epG txt req esp = runMaybeT $ do
+  case esp of
+    Left p -> do
+      e <- MaybeT . pure $ mkExecution epT txt req p
+      liftIO $ postExecution epT e
+      pure $ Left <$> e
+    Right p -> do
+      e <- MaybeT . pure $ mkExecution epG txt req p
+      liftIO $ postExecution epG e
+      pure $ Right <$> e
+
+
 -- XXX: this probably suboptimal, as it does selectG per call
-runnableExecution :: Reflex t
-  => ExecutionPort t
-  -> Runnable I
-  -> Maybe (Execution t)
-runnableExecution ep Runnable{..} =
-  withSomeGroundPipe (unI rPipe) $
-    \(Pipe{pDesc} :: Pipe Ground kas o ()) ->
-      case rReq of
+-- XXX: potential to allow non-Ground execution
+mkExecution :: Reflex t
+  => ExecutionPort t p
+  -> Text
+  -> StandardRequest
+  -> SomePipe p
+  -> Maybe (Execution t p)
+mkExecution ep txt req p =
+  withSomeGroundPipe p $
+    \(Pipe{pDesc} :: Pipe Ground kas o p) ->
+      case req of
         Run{} ->
           let (,) ctag vtag = (descOutCTag pDesc :: CTag (CTagVC o),
                                descOutVTag pDesc :: VTag (CTagVV o))
-          in Execution ctag vtag rText rExpr rReq $
+          in Execution ctag vtag txt req p $
            -- so, we need splitSVByCTag that would thread the Left
              unWrap <$>
              selectG (splitSVKByVTag vtag $
@@ -77,7 +137,7 @@ runnableExecution ep Runnable{..} =
              vtag
         Let{} ->
           let (,) ctag vtag = (,) CPoint VPipeSpace
-          in Execution ctag vtag rText rExpr rReq $
+          in Execution ctag vtag txt req p $
            -- so, we need splitSVByCTag that would thread the Left
              unWrap <$>
              selectG (splitSVKByVTag vtag $
@@ -85,23 +145,12 @@ runnableExecution ep Runnable{..} =
                        ctag)
              vtag
 
-data Execution t =
-  forall c a.
-  (Typeable c, Typeable a, Show a) =>
-  Execution
-  { eResCTag  :: !(CTag c)
-  , eResVTag  :: !(VTag a)
-  , eText     :: !Text
-  , eExpr     :: !(Expr (Located (QName Pipe)))
-  -- TODO:  what does it mean for eText not to correspond to eExpr?
-  --        a need for a smart constructor?
-  , eRequest  :: !StandardRequest
-  , eReply    :: !(Event t (PFallible (Value c a)))
-  }
+postExecution :: ExecutionPort t p -> Execution t p -> IO ()
+postExecution = epPost
 
 handleExecution ::
      (PFallible SomeValue -> IO ())
-  -> Execution t
+  -> Execution t p
   -> PFallible Wire.Reply
   -> IO ()
 handleExecution doHandle Execution{..} (Right (Wire.ReplyValue rep)) =
@@ -109,11 +158,11 @@ handleExecution doHandle Execution{..} (Right (Wire.ReplyValue rep)) =
     Right{} -> doHandle (Right rep)
     Left (Error e) -> fail . unpack $
       "Server response doesn't match Execution: " <> e
-handleExecution doHandle Execution{..} (Left err) = doHandle (Left err)
+handleExecution doHandle Execution{} (Left err) = doHandle (Left err)
 
-presentExecution :: forall t m
+presentExecution :: forall t m p
   . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m)
-  => Event t (Execution t)
+  => Event t (Execution t p)
   -> VtyWidget t m (Dynamic t ())
 presentExecution exE =
   networkHold
@@ -153,14 +202,14 @@ presentExecution exE =
        <&> pure ()
    presentPoint :: (MonadHold t m, Reflex t, Show a)
      => Text -> Event t (Value Point a) -> VtyWidget t m ()
-   presentPoint def e =
-     text =<< hold def (e <&> pack . show . stripValue)
+   presentPoint defDesc e =
+     text =<< hold defDesc (e <&> pack . show . stripValue)
 
 
 presentExecutionSummary ::
-     forall t m
+     forall t m p
    . (Adjustable t m, PostBuild t m, MonadNodeId m, MonadHold t m, NotReady t m, MonadFix m)
-  => Execution t
+  => Execution t p
   -> VtyWidget t m ()
 presentExecutionSummary =
   withExecutionReply
@@ -174,7 +223,7 @@ presentExecutionSummary =
    pres :: (Value c a -> Text) -> Event t (PFallible (Value c a)) -> VtyWidget t m ()
    pres f e = do
      prefixLen <- holdDyn (const 0) (const . T.length <$> prefix)
-     splitH prefixLen (pure (False, False))
+     void $ splitH prefixLen (pure (False, False))
        (richText (RichTextConfig $ pure red)
         =<< hold "" prefix)
        (text
@@ -189,7 +238,7 @@ withExecutionReply ::
   -> (forall a. Show a => Event t (PFallible (Value Tree  a)) -> b)
   -> (forall a. Show a => Event t (PFallible (Value Dag   a)) -> b)
   -> (forall a. Show a => Event t (PFallible (Value Graph a)) -> b)
-  -> Execution t
+  -> Execution t p
   -> b
 withExecutionReply fp fl fs ft fd fg Execution{..} =
   case eResCTag of
@@ -199,3 +248,9 @@ withExecutionReply fp fl fs ft fd fg Execution{..} =
     CTree  -> ft eReply
     CDag   -> fd eReply
     CGraph -> fg eReply
+
+instance Show (PreRunnable p) where
+  show PreRunnable{..} = "#<PRERUN " <> show prExpr <> ">"
+
+instance Functor (Execution t) where
+  fmap f e@Execution{..} = e { ePipe = f <$> ePipe }

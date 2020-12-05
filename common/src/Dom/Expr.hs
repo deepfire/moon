@@ -7,7 +7,6 @@ import qualified Data.IntervalMap.FingerTree      as IMap
 import           Data.Text                          (Text, pack)
 import           Data.Typeable                      (Typeable)
 import           GHC.Generics                       (Generic)
-import           Text.Read                          (Read(..))
 import           Quiet
 
 import Data.Parsing

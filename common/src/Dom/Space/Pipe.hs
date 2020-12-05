@@ -70,6 +70,19 @@ instance Functor PipeSpace where
   fmap f ps@PipeSpace{psSpace} =
     ps { psSpace = f <$> psSpace }
 
+-- Caveat:  non-law-abiding.
+instance Applicative PipeSpace where
+  pure x = PipeSpace mempty (pure x) mempty mempty
+  PipeSpace _ f _ _ <*> PipeSpace n x fro to =
+    PipeSpace n (f <*> x) fro to
+
+instance Foldable PipeSpace where
+  foldMap toM PipeSpace{..} = foldMap toM psSpace
+
+instance Traversable PipeSpace where
+  traverse f s@PipeSpace{..} =
+    traverse f psSpace <&> \x -> s { psSpace = x }
+
 instance (Eq a, Serialise a, Typeable a) => Serialise (PipeSpace a) where
   encode PipeSpace{psName, psSpace, psFrom, psTo} =
     encodeListLen 5

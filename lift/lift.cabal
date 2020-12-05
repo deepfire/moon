@@ -22,6 +22,8 @@ library
                        Data.Text.Zipper.Extra
                        Debug.Reflex
 
+                       Execution
+
                        Lift.Pipe
 
                        Reflex.SomeValue
@@ -125,6 +127,7 @@ library
                        KindSignatures
                        LambdaCase
                        MultiParamTypeClasses
+                       MultiWayIf
                        NamedFieldPuns
                        NoMonomorphismRestriction
                        OverloadedLabels
@@ -168,7 +171,6 @@ executable cli
   ghc-options:         -threaded -Wno-unticked-promoted-constructors
   hs-source-dirs:      .
   main-is:             MainCLI.hs
-  other-modules:       Execution
   build-depends:       common
                      , lift
                      , async
@@ -223,6 +225,7 @@ executable cli
                        KindSignatures
                        LambdaCase
                        MultiParamTypeClasses
+                       MultiWayIf
                        NamedFieldPuns
                        NoMonomorphismRestriction
                        OverloadedLabels

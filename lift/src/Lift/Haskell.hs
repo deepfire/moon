@@ -112,7 +112,7 @@ fileToModule libDir hsFile = do
       (pure . Left . pack . show)
   case mRes of
     Left err -> fallM err
-    Right (_, (PFailed ps, err)) -> fallM $ err
+    Right (_, (PFailed _ps, err)) -> fallM $ err
     Right (dflags, (POk _s m, _)) -> do
       -- liftIO $ printSDocLn PageMode dflags stdout (mkCodeStyle CStyle) $ ppr m
       pure . Right $ liftHsModule dflags m

@@ -9,13 +9,9 @@ import qualified Algebra.Graph                    as G
 -- import           Codec.Serialise
 import           Data.Dynamic                       (toDyn)
 import           Data.GADT.Compare
-import qualified Data.Set.Monad                   as Set
 import qualified Data.SOP                         as SOP
 
-import Text.Read (Lexeme(..), ReadPrec(..), lexP)
-import Text.Megaparsec.Char (string)
 import Text.Megaparsec.Parsers
-import Text.Parser.Token.Highlight
 
 import Basis
 import qualified Data.Dict as Dict
@@ -29,12 +25,10 @@ import Dom.Located
 import Dom.Name
 import Dom.Parse
 import Dom.Pipe
-import Dom.Pipe.Constr
 import Dom.Pipe.IOA
 import Dom.Pipe.SomePipe
 import Dom.Scope
 import Dom.Sig
-import Dom.Some
 import Dom.SomeType
 import Dom.SomeValue
 import Dom.SomeVTag

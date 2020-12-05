@@ -20,7 +20,7 @@ data Located a
     { locSpan :: {-# UNPACK #-} !(Interval Int)
     , locVal  :: !a
     }
-  deriving (Generic, Functor)
+  deriving (Generic, Functor, Foldable, Traversable)
 
 instance Serialise a => Serialise (Located a)
 

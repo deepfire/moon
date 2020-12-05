@@ -1,11 +1,9 @@
 module Dom.Parse (module Dom.Parse) where
 
-import           Control.Monad.Fail                 (MonadFail)
-import           Data.Typeable                      (Proxy(..), Typeable, (:~:)(..), (:~~:)(..))
+import           Data.Typeable                      (Proxy(..), Typeable)
 import           Type.Reflection                    (someTypeRep)
 
 import Data.Parsing
-import Dom.CTag
 
 
 --------------------------------------------------------------------------------

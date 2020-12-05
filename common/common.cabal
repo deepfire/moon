@@ -145,6 +145,7 @@ library
                        FlexibleInstances
                        GADTs
                        GeneralisedNewtypeDeriving
+                       InstanceSigs
                        KindSignatures
                        LambdaCase
                        MultiParamTypeClasses

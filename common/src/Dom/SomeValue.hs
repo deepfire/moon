@@ -1,14 +1,9 @@
 module Dom.SomeValue (module Dom.SomeValue) where
 
-import           Data.GADT.Compare                  (GEq(..), GCompare(..), GOrdering(..))
-import qualified Data.Set.Monad                   as Set
-import           GHC.Generics                       (Generic)
-import           Text.Read                          (Lexeme(..), ReadPrec, lexP)
-import qualified Type.Reflection                  as Refl
+import           Text.Read                          (ReadPrec)
 
 import Basis
 
-import Data.Dict
 import Data.Parsing
 
 import Dom.CTag
@@ -39,7 +34,7 @@ mkSomeGroundValue c a =
   SomeValue c . SomeValueKinded a . mkValue c a
 
 readSomeValue :: forall (c :: Con). CTag c -> TyDict Ground -> ReadPrec SomeValue
-readSomeValue ctag (TyDict (a :: Proxy a)) =
+readSomeValue ctag (TyDict (_ :: Proxy a)) =
   case ctag of
     CPoint -> do
       v :: a <- readPrec

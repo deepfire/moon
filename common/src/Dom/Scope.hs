@@ -4,6 +4,7 @@ module Dom.Scope (module Dom.Scope) where
 
 import           Data.Coerce                        (coerce)
 import           Data.Map.Monoidal.Strict           (MonoidalMap(..))
+import qualified Data.Map.Monoidal.Strict         as MMap
 import qualified Data.Map.Strict                  as Map
 import qualified Data.Sequence                    as Seq
 import           GHC.Generics                       (Generic)
@@ -22,7 +23,8 @@ import Dom.Name
 data Scope c a = Scope
   { sName :: !(Name Scope)
   , sMap  :: !(Map (Name a) (Repr c a))
-  } deriving Generic
+  }
+  deriving Generic
 
 type PointScope a = Scope 'Point a
 
@@ -34,7 +36,24 @@ deriving instance Ord (Repr c a) => Ord (Scope c a)
 
 instance ReifyCTag c => Functor (Scope c) where
   fmap f s@Scope{sMap} =
-    s { sMap = Unsafe.unsafeCoerce $ mapRepr (reifyCTag $ Proxy @c) f <$> sMap }
+    s { sMap = Unsafe.unsafeCoerce $ mapRepr @c f <$> sMap }
+
+-- Caveat:  non-law-abiding.
+instance ReifyCTag c => Applicative (Scope c) where
+  pure :: forall a. ReifyCTag c => a -> Scope c a
+  pure x = Scope "" $ Map.singleton "" (pureRepr @c x)
+  (<*>) :: forall a b. ReifyCTag c => Scope c (a -> b) -> Scope c a -> Scope c b
+  Scope _ mf <*> Scope n mv =
+    let fn   = pickRepr @c (snd . head $ Map.toList mf) :: a -> b
+    in Scope n (Unsafe.unsafeCoerce mv -- Name coercions are safe, within reason.
+                & fmap (mapRepr @c fn))
+
+instance ReifyCTag c => Foldable (Scope c) where
+  foldMap toM Scope{..} = mconcat $ foldMapRepr @c toM <$> Map.elems sMap
+
+instance ReifyCTag c => Traversable (Scope c) where
+  traverse f s@Scope{..} =
+    traverse (traverseRepr @c f) sMap <&> \m -> s { sMap = Unsafe.unsafeCoerce m }
 
 instance Serialise (Repr c a) => Serialise (Scope c a)
 
