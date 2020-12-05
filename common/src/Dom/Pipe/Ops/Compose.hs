@@ -57,7 +57,7 @@ compose ::
   -> PFallible (SomePipe p)
 compose pf f v =
   somePipeUncons f
-  (const $ EComp "Cannot apply value to a saturated pipe.") $
+  (const $ EComp "Cannot compose value and a saturated pipe.") $
   \(f' :: Pipe cf (ca : cas) fo p) ->
     withSomePipe v $
     \(v' :: Pipe cv _vas vo p) ->

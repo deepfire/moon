@@ -2,6 +2,7 @@
 module Dom.Pipe.Ops (module Dom.Pipe.Ops) where
 
 import qualified Data.Text as T
+import           Type.Reflection                    (TyCon, typeRepTyCon)
 
 import Basis
 
@@ -136,66 +137,123 @@ doCompile Ops{app, comp, trav} = go
 doAnalyse ::
      Expr (Located (Either (QName Pipe) (SomePipe p)))
   -> PFallible (Expr (Located (PartPipe p)))
-doAnalyse = go emptyPipeCtx
+doAnalyse exp =
+  snd <$> tcExpr (TyCtx [] (Nothing, Nothing) False) exp
+
+data TyCtx =
+  TyCtx
+  { tcArgs  :: [(Maybe TyCon, Maybe SomeTypeRep)]
+  , tcOut   :: (Maybe TyCon, Maybe SomeTypeRep)
+  , tcIsVal :: Bool
+  }
+
+tcExpr ::
+     TyCtx
+  -> Expr (Located (Either (QName Pipe) (SomePipe p)))
+  -> PFallible (TyCtx, (Expr (Located (PartPipe p))))
+tcExpr ctx exp =
+  let tcArity = length (tcArgs ctx) in
+  case exp of
+    PVal sv@(someValueSomeType -> v) ->
+      if | tcArity > 0
+           -> failTc
+           ["Expected pipe of arity ", showT tcArity, ", "
+           ,"got a value: "
+           , showT $ tCon v, "/", showSomeTypeRepNoKind $ tRep v]
+         | otherwise -> do
+             tcTy "value"
+               (tcOut ctx)
+               (tCon v) (tRep v)
+             pure $ (,PVal sv) $
+               TyCtx [] (Just $ tCon v, Just $ tRep v) True
+    PPipe l@(locVal -> Left name) ->
+      Right ( ctx { tcIsVal = False }
+            , PPipe (l {locVal = CFreePipe (tcMSig ctx) name}) )
+    PPipe l@(locVal -> Right p) ->
+      let Sig{sArgs=(fmap unI -> args), sOut=(unI -> out)} = somePipeSig p
+          pipeArity = length args
+      in
+      if | tcArity > pipeArity
+           -> failTc
+           ["Pipe should accept ", showT tcArity, " "
+           ,"args, but '", showName (somePipeName p), "' "
+           ,"only accepts ", showT pipeArity]
+         | pipeArity > tcArity
+           -> failTc
+           ["Pipe should only require ", showT tcArity, " "
+           ,"args, but '", showName (somePipeName p), "' "
+           ,"needs ", showT pipeArity]
+         | otherwise -> do
+             tcTy ("output of pipe " <> showName (somePipeName p))
+               (tcOut ctx)
+               (tCon out) (tRep out)
+             forM_ (zip (tcArgs ctx) (zip [0..] args)) $
+               \(tcArg, (i :: Int, arg)) ->
+                 tcTy ("arg "<> showT i<> " of pipe " <> showName (somePipeName p))
+                      tcArg
+                      (tCon arg) (tRep arg)
+             pure . (, PPipe (l {locVal = CSomePipe (tcMSig ctx) p})) $
+               TyCtx ((Just *** Just) . (tCon &&& tRep) <$> args)
+                    (Just $ tCon out, Just $ tRep out)
+                    False
+    PApp f x -> do
+      (xCtx, eX) <- tcExpr (TyCtx [] (Nothing, Nothing) False) x
+      if tcIsVal xCtx
+        then do
+        -- regular apply
+        (fCtx, eF) <- tcExpr (ctx { tcArgs = (Nothing, Nothing) : tcArgs ctx }) f
+        case (snd $ tcOut fCtx, snd $ tcOut xCtx) of
+          (,) Just{} Nothing -> do
+            (xCtx', eX') <- tcExpr (TyCtx [] (head $ tcArgs fCtx) False) x
+            tcExpr (ctx { tcArgs = tcOut xCtx' : tcArgs ctx }) f <&>
+              ((, PApp eF eX') . fst)
+          (,) _ _ ->
+            tcExpr (ctx { tcArgs = tcOut xCtx : tcArgs ctx }) f <&>
+              ((, PApp eF eX) . fst)
+        else do
+        -- traverse, so we need to recheck
+        when (tcArity /= 0) $
+          failTc ["Pipe traversal in context that supplies ", showT tcArity, " args"]
+        (fCtx, eF) <- tcExpr (ctx { tcArgs = [(Just pointTyCon, snd $ tcOut xCtx)]
+                                  , tcOut = (Just pointTyCon, Nothing)}) f
+        (xCtx', eX') <- tcExpr (TyCtx [] (Nothing, Nothing) False) x
+        pure . (,PApp eF eX') $
+          TyCtx [] (fst $ tcOut xCtx', snd $ tcOut fCtx) True
+    PComp f g -> do
+      (gCtx, _) <- tcExpr (ctx { tcOut  = (Nothing, Nothing) }) g
+      (fCtx, eF) <- tcExpr (ctx { tcArgs = [tcOut gCtx] }) f
+      (_, eG) <- tcExpr (ctx { tcOut  = head $ tcArgs fCtx }) g
+      pure (fCtx, PComp eF eG)
  where
-   emptyPipeCtx :: MSig
-   emptyPipeCtx = Sig [] Nothing
-
-   -- 0. Document how this works:
-   --    - we accumulate a restrictive context as we go
-   --    - at PPipe L Nm, we collect a hole for the point
-   --    - at PPipe R Pi, we 'checkApply' the accumulated context against the pipe
-   --      - which is -- go down the list, comparing constraints
-   --    - at PApp PVal, we grow the context and recurse
-   --    - at PVal we go boom
-   go :: MSig
-      -> Expr (Located (Either (QName Pipe) (SomePipe p)))
-      -> PFallible (Expr (Located (PartPipe p)))
-   go (Sig args out) = \case
-     PPipe (Locn l (Left pn)) -> Right . PPipe . Locn l $ CFreePipe (Sig (reverse args) out) pn
-     PPipe (Locn l (Right p)) -> PPipe . Locn l <$> checkApply p (Sig (reverse args) out)
-
-     PApp  PVal{} _           -> Left "EAnal: Applying a value."
-     PApp  f      PVal{vX}    ->
-       go (Sig (Just (someValueSomeType vX) : args) out) f
-     PVal{vX} -> left EAnal $ fallDescShow "doAnalyse:  value handling leaked" vX
-     x -> left EAnal $ fallDescShow "doAnalyse:  unhandled" x
-
-   checkApply :: SomePipe p -> MSig -> PFallible (PartPipe p)
-   checkApply p@(somePipeSig -> Sig params (I out)) args = case args of
-     Sig []     Nothing    -> Right $ CSomePipe args p -- special case: unhinged..
-     Sig eArgs  Nothing    -> maybeToLeft (CSomePipe args p) $
-                                EAnal . Error <$> checkArgs eArgs params
-     Sig eArgs (Just eRet) -> maybeToLeft (CSomePipe args p) $
-                                EAnal . Error <$> checkTy "return value" p eRet out
-                                  (checkArgs eArgs params)
-    where
-      checkArgs :: [Maybe SomeType] -> [I SomeType] -> Maybe Text
-      checkArgs ctx sig = goCheck 0 ctx sig
-       where
-         goCheck :: Int -> [Maybe SomeType] -> [I SomeType] -> Maybe Text
-         goCheck _ []    [] = Nothing -- success
-         goCheck _ (_:_) [] = Just $ "Too many "   <> argcMiss (somePipeName p)
-         goCheck _ [] (_:_) = Just $ "Not enough " <> argcMiss (somePipeName p)
-         goCheck i (Nothing:ctx') (_:sig') =
-           goCheck (i + 1) ctx' sig'
-         goCheck i (Just argTy:ctx') (I paramTy:sig') =
-           checkTy ("arg " <> showT i) p argTy paramTy
-             (goCheck (i + 1) ctx' sig')
-
-         argcMiss :: Name Pipe -> Text
-         argcMiss name = mconcat
-           [ "args for pipe \"", showT name, "\":  "
-           , showT (length sig), " required, ", showT (length ctx), " passed."]
-      checkTy :: Text -> SomePipe p -> SomeType -> SomeType -> Maybe Text -> Maybe Text
-      checkTy desc p act exp c
-        | exp == act = c
-        | otherwise = Just $ mconcat
-          [ "Mismatch for ", desc, " "
-          , "of pipe ", showT (somePipeName p), ": "
-          , "expected: ", showT exp, ", "
-          , "got: ", showT act
-          ]
+   tcMSig :: TyCtx -> MSig
+   tcMSig TyCtx{..} =
+     Sig { sArgs = tyPairSomeType <$> tcArgs
+         , sOut  = tyPairSomeType tcOut
+         }
+   tyPairSomeType :: (Maybe TyCon, Maybe SomeTypeRep) -> Maybe SomeType
+   tyPairSomeType = \case
+     (Just con, Just rep) ->
+       Just CSomeType { tName = Name . showSomeTypeRepNoKind $ rep
+                      , tCon  = con
+                      , tRep  = rep
+                      }
+     _ -> Nothing
+   pointTyCon = typeRepTyCon $ typeRep @Point
+   tcTy :: Text -> (Maybe TyCon, Maybe SomeTypeRep) -> TyCon -> SomeTypeRep
+        -> PFallible ()
+   tcTy desc (mcon, mty) con ty
+       | Just oCon <- mcon
+       , oCon /= con
+         = failTc
+          ["Expected kind of ", desc, ": ", showT oCon, ", "
+          ,"actual: ", showT con]
+       | Just oTy <- mty
+       , oTy /= ty
+         = failTc
+          ["Expected type of ", desc, ": ", showT oTy, ", "
+          ,"actual: ", showSomeTypeRepNoKind ty]
+       | otherwise = Right ()
+   failTc = Left . EType . Error . mconcat
 
 checkPipeRunnability :: SomePipe p -> Maybe EPipe
 checkPipeRunnability sp
