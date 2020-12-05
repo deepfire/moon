@@ -17,10 +17,10 @@ import Dom.VTag
 -- * Tags:  Constructor * Value
 --
 data Tags ty where
-  Tags :: (ty ~ Types c a, ReifyCTag c, ReifyVTag a, Typeable c) =>
+  Tags :: (ty ~ CTagV c a, ReifyCTag c, ReifyVTag a, Typeable c) =>
     { tCTag :: CTag c
     , tVTag :: VTag a
-    } -> Tags (Types c a)
+    } -> Tags (CTagV c a)
   deriving Typeable
 
 instance NFData (Tags a) where
@@ -28,7 +28,7 @@ instance NFData (Tags a) where
 
 typesTags ::
   forall c a. (ReifyCTag c, ReifyVTag a)
-  => Types c a -> Tags (Types c a)
+  => CTagV c a -> Tags (CTagV c a)
 typesTags _ =
   withCTag ctag $
     Tags ctag (reifyVTag $ Proxy @a)

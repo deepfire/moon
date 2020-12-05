@@ -66,22 +66,22 @@ runnableExecution ep Runnable{..} =
     \(Pipe{pDesc} :: Pipe Ground kas o ()) ->
       case rReq of
         Run{} ->
-          let (,) ctag vtag = (descOutCTag pDesc :: CTag (TypesC o),
-                               descOutVTag pDesc :: VTag (TypesV o))
+          let (,) ctag vtag = (descOutCTag pDesc :: CTag (CTagVC o),
+                               descOutVTag pDesc :: VTag (CTagVV o))
           in Execution ctag vtag rText rExpr rReq $
-           -- so, we need splitSVByKinds' that would thread the Left
+           -- so, we need splitSVByCTag that would thread the Left
              unWrap <$>
-             selectG (splitSVKByTypes vtag $
-                      selectG (splitSVByKinds ctag $ epReplies ep)
+             selectG (splitSVKByVTag vtag $
+                      selectG (splitSVByCTag ctag $ epReplies ep)
                        ctag)
              vtag
         Let{} ->
-          let (,) ctag vtag = (,) TPoint VPipeSpace
+          let (,) ctag vtag = (,) CPoint VPipeSpace
           in Execution ctag vtag rText rExpr rReq $
-           -- so, we need splitSVByKinds' that would thread the Left
+           -- so, we need splitSVByCTag that would thread the Left
              unWrap <$>
-             selectG (splitSVKByTypes vtag $
-                      selectG (splitSVByKinds ctag $ epReplies ep)
+             selectG (splitSVKByVTag vtag $
+                      selectG (splitSVByCTag ctag $ epReplies ep)
                        ctag)
              vtag
 
@@ -193,9 +193,9 @@ withExecutionReply ::
   -> b
 withExecutionReply fp fl fs ft fd fg Execution{..} =
   case eResCTag of
-    TPoint -> fp eReply
-    TList  -> fl eReply
-    TSet   -> fs eReply
-    TTree  -> ft eReply
-    TDag   -> fd eReply
-    TGraph -> fg eReply
+    CPoint -> fp eReply
+    CList  -> fl eReply
+    CSet   -> fs eReply
+    CTree  -> ft eReply
+    CDag   -> fd eReply
+    CGraph -> fg eReply

@@ -41,13 +41,13 @@ mkSomeGroundValue c a =
 readSomeValue :: forall (c :: Con). CTag c -> TyDict Ground -> ReadPrec SomeValue
 readSomeValue ctag (TyDict (a :: Proxy a)) =
   case ctag of
-    TPoint -> do
+    CPoint -> do
       v :: a <- readPrec
       pure $ mkSomeGroundValue ctag (reifyVTag $ Proxy @a) v
-    TList -> do
+    CList -> do
       v :: [a] <- readListPrec
       pure $ mkSomeGroundValue ctag (reifyVTag $ Proxy @a) v
-    TSet -> do
+    CSet -> do
       v :: [a] <- readListPrec
       pure $ mkSomeGroundValue ctag (reifyVTag $ Proxy @a) v
     _ -> trace (printf "No parser for structures 0utside of Point/List/Set.")
@@ -70,12 +70,12 @@ instance Read (Some CTag) where
   readPrec = do
     con <- lexP
     case con of
-      Ident "Point" -> pure . Exists $ TPoint
-      Ident "List"  -> pure . Exists $ TList
-      Ident "Set"   -> pure . Exists $ TSet
-      Ident "Tree"  -> pure . Exists $ TTree
-      Ident "Dag"   -> pure . Exists $ TDag
-      Ident "Graph" -> pure . Exists $ TGraph
+      Ident "Point" -> pure . Exists $ CPoint
+      Ident "List"  -> pure . Exists $ CList
+      Ident "Set"   -> pure . Exists $ CSet
+      Ident "Tree"  -> pure . Exists $ CTree
+      Ident "Dag"   -> pure . Exists $ CDag
+      Ident "Graph" -> pure . Exists $ CGraph
       _ -> trace (printf "Unknown CTag: %s" (show con))
                  (fail "")
 
@@ -126,17 +126,17 @@ parseSomeValue extraParses =
    parseSV ctag = do
      TyDict a :: TyDict Ground <- parser
      case ctag of
-       TPoint -> do
+       CPoint -> do
          v :: a <- parser
          let vtag = reifyVTag $ Proxy @a
          pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag v
          -- pure $ mkSomeValue ctag vtag v
-       TList -> do
+       CList -> do
          v :: [a] <- commaSep parser
          let vtag = reifyVTag $ Proxy @a
          pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag v
          -- pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) v
-       TSet -> do
+       CSet -> do
          v :: [a] <- commaSep parser
          let vtag = reifyVTag $ Proxy @a
          pure $ SomeValue ctag $ SomeValueKinded vtag $ mkValue' a ctag v
@@ -187,12 +187,12 @@ instance Serialise SomeValue where
               decodeValue :: forall s (k :: Con) a
                 . Ground a => Proxy a -> CTag k -> Decoder s (Value k a)
               decodeValue _ = \case
-                TPoint -> VPoint <$> decode
-                TList  -> VList  <$> decode
-                TSet   -> VSet   <$> decode
-                TTree  -> VTree  <$> decode
-                TDag   -> VDag   <$> decode
-                TGraph -> VGraph <$> decode
+                CPoint -> VPoint <$> decode
+                CList  -> VList  <$> decode
+                CSet   -> VSet   <$> decode
+                CTree  -> VTree  <$> decode
+                CDag   -> VDag   <$> decode
+                CGraph -> VGraph <$> decode
       _ -> failLenTag len tag
    where
      failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a

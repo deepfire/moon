@@ -28,7 +28,8 @@ data ErrPipe a
 
   | EType      { unEPipe :: !a }
   | EExec      { unEPipe :: !a }
-  deriving (Functor, Eq, Generic, Show)
+  deriving (Functor, Eq, Generic)
+  deriving (Show) via Quiet (ErrPipe a)
 
 instance Serialise a => Serialise (ErrPipe a)
 
@@ -52,7 +53,6 @@ instance IsString EPipe where
       'E':'x':'e':'c':            ':':' ':s -> EExec    . Error . pack $ s
       e -> error $ "Invalid IsString encoding of EPipe: " <> e
     e -> error $ "Invalid IsString encoding of EPipe: " <> e
-
 
 newPipeExceptErr :: (Error -> EPipe) -> IO (Fallible a) -> ExceptT EPipe IO a
 newPipeExceptErr inj act = newExceptT $ left inj <$> act

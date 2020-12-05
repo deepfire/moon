@@ -148,6 +148,7 @@ library
                        KindSignatures
                        LambdaCase
                        MultiParamTypeClasses
+                       MultiWayIf
                        NamedFieldPuns
                        NoMonomorphismRestriction
                        OverloadedLabels

@@ -21,25 +21,25 @@ import Dom.Struct
 import Dom.Tags
 import Dom.Value
 
--- import Ground.Table -- for demo only
+import Ground.Table -- for demo only
 
 
 --------------------------------------------------------------------------------
 -- * Showcase
 --
--- demoApply :: IO ()
--- demoApply = case apply appDyn pipe val of
---   Left e -> putStrLn . unpack $ "apply error: " <> e
---   Right p -> runSomePipe p >>= \case
---     Left e -> putStrLn . unpack $ "runtime error: " <> e
---     Right _ -> pure ()
---  where
---    pipe :: SomePipe Dynamic
---    pipe = pipe1G "demo pipe" TPoint' TPoint'
---      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
+demoApply :: IO ()
+demoApply = case apply appDyn pipe val of
+  Left e -> putStrLn $ show e
+  Right p -> runSomePipe p >>= \case
+    Left e -> putStrLn . unpack $ "runtime error: " <> showError e
+    Right _ -> pure ()
+ where
+   pipe :: SomePipe Dynamic
+   pipe = pipe1G "demo pipe" CVPoint CVPoint
+     ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
---    val :: SomeValue
---    val = SomeValue TPoint $ SomeValueKinded VString $ VPoint ("demo!" :: String)
+   val :: SomeValue
+   val = SomeValue CPoint $ SomeValueKinded VString $ VPoint ("Apply!" :: String)
 
 --------------------------------------------------------------------------------
 -- * Conceptually:
@@ -52,7 +52,7 @@ apply ::
         , PipeConstr g cas' o
         , cas ~ (ca : cas')
         )
-      => Desc g cas o -> Value (TypesC ca) (TypesV ca) -> p -> Fallible p)
+      => Desc g cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
   -> SomePipe p
   -> SomeValue
   -> PFallible (SomePipe p)
@@ -70,7 +70,7 @@ apply' ::
   . ( PipeConstr g cas o
     , cas ~ (ca:cas')
     )
-  => (Desc g cas o -> Value (TypesC ca) (TypesV ca) -> p -> Fallible p)
+  => (Desc g cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
   -> Pipe g cas o p
   -> SomeValue
   -> Fallible (Pipe g cas' o p)
@@ -86,9 +86,9 @@ apply' pf
   = fallDesc "Apply: Con mismatch"   $ show2  "v" (typeRep @v)   "a"  a
 
   | Just HRefl <- typeRep @cv `eqTypeRep` tA
-  , Just HRefl <- typeRep @cv `eqTypeRep` typeRep @(TypesC ca)
+  , Just HRefl <- typeRep @cv `eqTypeRep` typeRep @(CTagVC ca)
   , Just HRefl <- typeRep @v  `eqTypeRep`  a
-  , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(TypesV ca)
+  , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(CTagVV ca)
   = case spineConstraint of
       (Dict :: Dict Typeable cas') -> doApply pf f v
   | otherwise
@@ -129,7 +129,7 @@ appDyn ::
    . ( PipeConstr g cas o
      , cas ~ (ca:cass)
      )
-  => Desc g cas o -> Value (TypesC ca) (TypesV ca) -> Dynamic
+  => Desc g cas o -> Value (CTagVC ca) (CTagVV ca) -> Dynamic
   -> Fallible Dynamic
 appDyn
   Desc {pdArgs = Tags _ _ SOP.:* _}
@@ -144,13 +144,13 @@ appDyn
 applyIOA ::
      forall g cas cass o c a
   .  ( PipeConstr g cas o
-     , cas ~ (Types c a : cass)
+     , cas ~ (CTagV c a : cass)
      )
   => IOA g cas  o
   -> Value c a
   -> IOA g cass o
 applyIOA
-  (IOA (f :: PipeFunTy (Types c a:ass) o)
+  (IOA (f :: PipeFunTy (CTagV c a:ass) o)
     c _as o
   ) v = case spineConstraint of
           (Dict :: Dict Typeable cas) ->
@@ -161,7 +161,7 @@ applyIOA
 -- ($) :: (a -> b) -> a -> b
 applyPipeFun' ::
      forall (cas :: [*]) (o :: *) (c :: Con) (a :: *)
-  .  PipeFunTy (Types c a:cas) o
+  .  PipeFunTy (CTagV c a:cas) o
   -> Proxy cas
   -> Proxy o
   -> Value c a

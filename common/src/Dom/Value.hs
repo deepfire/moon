@@ -42,21 +42,21 @@ instance Functor (Value c) where
 
 mkValue :: CTag k -> VTag a -> Repr k a -> Value k a
 mkValue = \case
-  TPoint -> const VPoint
-  TList  -> const VList
-  TSet   -> const VSet
-  TTree  -> const VTree
-  TDag   -> const VDag
-  TGraph -> const VGraph
+  CPoint -> const VPoint
+  CList  -> const VList
+  CSet   -> const VSet
+  CTree  -> const VTree
+  CDag   -> const VDag
+  CGraph -> const VGraph
 
 mkValue' :: Proxy a -> CTag c -> Repr c a -> Value c a
 mkValue' = const $ \case
-  TPoint -> VPoint
-  TList  -> VList
-  TSet   -> VSet
-  TTree  -> VTree
-  TDag   -> VDag
-  TGraph -> VGraph
+  CPoint -> VPoint
+  CList  -> VList
+  CSet   -> VSet
+  CTree  -> VTree
+  CDag   -> VDag
+  CGraph -> VGraph
 
 stripValue ::
   forall (c :: Con) a

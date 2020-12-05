@@ -239,7 +239,7 @@ runLet name expr = do
       putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
 
     liftIO $ ReplyValue
-      . SomeValue TPoint . SomeValueKinded VPipeSpace
-      . mkValue TPoint VPipeSpace <$>
+      . SomeValue CPoint . SomeValueKinded VPipeSpace
+      . mkValue CPoint VPipeSpace <$>
       getThePipeSpace
 

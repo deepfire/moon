@@ -49,8 +49,8 @@ pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Hackage"
   & spsAttachScopes (graft)
       [ pipeScope "Hackage"
-        [ pipe0T "packages"        TSet' hackagePackageNames
-        , pipe1T "cabal" TPoint' TPoint' getHackagePackageCabalDesc
+        [ pipe0T "packages"        CVSet hackagePackageNames
+        , pipe1T "cabal" CVPoint CVPoint getHackagePackageCabalDesc
         ]
       , emptyPipeScope "Cabal"
         <> (dataProjScope $ Proxy @Cabal.GenericPackageDescription)

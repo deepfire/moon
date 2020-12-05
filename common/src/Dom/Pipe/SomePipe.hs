@@ -1,6 +1,7 @@
 module Dom.Pipe.SomePipe (module Dom.Pipe.SomePipe) where
 
 import qualified Data.Dynamic                     as Dynamic
+import qualified Generics.SOP                     as SOP
 
 import Basis
 
@@ -118,7 +119,7 @@ recoverPipe qn name sig struct rep xs =
    goGround (x:xs) (Pipe (Desc{..} :: Desc Ground cas o) _) =
      withRecoveredTags x $
        \(tip :: Tags ca)
-        (_ :: Proxy (TypesC ca)) (_ :: Proxy (TypesV ca))
+        (_ :: Proxy (CTagVC ca)) (_ :: Proxy (CTagVV ca))
        -> go xs $ G mempty $ Pipe
           (Desc pdName pdSig pdStruct pdRep (tip :* pdArgs) pdOut
            :: Desc Ground (ca:cas) o) ()
@@ -130,7 +131,7 @@ recoverPipe qn name sig struct rep xs =
    goTop (x:xs) (Pipe (Desc{..} :: Desc Top cas o) _) =
      withRecoveredTags x $
        \(tip :: Tags ca)
-        (_ :: Proxy (TypesC ca)) (_ :: Proxy (TypesV ca))
+        (_ :: Proxy (CTagVC ca)) (_ :: Proxy (CTagVV ca))
        -> go xs $ T mempty $ Pipe
           (Desc pdName pdSig pdStruct pdRep (tip :* pdArgs) pdOut
            :: Desc Top (ca:cas) o) ()
@@ -139,9 +140,9 @@ recoverPipe qn name sig struct rep xs =
      :: forall b
      . (SomeCTag, SomeVTag, SomeTypeRep, SomeTypeRep)
      -> (forall (c1 :: Con) (a1 :: *) ty
-         . ( Typeable (Types c1 a1), Typeable c1, Typeable a1
+         . ( Typeable (CTagV c1 a1), Typeable c1, Typeable a1
            , ReifyCTag c1, ReifyVTag a1
-           , ty ~ Types c1 a1)
+           , ty ~ CTagV c1 a1)
          => Tags ty -> Proxy c1 -> Proxy a1 -> b)
      -> b
    withRecoveredTags
@@ -152,7 +153,7 @@ recoverPipe qn name sig struct rep xs =
      of
        (Just HRefl, Just HRefl) ->
          withTypeable rc $ withTypeable rv $ withCTag tc $
-           f (Tags tc tv :: Tags (Types c a))
+           f (Tags tc tv :: Tags (CTagV c a))
              (Proxy @c) (Proxy @a)
        (,) Nothing _ -> error $ mconcat
          [ "withRecoveredTags: container tag miss: Ctag c=", show $ typeRep @c
@@ -176,7 +177,7 @@ mkPipeBase _c out name sig struct rep =
       T mempty $
       Pipe (Desc name sig struct rep Nil out :: Desc Top '[] out) ()
     Just (_, _, _, TyDict (_ :: Ground b' => Proxy b')) ->
-      case typeRep @b' `eqTypeRep` typeRep @(TypesV out) of
+      case typeRep @b' `eqTypeRep` typeRep @(CTagVV out) of
         Just HRefl ->
           -- trace ("Ground for:  " <> show name <> "/" <> show outRep) $
           G mempty
@@ -185,7 +186,7 @@ mkPipeBase _c out name sig struct rep =
         Nothing -> error $
           "mkSaturatedPipe:  internal inconsistency while looking up Dict for type "
           <> unpack (showName name)
- where outRep = someTypeRep $ Proxy @(TypesV out)
+ where outRep = someTypeRep $ Proxy @(CTagVV out)
 
 --------------------------------------------------------------------------------
 -- * Utils
@@ -263,3 +264,52 @@ somePipeUncons (T h p@(Pipe Desc {pdArgs = _ :* _} _)) _ cons = T h <$> cons p
 somePipeOutSomeCTagType :: SomePipe p -> (SomeCTag, SomeTypeRep)
 somePipeOutSomeCTagType p =
   withSomePipe p pipeOutSomeCTagType
+
+somePipeTraverse
+  :: SomePipe p
+  -> SomePipe p
+  -> (forall (fc :: * -> Constraint) (tc :: * -> Constraint) (fa :: *) (fo :: *) (to :: *)
+      . ( PipeConstr fc (fa:'[]) fo
+        , PipeConstr tc '[]      to)
+      => Pipe fc (fa:'[]) fo p
+      -> Pipe tc '[] to p
+      -> Fallible (Pipe fc '[] (CTagV (CTagVC to) (CTagVV fo)) p))
+  -> Fallible (SomePipe p)
+somePipeTraverse (G _ f@(Pipe Desc{pdArgs=_:* Nil} _)) (G _ t@(Pipe Desc{pdArgs=Nil} _)) trav = G mempty <$> trav f t
+somePipeTraverse (G _ f@(Pipe Desc{pdArgs=_:* Nil} _)) (T _ t@(Pipe Desc{pdArgs=Nil} _)) trav = G mempty <$> trav f t
+somePipeTraverse (T _ f@(Pipe Desc{pdArgs=_:* Nil} _)) (G _ t@(Pipe Desc{pdArgs=Nil} _)) trav = T mempty <$> trav f t
+somePipeTraverse (T _ f@(Pipe Desc{pdArgs=_:* Nil} _)) (T _ t@(Pipe Desc{pdArgs=Nil} _)) trav = T mempty <$> trav f t
+somePipeTraverse f t _ = Left $
+  if | fA == 0 -> "Supposed function is saturated."
+     | fA  > 1 -> "Non-singular function, arity: "   <> showT fA & Error
+     | tA  > 0 -> "Unsaturated traversable, arity: " <> showT tA & Error
+     | True    -> "Unknown error."
+ where fA = somePipeArity f
+       tA = somePipeArity t
+
+somePipeArity :: SomePipe p -> Int
+somePipeArity sp = withSomePipe sp $
+  \p -> length (SOP.hcollapse . SOP.hmap (K . const ()) . pdArgs $ pDesc p)
+
+somePipeArityCase
+  :: forall (p :: *) (a :: *)
+  .  SomePipe p
+  -- Zero.
+  -> (forall (c :: * -> Constraint) o (cas :: [*])
+      . (PipeConstr c cas o, cas ~ '[])
+      => Pipe c cas o p -> a)
+  -- One.
+  -> (forall (c :: * -> Constraint) o (cas :: [*]) (ca :: *)
+      . (PipeConstr c cas o, cas ~ (ca:'[]),  PipeConstr c '[] o)
+      => Pipe c cas o p -> a)
+  -- Infinity.
+  -> (forall (c :: * -> Constraint) o (cas :: [*]) (ca :: *) (cas' :: [*])
+      . (PipeConstr c cas o, cas ~ (ca:cas'), PipeConstr c cas' o)
+      => Pipe c cas o p -> a)
+  -> a
+somePipeArityCase (G _ p@(Pipe Desc {pdArgs =      Nil} _)) z _ _ = z p
+somePipeArityCase (T _ p@(Pipe Desc {pdArgs =      Nil} _)) z _ _ = z p
+somePipeArityCase (G _ p@(Pipe Desc {pdArgs = _ :* Nil} _)) _ s _ = s p
+somePipeArityCase (T _ p@(Pipe Desc {pdArgs = _ :* Nil} _)) _ s _ = s p
+somePipeArityCase (G _ p@(Pipe Desc {pdArgs = _ :* _}   _)) _ _ n = n p
+somePipeArityCase (T _ p@(Pipe Desc {pdArgs = _ :* _}   _)) _ _ n = n p

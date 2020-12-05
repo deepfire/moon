@@ -72,9 +72,10 @@ defineGroundTypes qDec = emit <$> qDec
 
    emit :: [Dec] -> [Dec]
    emit [DataD [] dataNameRaw [PlainTV tyIxName] Nothing cons derivs] =
-     [ DataInstD [] {- no context -} dataName
-         [ ConT unit, VarT tyIxName ]
-         Nothing    -- no kind spec
+     [ DataInstD [] {- no context -}
+                 Nothing {- no tyvar binds -}
+                 (AppT (AppT (ConT dataName) (ConT unit)) (VarT tyIxName))
+                 Nothing    -- no kind spec
          (decls <&>
           \TagDecl{..} ->
              let conTname = 'V':tdStem in
@@ -109,7 +110,7 @@ defineGroundTypes qDec = emit <$> qDec
              ]]
      -- instance GEq CTag where
      --   geq a b = case (a,b) of
-     --     (,) TPoint  TPoint -> Just Refl ...
+     --     (,) CPoint  CPoint -> Just Refl ...
      --     _ -> Nothing
      , InstanceD Nothing []
          (AppT (ConT $ mkName "GEq") (AppT (ConT vtag') (ConT unit)))
@@ -136,7 +137,7 @@ defineGroundTypes qDec = emit <$> qDec
      --    where
      --      orderCTag :: forall a. CTag a -> Int
      --      orderCTag = \case
-     --        TPoint -> 0 ...
+     --        CPoint -> 0 ...
      , let geq = mkName "GEQ"
            glt = mkName "GLT"
            ggt = mkName "GGT"
@@ -188,7 +189,7 @@ defineGroundTypes qDec = emit <$> qDec
              ]]
      -- instance Serialise SomeCTag where
      --   encode = \(SomeCTag tag) -> case tag of
-     --     TPoint -> CBOR.encodeWord 1 ...
+     --     CPoint -> CBOR.encodeWord 1 ...
      , InstanceD Nothing []
          (AppT (ConT $ mkName "Serialise") (ConT $ mkName "SomeVTag"))
          [ FunD (mkName "encode")
@@ -222,7 +223,7 @@ defineGroundTypes qDec = emit <$> qDec
      --   decode = do
      --     tag <- CBOR.decodeWord
      --     case tag of
-     --       1 -> pure $ SomeCTag TPoint ...
+     --       1 -> pure $ SomeCTag CPoint ...
      --       _ -> fail $ "invalid SomeCTag encoding: tag="<>show tag
          , FunD
              (mkName "decode")

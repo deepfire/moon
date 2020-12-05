@@ -33,21 +33,21 @@ data Con
   deriving (Eq, Generic, Ord, Read, Show, Typeable)
 
 data CTag (c :: Con) where
-  TPoint :: Typeable Point => CTag Point
-  TList  :: Typeable List  => CTag List
-  TSet   :: Typeable 'Set  => CTag 'Set
-  TTree  :: Typeable Tree  => CTag Tree
-  TDag   :: Typeable Dag   => CTag Dag
-  TGraph :: Typeable Graph => CTag Graph
+  CPoint :: Typeable Point => CTag Point
+  CList  :: Typeable List  => CTag List
+  CSet   :: Typeable 'Set  => CTag 'Set
+  CTree  :: Typeable Tree  => CTag Tree
+  CDag   :: Typeable Dag   => CTag Dag
+  CGraph :: Typeable Graph => CTag Graph
   deriving (Typeable)
 
-data Types (c :: Con) (a :: *) where
-  TPoint'  :: Types Point a
-  TList'   :: Types List  a
-  TSet'    :: Types 'Set  a
-  TTree'   :: Types Tree  a
-  TDag'    :: Types Dag   a
-  TGraph'  :: Types Graph a
+data CTagV (c :: Con) (a :: *) where
+  CVPoint  :: CTagV Point a
+  CVList   :: CTagV List  a
+  CVSet    :: CTagV 'Set  a
+  CVTree   :: CTagV Tree  a
+  CVDag    :: CTagV Dag   a
+  CVGraph  :: CTagV Graph a
   deriving (Typeable)
 
 data SomeCTag where
@@ -62,31 +62,31 @@ class ReifyCTag (c :: Con) where
 -- * Type-level structures
 --
 type family OnArg1 (onarg1f :: Con -> * -> *) (onarg1xs :: [*]) :: * where
-  OnArg1 f (Types c a:_) = f c a
+  OnArg1 f (CTagV c a:_) = f c a
   OnArg1 _ xs = TypeError (Ty.Text "OnArg1Ty: incompatible signature: " :<>: ShowType xs)
 
 type family Arg1 (arg1 :: [*]) :: * where
-  Arg1 (Types c a:_) = Types c a
+  Arg1 (CTagV c a:_) = CTagV c a
   Arg1 xs = TypeError (Ty.Text "Arg1: no argument: " :<>: ShowType xs)
 
 type family Arg1Ty (arg1ty :: [*]) :: * where
-  Arg1Ty (Types _ a:_) = a
+  Arg1Ty (CTagV _ a:_) = a
   Arg1Ty xs = TypeError (Ty.Text "Arg1Ty: no argument: " :<>: ShowType xs)
 
 type family Arg1CTag (arg1ctag :: [*]) :: Con where
-  Arg1CTag (Types c _:_) = c
+  Arg1CTag (CTagV c _:_) = c
   Arg1CTag xs = TypeError (Ty.Text "Arg1CTag: no argument: " :<>: ShowType xs)
 
-type family TypesV (typeof :: *) :: * where
-  TypesV (Types _ a) = a
-  TypesV x = TypeError (Ty.Text "TypesV: invalid argument: " :<>: ShowType x)
+type family CTagVV (typeof :: *) :: * where
+  CTagVV (CTagV _ a) = a
+  CTagVV x = TypeError (Ty.Text "CTagVV: invalid argument: " :<>: ShowType x)
 
-type family TypesC (ctagof :: *) :: Con where
-  TypesC (Types c _) = c
-  TypesC  x = TypeError (Ty.Text "TypesC: invalid argument: " :<>: ShowType x)
+type family CTagVC (ctagof :: *) :: Con where
+  CTagVC (CTagV c _) = c
+  CTagVC  x = TypeError (Ty.Text "CTagVC: invalid argument: " :<>: ShowType x)
 
 type family ReprOf (reprof :: *) :: * where
-  ReprOf (Types c a) = Repr c a
+  ReprOf (CTagV c a) = Repr c a
   ReprOf x = TypeError (Ty.Text "ReprOf: invalid argument: " :<>: ShowType x)
 
 --------------------------------------------------------------------------------
@@ -97,41 +97,41 @@ instance SOP.HasDatatypeInfo Con
 instance Serialise           Con
 
 instance Eq (CTag c) where
-  TPoint == TPoint = True
-  TList  == TList  = True
-  TSet   == TSet   = True
-  TTree  == TTree  = True
-  TDag   == TDag   = True
-  TGraph == TGraph = True
+  CPoint == CPoint = True
+  CList  == CList  = True
+  CSet   == CSet   = True
+  CTree  == CTree  = True
+  CDag   == CDag   = True
+  CGraph == CGraph = True
 
 instance Ord (CTag c) where
-  compare TPoint TPoint = EQ
-  compare TList  TList  = EQ
-  compare TSet   TSet   = EQ
-  compare TTree  TTree  = EQ
-  compare TDag   TDag   = EQ
-  compare TGraph TGraph = EQ
+  compare CPoint CPoint = EQ
+  compare CList  CList  = EQ
+  compare CSet   CSet   = EQ
+  compare CTree  CTree  = EQ
+  compare CDag   CDag   = EQ
+  compare CGraph CGraph = EQ
 
 instance Show (CTag c) where
-  show TPoint = "TPoint"
-  show TList  = "TList"
-  show TSet   = "TSet"
-  show TTree  = "TTree"
-  show TDag   = "TDag"
-  show TGraph = "TGraph"
+  show CPoint = "CPoint"
+  show CList  = "CList"
+  show CSet   = "CSet"
+  show CTree  = "CTree"
+  show CDag   = "CDag"
+  show CGraph = "CGraph"
 
 instance NFData (CTag c) where
-  rnf TPoint = ()
+  rnf CPoint = ()
   rnf _      = ()
 
 instance GEq CTag where
   geq a b = case (a,b) of
-    (,) TPoint  TPoint -> Just Refl
-    (,) TList   TList  -> Just Refl
-    (,) TSet    TSet   -> Just Refl
-    (,) TTree   TTree  -> Just Refl
-    (,) TDag    TDag   -> Just Refl
-    (,) TGraph  TGraph -> Just Refl
+    (,) CPoint  CPoint -> Just Refl
+    (,) CList   CList  -> Just Refl
+    (,) CSet    CSet   -> Just Refl
+    (,) CTree   CTree  -> Just Refl
+    (,) CDag    CDag   -> Just Refl
+    (,) CGraph  CGraph -> Just Refl
     _ -> Nothing
 
 instance GCompare CTag where
@@ -143,37 +143,37 @@ instance GCompare CTag where
    where
      orderCTag :: forall a. CTag a -> Int
      orderCTag = \case
-       TPoint -> 0
-       TList  -> 1
-       TSet   -> 2
-       TTree  -> 3
-       TDag   -> 4
-       TGraph -> 5
+       CPoint -> 0
+       CList  -> 1
+       CSet   -> 2
+       CTree  -> 3
+       CDag   -> 4
+       CGraph -> 5
 
-instance ReifyCTag Point where reifyCTag = const TPoint
-instance ReifyCTag List  where reifyCTag = const TList
-instance ReifyCTag 'Set  where reifyCTag = const TSet
-instance ReifyCTag Tree  where reifyCTag = const TTree
-instance ReifyCTag Dag   where reifyCTag = const TDag
-instance ReifyCTag Graph where reifyCTag = const TGraph
+instance ReifyCTag Point where reifyCTag = const CPoint
+instance ReifyCTag List  where reifyCTag = const CList
+instance ReifyCTag 'Set  where reifyCTag = const CSet
+instance ReifyCTag Tree  where reifyCTag = const CTree
+instance ReifyCTag Dag   where reifyCTag = const CDag
+instance ReifyCTag Graph where reifyCTag = const CGraph
 
 instance Serialise SomeCTag where
   encode = CBOR.encodeWord . \(SomeCTag tag) -> case tag of
-    TPoint -> 1
-    TList  -> 2
-    TSet   -> 3
-    TTree  -> 4
-    TDag   -> 5
-    TGraph -> 6
+    CPoint -> 1
+    CList  -> 2
+    CSet   -> 3
+    CTree  -> 4
+    CDag   -> 5
+    CGraph -> 6
   decode = do
     tag <- CBOR.decodeWord
     case tag of
-      1 -> pure $ SomeCTag TPoint
-      2 -> pure $ SomeCTag TList
-      3 -> pure $ SomeCTag TSet
-      4 -> pure $ SomeCTag TTree
-      5 -> pure $ SomeCTag TDag
-      6 -> pure $ SomeCTag TGraph
+      1 -> pure $ SomeCTag CPoint
+      2 -> pure $ SomeCTag CList
+      3 -> pure $ SomeCTag CSet
+      4 -> pure $ SomeCTag CTree
+      5 -> pure $ SomeCTag CDag
+      6 -> pure $ SomeCTag CGraph
       _ -> fail $ "invalid SomeCTag encoding: tag="<>show tag
 
 --------------------------------------------------------------------------------
@@ -195,24 +195,24 @@ type family Repr (k :: Con) (a :: *) :: * where
   -- Option:    Set of pairs with enforced left hand uniqueness?
 
 mapRepr :: CTag c -> (a -> b) -> Repr c a -> Repr c b
-mapRepr TPoint f = f
-mapRepr TList  f = fmap f
-mapRepr TSet   f = fmap f
-mapRepr TTree  f = fmap f
-mapRepr TDag   f = fmap f
-mapRepr TGraph f = fmap f
+mapRepr CPoint f = f
+mapRepr CList  f = fmap f
+mapRepr CSet   f = fmap f
+mapRepr CTree  f = fmap f
+mapRepr CDag   f = fmap f
+mapRepr CGraph f = fmap f
 
 --------------------------------------------------------------------------------
 -- * Utilities
 --
 withCTag :: CTag c -> ((Typeable c, ReifyCTag c) => r) -> r
 withCTag c f = case c of
-  TPoint -> f
-  TList  -> f
-  TSet   -> f
-  TTree  -> f
-  TDag   -> f
-  TGraph -> f
+  CPoint -> f
+  CList  -> f
+  CSet   -> f
+  CTree  -> f
+  CDag   -> f
+  CGraph -> f
 
 parseCTag
   :: forall m
@@ -221,12 +221,12 @@ parseCTag
 parseCTag = do
   i <- ctagIdentifier
   case i of
-    "Point" -> pure $ Exists TPoint
-    "List"  -> pure $ Exists TList
-    "Set"   -> pure $ Exists TSet
-    "Tree"  -> pure $ Exists TTree
-    "Dag"   -> pure $ Exists TDag
-    "Graph" -> pure $ Exists TGraph
+    "Point" -> pure $ Exists CPoint
+    "List"  -> pure $ Exists CList
+    "Set"   -> pure $ Exists CSet
+    "Tree"  -> pure $ Exists CTree
+    "Dag"   -> pure $ Exists CDag
+    "Graph" -> pure $ Exists CGraph
     x -> fail $ "Mal-Con: " <> show x
  where
    ctagIdentifier :: (Monad m, TokenParsing m) => m Text.Text

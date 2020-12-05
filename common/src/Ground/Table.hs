@@ -161,12 +161,12 @@ instance Serialise (SomePipe ()) where
 pipe0 ::
   forall c ioa c0 t0.
   ( Typeable c
-  , ioa ~ IOA c '[] (Types c0 t0)
+  , ioa ~ IOA c '[] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0)
   => Name Pipe
-  -> Types c0 t0
+  -> CTagV c0 t0
   -> Result (Repr c0 t0)
-  -> Pipe c '[] (Types c0 t0) Dynamic
+  -> Pipe c '[] (CTagV c0 t0) Dynamic
 pipe0 n (typesTags -> ts0) mf =
   Pipe (Desc n sig str (dynRep dyn) Nil ts0) dyn
  where
@@ -181,18 +181,18 @@ pipe0 n (typesTags -> ts0) mf =
   --       graph   = G.vertex ty
   --       dyn     = Dynamic typeRep pipeFun
   --       pipeFun = IOA mv Proxy Proxy Proxy ::
-  --                 IOA c '[] (Types c0 t0)
+  --                 IOA c '[] (CTagV c0 t0)
 
 pipe1 ::
   forall c ioa c1 t1 c0 t0.
   ( Typeable c
-  , ioa ~ IOA c '[Types c1 t1] (Types c0 t0)
+  , ioa ~ IOA c '[CTagV c1 t1] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1)
   => Name Pipe
-  -> Types c1 t1 -> Types c0 t0
+  -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c1 t1 -> Result (Repr c0 t0))
-  -> Pipe c '[Types c1 t1] (Types c0 t0) Dynamic
+  -> Pipe c '[CTagV c1 t1] (CTagV c0 t0) Dynamic
 pipe1 n (typesTags -> ts1) (typesTags -> ts0) mf =
   Pipe (Desc n sig str (dynRep dyn) (ts1 :* Nil) ts0) dyn
  where
@@ -204,14 +204,14 @@ pipe1 n (typesTags -> ts1) (typesTags -> ts0) mf =
 pipe2 ::
   forall c ioa c2 t2 c1 t1 c0 t0.
   ( Typeable c
-  , ioa ~ IOA c '[Types c2 t2, Types c1 t1] (Types c0 t0)
+  , ioa ~ IOA c '[CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2)
   => Name Pipe
-  -> Types c2 t2 -> Types c1 t1 -> Types c0 t0
+  -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
-  -> Pipe c '[Types c2 t2, Types c1 t1] (Types c0 t0) Dynamic
+  -> Pipe c '[CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0) Dynamic
 pipe2 n (typesTags -> ts2) (typesTags -> ts1) (typesTags -> ts0) mf =
   Pipe (Desc n sig str (dynRep dyn) (ts2 :* ts1 :* Nil) ts0) dyn
  where
@@ -222,15 +222,15 @@ pipe2 n (typesTags -> ts2) (typesTags -> ts1) (typesTags -> ts0) mf =
 pipe3 ::
   forall c ioa c3 t3 c2 t2 c1 t1 c0 t0.
   ( Typeable c
-  , ioa ~ IOA c '[Types c3 t3, Types c2 t2, Types c1 t1] (Types c0 t0)
+  , ioa ~ IOA c '[CTagV c3 t3, CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2
   , ReifyCTag c3, ReifyVTag t3, Typeable c3, Typeable t3)
   => Name Pipe
-  -> Types c3 t3 -> Types c2 t2 -> Types c1 t1 -> Types c0 t0
+  -> CTagV c3 t3 -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c3 t3 -> Repr  c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
-  -> Pipe c '[Types c3 t3, Types c2 t2, Types c1 t1] (Types c0 t0) Dynamic
+  -> Pipe c '[CTagV c3 t3, CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0) Dynamic
 pipe3 n (typesTags -> ts3) (typesTags -> ts2) (typesTags -> ts1) (typesTags -> ts0) mf =
   Pipe (Desc n sig str (dynRep dyn) (ts3 :* ts2 :* ts1 :* Nil) ts0) dyn
  where
@@ -245,7 +245,7 @@ pipe0G ::
   forall c0 t0.
   (ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
   => Name Pipe
-  -> Types c0 t0
+  -> CTagV c0 t0
   -> Result (Repr c0 t0)
   -> SomePipe Dynamic
 pipe0G n t0 pf = G mempty $ pipe0 n t0 pf
@@ -254,7 +254,7 @@ pipe0T ::
   forall c0 t0.
   (ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0)
   => Name Pipe
-  -> Types c0 t0
+  -> CTagV c0 t0
   -> Result (Repr c0 t0)
   -> SomePipe Dynamic
 pipe0T n t0 pf = T mempty $ pipe0 n t0 pf
@@ -264,7 +264,7 @@ pipe1G ::
   ( ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
   => Name Pipe
-  -> Types c1 t1 -> Types c0 t0
+  -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c1 t1 -> Result (Repr c0 t0))
   -> SomePipe Dynamic
 pipe1G n t1 t0 pf = G mempty $ pipe1 n t1 t0 pf
@@ -274,7 +274,7 @@ pipe1T ::
   ( ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0)
   => Name Pipe
-  -> Types c1 t1 -> Types c0 t0
+  -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c1 t1 -> Result (Repr c0 t0))
   -> SomePipe Dynamic
 pipe1T n t1 t0 pf = T mempty $ pipe1 n t1 t0 pf
@@ -285,7 +285,7 @@ pipe2G ::
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
   => Name Pipe
-  -> Types c2 t2 -> Types c1 t1 -> Types c0 t0
+  -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
   -> SomePipe Dynamic
 pipe2G n t2 t1 t0 pf = G mempty $ pipe2 n t2 t1 t0 pf
@@ -296,7 +296,7 @@ pipe2T ::
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0)
   => Name Pipe
-  -> Types c2 t2 -> Types c1 t1 -> Types c0 t0
+  -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
   -> SomePipe Dynamic
 pipe2T n t2 t1 t0 pf = T mempty $ pipe2 n t2 t1 t0 pf
@@ -308,7 +308,7 @@ pipe3G ::
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
   => Name Pipe
-  -> Types c3 t3 -> Types c2 t2 -> Types c1 t1 -> Types c0 t0
+  -> CTagV c3 t3 -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
   -> (Repr c3 t3 -> Repr  c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
   -> SomePipe Dynamic
 pipe3G n t3 t2 t1 t0 pf = G mempty $ pipe3 n t3 t2 t1 t0 pf
@@ -320,19 +320,19 @@ pipe3G n t3 t2 t1 t0 pf = G mempty $ pipe3 n t3 t2 t1 t0 pf
 --
 parseSomeValueLiteral :: Parser SomeValue
 parseSomeValueLiteral =
-  (SomeValue TPoint . SomeValueKinded VText . mkValue' (Proxy @Text) TPoint <$> stringLiteral)
+  (SomeValue CPoint . SomeValueKinded VText . mkValue' (Proxy @Text) CPoint <$> stringLiteral)
   <|>
-  (SomeValue TPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) TPoint <$> integer)
+  (SomeValue CPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) CPoint <$> integer)
   <|>
-  (SomeValue TPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) TPoint <$> hexadecimal)
+  (SomeValue CPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) CPoint <$> hexadecimal)
   <|>
-  (SomeValue TPoint . SomeValueKinded VDouble . mkValue' (Proxy @Double) TPoint <$> double)
+  (SomeValue CPoint . SomeValueKinded VDouble . mkValue' (Proxy @Double) CPoint <$> double)
 
 instance Parse SomeValue where
   parser = parseSomeValue parseSomeValueLiteral
 
 someValueUnit :: SomeValue
-someValueUnit = SomeValue TPoint $ SomeValueKinded VUnit (VPoint ())
+someValueUnit = SomeValue CPoint $ SomeValueKinded VUnit (VPoint ())
 
 someValueText :: Text -> SomeValue
-someValueText = mkSomeGroundValue TPoint VText
+someValueText = mkSomeGroundValue CPoint VText

@@ -52,7 +52,7 @@ type Result a = IO (Fallible a)
 --
 pattern PipeD :: ( ArgConstr c o
                  , All Typeable cas
-                 , All IsTypes cas
+                 , All IsCTagV cas
                  , All Top (cas :: [*])
                  )
               => Name Pipe -> ISig -> Struct -> SomeTypeRep
@@ -112,22 +112,26 @@ pipeRep   (PipeD _ _ _ rep _ _ _)    = rep
 pipeRep _ = error "impossible pipeRep"
 
 pipeArityCase
-  :: forall (c :: * -> Constraint) (cas :: [*]) (o :: *) (p :: *) (a :: *)
-  .  (PipeConstr c cas o)
-  => Pipe c cas o p
-  -> (forall
-      . (cas ~ '[])
-      => Pipe c cas o p -> a)
-  -> (forall (ca :: *) (cas' :: [*])
-      . (cas ~ (ca:cas'), PipeConstr c cas' o)
-      => Pipe c cas o p -> a)
-  -> (forall (ca :: *) (cas' :: [*])
-      . (cas ~ (ca:cas'), PipeConstr c cas' o, cas' ~ '[])
-      => Pipe c cas o p -> a)
-  -> a
-pipeArityCase p@(Pipe Desc {pdArgs =      Nil} _) nil _ _  = nil p
-pipeArityCase p@(Pipe Desc {pdArgs = _ :* Nil} _) _ _ si   = si p
-pipeArityCase p@(Pipe Desc {pdArgs = _ :* _}   _) _ cons _ = cons p
+  :: forall (c :: * -> Constraint) (as :: [*]) (o :: *) (p :: *) (r :: *)
+  .  (PipeConstr c as o)
+  => Pipe c as o p
+  -- Zero.
+  -> (forall zas' o'
+      . (zas' ~ '[], PipeConstr c zas' o')
+      => Pipe c zas' o' p -> r)
+  -- One.
+  -> (forall (a :: *) (sas' :: [*]) o'
+      . (sas' ~ (a:'[]), PipeConstr c '[] o', PipeConstr c sas' o'
+        , IsCTagV a, IsCTagV (Head sas'))
+      => Pipe c sas' o' p -> r)
+  -- Infinity.
+  -> (forall (a :: *) (nas' :: [*]) (as'' :: [*]) o'
+      . (nas' ~ (a:as''), PipeConstr c as'' o', PipeConstr c nas' o')
+      => Pipe c nas' o' p -> r)
+  -> r
+pipeArityCase p@(Pipe Desc {pdArgs =      Nil} _) z _ _ = z p
+pipeArityCase p@(Pipe Desc {pdArgs = _ :* Nil} _) _ s _ = s p
+pipeArityCase p@(Pipe Desc {pdArgs = _ :* _}   _) _ _ n = n p
 
 withCompatiblePipes
   :: forall c1 c2 as1 as2 o1 o2 p a
@@ -153,7 +157,7 @@ pipeOutSomeCTagType ::
   forall c as o co to p
   . ( PipeConstr c as o
     , ReifyCTag co
-    , o ~ Types co to)
+    , o ~ CTagV co to)
   => Pipe c as o p -> (SomeCTag, SomeTypeRep)
 pipeOutSomeCTagType PipeD{} =
   ( SomeCTag $ reifyCTag $ Proxy @co
@@ -163,10 +167,10 @@ pipeOutSomeCTagType _ = error "pipeOutSomeCTagType: impossible"
 --------------------------------------------------------------------------------
 -- * Desc utils
 --
-descOutCTag :: Desc c cas (Types to o) -> CTag to
+descOutCTag :: Desc c cas (CTagV to o) -> CTag to
 descOutCTag = tCTag . pdOut
 
-descOutVTag :: Desc c cas (Types to o) -> VTag o
+descOutVTag :: Desc c cas (CTagV to o) -> VTag o
 descOutVTag = tVTag . pdOut
 
 showDesc, showDescP :: Desc c as o -> Text

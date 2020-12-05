@@ -78,37 +78,37 @@ rootScope =
   pipeScope ""
      -- Generators:
      --
-     [ pipe0G  "space"           TPoint'
+     [ pipe0G  "space"           CVPoint
        (Right <$> getThePipeSpace)
 
-     , pipe0G  "ground"          TSet' $
+     , pipe0G  "ground"          CVSet $
        -- pure . Right $ Set.fromList groundTypeNames
        pure . Right $ groundTypeNames
 
-     , pipe0G  "unit"            TPoint' $
+     , pipe0G  "unit"            CVPoint $
        pure (Right ())
 
-     , pipe0G  "two"             TPoint' $
+     , pipe0G  "two"             CVPoint $
        pure (Right (2 :: Integer))
 
-     , pipe2G  "+"      TPoint' TPoint' TPoint' $
+     , pipe2G  "+"      CVPoint CVPoint CVPoint $
        \x y -> pure (Right (x + y :: Integer))
 
-     , pipe2G  "*"      TPoint' TPoint' TPoint' $
+     , pipe2G  "*"      CVPoint CVPoint CVPoint $
        \x y -> pure (Right (x * y :: Integer))
 
      -- Normal functions, lifted:
      --
-     , pipe1G "strlen"  TPoint' TPoint' $
+     , pipe1G "strlen"  CVPoint CVPoint $
        \(str :: Text) ->
          pure . Right $ Text.length str
 
-     -- , pipe1T "just"  TPoint' TPoint' $
+     -- , pipe1T "just"  CVPoint CVPoint $
      --     pure . Right . mkJust
 
      -- Listing pipes and scopes:
      --
-     , pipe1G "pipes"   TPoint' TSet' $
+     , pipe1G "pipes"   CVPoint CVSet $
        \name ->
          STM.readTVarIO mutablePipeSpace
          <&> (pipeScopeAt name
@@ -116,7 +116,7 @@ rootScope =
               >>> maybeToEither (Error $ "No scope for name: " <> pack (show name))
               >>> \x-> x :: Fallible [Name Pipe])
 
-     , pipe1G "scopes"  TPoint' TSet' $
+     , pipe1G "scopes"  CVPoint CVSet $
        \name ->
          STM.readTVarIO mutablePipeSpace
          -- <&> Right . Set.fromList . childScopeQNamesAt name
@@ -124,12 +124,12 @@ rootScope =
 
      -- Pipe sigs:
      --
-     , pipe1G "sig"     TPoint' TPoint' $
+     , pipe1G "sig"     CVPoint CVPoint $
        \name ->
          withPipePure name
          somePipeSig
 
-     , pipe1G "repsig"  TPoint' TPoint' $
+     , pipe1G "repsig"  CVPoint CVPoint $
        \name ->
          withPipePure name
          $ somePipeSig
@@ -138,7 +138,7 @@ rootScope =
 
      -- Listing pipes by from/to types&reps:
      --
-     , pipe1G "to"      TPoint' TSet' $
+     , pipe1G "to"      CVPoint CVSet $
        \name ->
          withPipe name
          $ somePipeSig >>> sOut >>> unI >>> tRep
@@ -148,7 +148,7 @@ rootScope =
                    -- <&> Right . pipeNamesFrom (Just toRep)
                    <&> Right . toList . pipeNamesFrom (Just toRep)
 
-     , pipe1G "from"    TPoint' TSet' $
+     , pipe1G "from"    CVPoint CVSet $
        \name ->
          withPipe name
          $ somePipeSig >>> sArgs
@@ -160,7 +160,7 @@ rootScope =
                  else Right . toList
                  . pipeNamesFrom (Just . tRep . unI $ head args) <$> STM.readTVar mutablePipeSpace
 
-     , pipe1G "fromrep" TPoint' TSet' $
+     , pipe1G "fromrep" CVPoint CVSet $
        \case
          Nothing   -> atomically $
            -- Right
@@ -174,7 +174,7 @@ rootScope =
                Right . toList
                . pipeNamesFrom (Just rep) <$> STM.readTVar mutablePipeSpace
 
-     , pipe1G "torep"   TPoint' TSet' $
+     , pipe1G "torep"   CVPoint CVSet $
        \name ->
          atomically
          $ case lookupGroundByName name of
@@ -186,7 +186,7 @@ rootScope =
 
      -- Debug:
      --
-     , pipe0G "dump"     TPoint' $ do
+     , pipe0G "dump"     CVPoint $ do
          putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
          pure $ Right ()
 

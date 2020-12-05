@@ -76,8 +76,8 @@ dataProjPipes ctor _c u =
             ctor $
             (pipe1
              (Name $ SOP.fName f)
-             TPoint'
-             TPoint' -- XXX: Kind can be non-Point!
+             CVPoint
+             CVPoint -- XXX: Kind can be non-Point!
              (pure . Right . getter))
   in [ fieldPipe d ct f
      | ct <- SOP.dCtors  d

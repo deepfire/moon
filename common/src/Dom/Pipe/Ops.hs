@@ -34,7 +34,7 @@ data Ops p where
         , PipeConstr c cas' o
         , cas ~ (ca : cas')
         )
-      => Desc c cas o -> Value (TypesC ca) (TypesV ca) -> p -> Fallible p
+      => Desc c cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p
     , comp
       :: forall cf cv vas vo fas fass ras fo
       . ( PipeConstr cv vas vo
@@ -47,10 +47,10 @@ data Ops p where
       :: forall cf ct fas fo a tas to
       . ( PipeConstr cf fas fo
         , PipeConstr ct tas to
-        , fas ~ (Types 'Point a ': '[])
+        , fas ~ (CTagV 'Point a ': '[])
         , tas ~ '[]
-        , TypesV to ~ a
-        , TypesC fo ~ 'Point)
+        , CTagVV to ~ a
+        , CTagVC fo ~ 'Point)
       => Desc cf fas fo -> p -> Desc ct tas to -> p -> Fallible p
     } -> Ops p
 

@@ -3,7 +3,6 @@ let packages = {
     node-editor      = ./node-editor;
   };
 in (import ./../reflex-platform {
-     hieSupport = false;
    }).project ({ pkgs, ... }: {
   name = "lift";
 

@@ -26,12 +26,12 @@ data SomeType =
 -- * Constructors
 --
 ctagSomeType :: forall c a. Typeable a => CTag c -> Proxy a -> SomeType
-ctagSomeType TPoint a = proxySomeType (Proxy @c) a
-ctagSomeType TList  a = proxySomeType (Proxy @c) a
-ctagSomeType TSet   a = proxySomeType (Proxy @c) a
-ctagSomeType TTree  a = proxySomeType (Proxy @c) a
-ctagSomeType TDag   a = proxySomeType (Proxy @c) a
-ctagSomeType TGraph a = proxySomeType (Proxy @c) a
+ctagSomeType CPoint a = proxySomeType (Proxy @c) a
+ctagSomeType CList  a = proxySomeType (Proxy @c) a
+ctagSomeType CSet   a = proxySomeType (Proxy @c) a
+ctagSomeType CTree  a = proxySomeType (Proxy @c) a
+ctagSomeType CDag   a = proxySomeType (Proxy @c) a
+ctagSomeType CGraph a = proxySomeType (Proxy @c) a
 
 proxySomeType ::
   forall c a
@@ -48,18 +48,18 @@ someTypeFromConType :: SomeType -> SomeType -> SomeType
 someTypeFromConType CSomeType{tCon} CSomeType{tName, tRep} = CSomeType{..}
 
 unitSomeType :: SomeType
-unitSomeType = ctagSomeType TPoint (Proxy @())
+unitSomeType = ctagSomeType CPoint (Proxy @())
 
 typesSomeType ::
   forall c a
   . (ReifyCTag c, Typeable c, Typeable a)
-  => Types c a -> SomeType
+  => CTagV c a -> SomeType
 typesSomeType _ = proxySomeType (Proxy @c) (Proxy @a)
 
 tagsSomeType ::
   forall c a
   . (ReifyCTag c, Typeable c, Typeable a)
-  => Tags (Types c a) -> SomeType
+  => Tags (CTagV c a) -> SomeType
 tagsSomeType _ = proxySomeType (Proxy @c) (Proxy @a)
 
 --------------------------------------------------------------------------------

@@ -19,22 +19,22 @@ import Ground.Table ()
 newtype Wrap f a c =
   Wrap { unWrap :: f (a c) }
 
-splitSVByKinds ::
+splitSVByCTag ::
   forall t c. (Reflex t)
   => CTag c
   -> Event t (PFallible SomeValue)
   -> EventSelectorG t CTag (Wrap PFallible SomeValueKinded)
-splitSVByKinds et =
+splitSVByCTag et =
   fanG . fmap (\case
                   Right (SomeValue t v) -> DMap.singleton t (Wrap $ Right v)
                   Left e -> DMap.singleton et (Wrap $ Left e))
 
-splitSVKByTypes ::
+splitSVKByVTag ::
      forall t (c :: Con) v. (ReifyCTag c, Reflex t)
   => VTag v
   -> Event t (Wrap PFallible SomeValueKinded c)
   -> EventSelectorG t (VTag' ()) (Wrap PFallible (Value c))
-splitSVKByTypes et =
+splitSVKByVTag et =
   fanG . fmap (\case
                   Wrap (Right (SomeValueKinded t v)) ->
                     DMap.singleton  t (Wrap $ Right v)

@@ -5,36 +5,39 @@ import           Data.Kind                          (Constraint)
 import           Generics.SOP                       (All, Top)
 import           Type.Reflection                    (Typeable)
 
+import qualified Unsafe.Coerce                    as Unsafe
+
 import Dom.CTag
 import Dom.VTag
 
 
 --------------------------------------------------------------------------------
--- * IsTypes
+-- * IsCTagV
 --
-type IsTypesConstr ct =
+type IsCTagVConstr ct =
   ( Typeable ct
-  , Typeable (TypesC ct)
-  , Typeable (TypesV ct)
+  , Typeable (CTagVC ct)
+  , Typeable (CTagVV ct)
   , Top ct
-  , ct ~ Types (TypesC ct) (TypesV ct)
+  , ct ~ CTagV (CTagVC ct) (CTagVV ct)
   )
 
-class    (IsTypesConstr ct) => IsTypes (ct :: *)
-instance (IsTypesConstr ct) => IsTypes (ct :: *)
+class    (IsCTagVConstr ct) => IsCTagV (ct :: *)
+instance (IsCTagVConstr ct) => IsCTagV (ct :: *)
 
 --------------------------------------------------------------------------------
 -- * Pipe constraints
 --
-type ArgConstr (c :: * -> Constraint) (ct :: *)
-  = ( IsTypes ct
-    , Typeable c
-    , ReifyCTag (TypesC ct)
-    , ReifyVTag (TypesV ct)
-    , c (TypesV ct)
+type ArgConstr (c :: * -> Constraint) (a :: *)
+  = ( Typeable c
+    , IsCTagV a
+    , c (CTagVV a)
+    , ReifyCTag (CTagVC a), ReifyVTag (CTagVV a)
     )
 
-type PipeConstr (c :: * -> Constraint) (cas :: [*]) (o :: *)
-  = ( All IsTypes cas, ArgConstr c o
-    , All Typeable cas -- why do we need this, when we have IsTypes?
+type PipeConstr (c :: * -> Constraint) (as :: [*]) (o :: *)
+  = ( ArgConstr c o
+    , All Typeable as -- why do we need this, when we have IsCTagV?
+    , All IsCTagV as
+    -- , All Top as
     )

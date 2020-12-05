@@ -151,13 +151,13 @@ spaceInteraction ::
 spaceInteraction ep@ExecutionPort{..} = mdo
   -- First -- ask for some space.
   liftIO $ postExecution ep $
-    Execution TPoint VPipeSpace "space" "space" (Run "space") never
+    Execution CPoint VPipeSpace "space" "space" (Run "space") never
 
   let pointRepliesE :: Event t (Wrap PFallible SomeValueKinded Point)
-      pointRepliesE = selectG (splitSVByKinds TPoint epReplies) TPoint
+      pointRepliesE = selectG (splitSVByCTag CPoint epReplies) CPoint
       spacePointRepliesE :: Event t (PFallible (Value Point (PipeSpace (SomePipe ()))))
       spacePointRepliesE =
-        unWrap <$> selectG (splitSVKByTypes VPipeSpace pointRepliesE) VPipeSpace
+        unWrap <$> selectG (splitSVKByVTag VPipeSpace pointRepliesE) VPipeSpace
   -- server -> spaceD
   spaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
     holdDyn mempty (stripValue <$> snd (fanEither spacePointRepliesE))
@@ -535,7 +535,7 @@ mkPipePresentCtx sep selrWidth xs =
    --          case apply (app opsDesc) fromrep
    --               (SomeValue
    --                (SomeKindValue
-   --                 TPoint (VPoint (Name "Unit" :: Name Type)))) of
+   --                 CPoint (VPoint (Name "Unit" :: Name Type)))) of
    --            Left e -> putStrLn (unpack e)
    --            Right p -> putStrLn (show p)
 

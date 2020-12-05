@@ -19,26 +19,26 @@ import Dom.Pipe.SomePipe
 import Dom.Sig
 import Dom.Struct
 
--- import Ground.Table -- for demo only
+import Ground.Table -- for demo only
 
 
 --------------------------------------------------------------------------------
 -- * Showcase
 --
--- demoCompose :: IO ()
--- demoCompose = case compose compDyn pipe val of
---   Left e -> putStrLn . unpack $ "compose error: " <> e
---   Right p -> runSomePipe p >>= \case
---     Left e -> putStrLn . unpack $ "runtime error: " <> e
---     Right _ -> pure ()
---  where
---    pipe :: SomePipe Dynamic
---    pipe = pipe1G "demo pipe" TPoint' TPoint'
---      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
+demoCompose :: IO ()
+demoCompose = case compose compDyn pipe val of
+  Left e -> putStrLn $ show e
+  Right p -> runSomePipe p >>= \case
+    Left e -> putStrLn . unpack $ "runtime error: " <> showError e
+    Right _ -> pure ()
+ where
+   pipe :: SomePipe Dynamic
+   pipe = pipe1G "demo pipe" CVPoint CVPoint
+     ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
---    val :: SomePipe Dynamic
---    val = pipe0G "demo value" TPoint'
---      (pure $ Right ("demo!" :: String))
+   val :: SomePipe Dynamic
+   val = pipe0G "demo value" CVPoint
+     (pure $ Right ("compose!" :: String))
 
 --------------------------------------------------------------------------------
 -- * Conceptually:
@@ -46,11 +46,10 @@ import Dom.Struct
 -- compose ~:: (b -> c) -> (a -> b) -> a -> c
 --
 compose ::
-     (forall cf cv vas vo fas fass ras fo
+     (forall cf cv vas vo fas fass fo
       . ( PipeConstr cv vas vo
         , PipeConstr cf fas fo
         , fas ~ (vo:fass)
-        , ras ~ fass
         )
       => (Desc cv vas vo -> p -> Desc cf fas fo -> p -> Fallible p))
   -> SomePipe p
@@ -58,13 +57,13 @@ compose ::
   -> PFallible (SomePipe p)
 compose pf f v =
   somePipeUncons f
-  (const "Cannot apply value to a saturated pipe.") $
+  (const $ EComp "Cannot apply value to a saturated pipe.") $
   \(f' :: Pipe cf (ca : cas) fo p) ->
     withSomePipe v $
     \(v' :: Pipe cv _vas vo p) ->
-    case typeRep @ca  `eqTypeRep` typeRep @vo of
-      Just HRefl -> left EComp $ compose'' pf f' v'
-      _ -> error "compose"
+      case typeRep @ca  `eqTypeRep` typeRep @vo of
+        Just HRefl -> left EComp $ compose'' pf f' v'
+        _ -> error "compose"
 
 compose'' ::
     forall cf cv vas vo fas fass ras fo p
@@ -107,8 +106,8 @@ compose' ::
   -> Pipe cv vas vo p
   -> Fallible (Pipe cf ras fo p)
 compose' composeF
-  pF@P{pPipeRep=frep@IOATyCons{}}
-  pV@P{pPipeRep=vrep@IOATyCons{}}
+  pF@P{pPipeRep=frep}
+  pV@P{pPipeRep=vrep}
   | Just e <- ioaTyConsInvalidity frep
   = fall $ "Compose: sink function: " <> e
   | Just e <- ioaTyInvalidity vrep

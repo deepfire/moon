@@ -93,7 +93,7 @@ typeRepNull rep = rep `eqTypeRep` typeRep @('[] :: [k])
 consTyCon, ioaTyCon, nilTyCon, typeTyCon :: TyCon
 consTyCon = typeRepTyCon (typeRep @(() : '[]))
 nilTyCon  = someTypeRepTyCon (head $ tail $ snd $ splitApps $ typeRep @(() : '[]))
-typeTyCon = typeRepTyCon (typeRep @Types)
+typeTyCon = typeRepTyCon (typeRep @CTagV)
 ioaTyCon = typeRepTyCon (typeRep @IOA)
 
 ioaTyInvalidity :: SomeTypeRep -> Maybe Text

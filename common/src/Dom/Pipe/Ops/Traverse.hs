@@ -1,3 +1,5 @@
+{- OPTIONS_GHC -ddump-tc-trace -}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors -fprint-explicit-foralls -fprint-explicit-kinds  -fprint-explicit-coercions #-}
 module Dom.Pipe.Ops.Traverse (module Dom.Pipe.Ops.Traverse) where
 
 import qualified Algebra.Graph                    as G
@@ -21,14 +23,26 @@ import Dom.Struct
 import Dom.Tags
 import Dom.VTag
 
--- import Ground.Table -- for demo only
+import Ground.Table -- for demo only
 
 
 --------------------------------------------------------------------------------
 -- * Showcase
 --
 demoTraverse :: IO ()
-demoTraverse = undefined
+demoTraverse = case traverseP travDyn pipeFn pipeTr of
+  Left e -> putStrLn $ show e
+  Right p -> runSomePipe p >>= \case
+    Left e -> putStrLn . unpack $ "runtime error: " <> showError e
+    Right r -> putStrLn $ "traversed: " <> show r
+ where
+   pipeFn :: SomePipe Dynamic
+   pipeFn = pipe1G "demo pipe" CVPoint CVPoint
+     (\x -> pure $ Right (x * 10 :: Integer))
+
+   pipeTr :: SomePipe Dynamic
+   pipeTr = pipe0T "demo traversable" CVList
+     (pure $ Right ([1, 2, 3] :: [Integer]))
 
 --------------------------------------------------------------------------------
 -- * Conceptually:
@@ -39,116 +53,40 @@ demoTraverse = undefined
 -- ..but not just yet.
 --
 traverseP ::
-     (forall cf ct fas fo tas to
+     (forall cf ct fas fa fav fo fov tas to tt
       . ( PipeConstr cf fas fo
         , PipeConstr ct tas to
-        , fas ~ (Types Point a ': '[])
         , tas ~ '[]
-        , fo  ~ Types Point b
-        , to  ~ Types tt    a
-        , ro  ~ Types tt    b
+        , fas ~ (fa ': '[])
+        , fa ~ CTagV Point fav
+        , to ~ CTagV tt    fav
+        , fo ~ CTagV Point fov
         )
       => Desc cf fas fo -> p -> Desc ct tas to -> p -> Fallible p)
   -> SomePipe p -> SomePipe p -> PFallible (SomePipe p)
-traverseP _ _ = undefined
-  -- case f of
-  --   G f' ->
-  --     pipeArityCase f'
-  --       (const $ Left "Cannot traverse with a saturated pipe.")
-  --       (const $ Left "Cannot traverse with a pipe of arity above one.") $
-  --       \(f'' :: Pipe cf fa fo p) ->
-  --         case t of
-  --           -- traverseP'' => o == ca
-  --           -- forall ca (cas' :: [*]) c3.
-  --           -- ((cas :: [*]) ~ ((':) @* ca cas' :: [*]), PipeConstr Ground cas' o,
-  --           --  (cas' :: [*]) ~ ('[] @* :: [*])) =>
-  --           -- Pipe Ground cas o p -> Fallible (SomePipe p)
-  --           G t' -> G <$> traverseP'' Proxy pf f' t'
-  --           T t' -> G <$> traverseP'' Proxy pf f' t'
-    -- T f' ->
-  -- withSomePipe f $
-  -- \(f' :: Pipe cf fa fo p) ->
-      -- pipeArityCase f'
-      --   (const $ Left "Cannot traverse with a saturated pipe.")
-      --   (const $ Left "Cannot traverse with a pipe of arity above one.") $
-      --   \(f'' :: Pipe cf fa fo p) ->
-      --     case t of
-      --       G t' -> T <$> traverseP'' Proxy pf f' t'
-      --       T t' -> T <$> traverseP'' Proxy pf f' t'
-      -- withSomePipe t $
-      -- \(t' :: Pipe ct _tas to p) ->
-      --         traverseP'' Proxy pf f' t'
-
-traverseP'' ::
-     forall cf ct fas fo ft fa tas ttr tr to ras ro p proxy
-   . ( PipeConstr cf fas fo
-     , PipeConstr ct tas to
-     , PipeConstr cf ras ro
-     , fas ~ (fa:'[])
-     , fo ~ Types ft fa
-     , to ~ Types ttr tr
-     )
-  => proxy (Types (TypesC to) (TypesV fo))
-  -> (forall cf' ct' fas' fo' tas' to'
-      . ( PipeConstr cf' fas' fo'
-        , PipeConstr ct' tas' to')
-      => Desc cf' fas' fo' -> p -> Desc ct' tas' to' -> p -> Fallible p)
-  -> Pipe cf     fas fo p
-  -> Pipe ct tas to     p
-  -> Fallible (Pipe cf ras ro p)
-traverseP'' _p pf f@P{pPipeRep=fioa} t@P{pPipeRep=tioa}
-  | Just e <- ioaTySingletonInvalidity fioa = fall $ "Traverse: funty: " <> e
-  | Just e <- ioaTyNilInvalidity tioa = fall $ "Traverse: traversablety: " <> e
-  | Just HRefl <- typeRep @tr          `eqTypeRep` typeRep @(TypesV fa)
-  , Just HRefl <- typeRep @(TypesC ro)  `eqTypeRep` typeRep @ttr
-  , Just HRefl <- typeRep @(TypesV ro) `eqTypeRep` typeRep @(TypesV fo)
-  , Just HRefl <- typeRep @(TypesC fa)  `eqTypeRep` typeRep @Point
-  , Just HRefl <- typeRep @ft          `eqTypeRep` typeRep @Point
-  , Just HRefl <- case spineConstraint of
-                    (Dict :: Dict Typeable tas) -> typeRepNull $ typeRep @tas
-  , Just HRefl <- case spineConstraint of
-                    (Dict :: Dict Typeable ras) -> typeRepNull $ typeRep @ras
-  = traverseP' pf f t
-  | otherwise
-  = fall $ "traverseP:  fell through on: f="<>pack (show f)<>" t="<>pack (show t)
- where
-   showLR :: Text -> Text -> Text
-   showLR l r = "left "<>l<>", right "<>r
-
-   showLRP :: Pipe c1 as1 o1 Dynamic -> Pipe c2 as2 o2 Dynamic -> Text
-   showLRP l r = showLR (showPipe l) (showPipe r)
-
-traverseP'' _ _ _ _ = Left "traverseP'':  fell through absurdly bad."
-
-traverseP' ::
-     forall cf ct tas to tt a b fas fo ras ro p
-   . ( PipeConstr cf fas fo
-     , PipeConstr ct tas to
-     , tas ~ '[],                    to  ~ Types tt    a
-     , fas ~ (Types Point a ': '[]), fo  ~ Types Point b
-     , ras ~ '[],                    ro  ~ Types tt    b
-     )
-  => (Desc cf fas fo -> p ->
-      Desc ct tas to -> p ->
-      Fallible p)
-  -> Pipe cf     fas fo p
-  -> Pipe ct tas to     p
-  -> Fallible (Pipe cf ras ro p)
-traverseP' pf f@P{} t@P{}
-  -- | Just e <- ioaTySingletonInvalidity fioa = Left $ "Traverse: funty: " <> e
-  -- | Just e <- ioaTyNilInvalidity tioa = Left $ "Traverse: traversablety: " <> e
-  | otherwise = doTraverse pf f t
+traverseP pf spf spt =
+  left ETrav $
+  somePipeTraverse spf spt $
+    \(f :: Pipe fc fas fo p)
+     (t :: Pipe tc tas to p) ->
+      if | Just HRefl <- typeRep @(CTagVC (Head fas)) `eqTypeRep` typeRep @Point
+         , Just HRefl <- typeRep @(CTagVC fo)         `eqTypeRep` typeRep @Point
+         , Just HRefl <- typeRep @(CTagVV to) `eqTypeRep`
+                         typeRep @(CTagVV (Head fas))
+         -> doTraverse pf f t
+         | otherwise
+         -> Left "Non-Point function or function/traversable type mismatch."
 
 doTraverse ::
      forall cf ct tas to tt a b fas fo ras ro p
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
-     , fas ~ (Types Point a ': '[])
+     , fas ~ (CTagV Point a ': '[])
      , tas ~ '[]
-     , fo  ~ Types Point b
-     , to  ~ Types tt    a
+     , fo  ~ CTagV Point b
+     , to  ~ CTagV tt    a
      , ras ~ '[]                   -- TODO:  undo this constraint
-     , ro  ~ Types tt    b
+     , ro  ~ CTagV tt    b
      )
   => (Desc cf fas fo -> p -> Desc ct tas to -> p -> Fallible p)
   -> Pipe cf     fas fo p
@@ -156,9 +94,9 @@ doTraverse ::
   -> Fallible (Pipe cf ras ro p)
 doTraverse pf
   P{ pDesc_=df, pName=Name fn, pOutSty=fosty, pStruct=Struct fg
-   , pArgs=(_fca SOP.:* Nil), pOut=Tags{tVTag=vtag}, pPipe=f}
+   , pArgs=_ SOP.:* Nil, pOut=Tags{tVTag=vtag}, pPipe=f}
   P{ pDesc_=dt, pName=Name tn, pOutSty=tosty, pStruct=Struct tg
-   , pArgs=(_tca SOP.:* Nil), pOut=Tags{tCTag=ctag}, pPipe=t}
+   , pArgs=Nil, pOut=Tags{tCTag=ctag}, pPipe=t}
   -- (Pipe df@(Desc (Name fn) _ (Struct fg) _  _ _  _ c) f)
   -- (Pipe dt@(Desc (Name fn) _ (Struct fg) _ ca a cb _) t)
   = Pipe desc <$> (pf df f dt t)
@@ -169,6 +107,7 @@ doTraverse pf
         sig     = Sig [] (I $ someTypeFromConType tosty fosty)
         struct  = Struct (fg `G.overlay` tg) -- XXX: structure!
         rep     = typeRep :: TypeRep (IOA cf ras ro)
+doTraverse _ _ _ = Left "Intraversible 3"
 -- XXX: where is the best place for this check now?
 -- doTraverse l _ _ r _ _
 --   = Left $ "doBind: PipeFuns, but "<>showLR (pack $ show l) (pack $ show r)
@@ -177,11 +116,11 @@ travDyn ::
      forall cf ct tas to tt a b fas fo ro
    . ( PipeConstr cf fas fo
      , PipeConstr ct tas to
-     , fas ~ (Types Point a ': '[])
+     , fas ~ (CTagV Point a ': '[])
      , tas ~ '[]
-     , fo  ~ Types Point b
-     , to  ~ Types tt    a
-     , ro  ~ Types tt    b
+     , fo  ~ CTagV Point b
+     , to  ~ CTagV tt    a
+     , ro  ~ CTagV tt    b
      )
   => Desc cf     fas fo -> Dynamic
   -> Desc ct tas to     -> Dynamic
@@ -237,12 +176,12 @@ traversePipes0 ttr _ _ f t = do
     Left e -> pure $ Left e
     Right (x :: Repr ttr tr) ->
       case ttr of
-        TPoint -> fallM "traverse: asked to traverse a Point"
-        TList  -> sequence <$> traverse f x
-        TSet   -> fallM "traverse: Set unsupported"
-        TTree  -> fallM "traverse: Tree unsupported"
-        TDag   -> fallM "traverse: Dag unsupported"
-        TGraph -> fallM "traverse: Graph unsupported"
+        CPoint -> fallM "traverse: asked to traverse a Point"
+        CList  -> sequence <$> traverse f x
+        CSet   -> fallM "traverse: Set unsupported"
+        CTree  -> fallM "traverse: Tree unsupported"
+        CDag   -> fallM "traverse: Dag unsupported"
+        CGraph -> fallM "traverse: Graph unsupported"
 
 traversePipes1 ::
     forall tta ta ttr tr fr
@@ -258,9 +197,9 @@ traversePipes1 _ _ cb _ _ f t = \ra -> do
     Left e -> pure $ Left e
     Right (x :: Repr ttr tr) ->
       case cb of
-        TPoint -> f x
-        TList  -> sequence <$> traverse f x
-        TSet   -> fallM "traverse: Set unsupported"
-        TTree  -> fallM "traverse: Tree unsupported"
-        TDag   -> fallM "traverse: Dag unsupported"
-        TGraph -> fallM "traverse: Graph unsupported"
+        CPoint -> f x
+        CList  -> sequence <$> traverse f x
+        CSet   -> fallM "traverse: Set unsupported"
+        CTree  -> fallM "traverse: Tree unsupported"
+        CDag   -> fallM "traverse: Dag unsupported"
+        CGraph -> fallM "traverse: Graph unsupported"
