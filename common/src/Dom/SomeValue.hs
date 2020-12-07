@@ -106,6 +106,22 @@ withSomeValue _ _ (SomeValue (_ :: CTag c') (SomeValueKinded _ (r :: Value c' a'
                  (show $ typeRep @a)  (show $ typeRep @c)
                  (show $ typeRep @a') (show $ typeRep @c')
 
+withSomeValue' ::
+     forall a c b
+   . (Typeable a, Typeable c)
+  => CTag c
+  -> Proxy a
+  -> SomeValue
+  -> (Value c a -> b)
+  -> Fallible b
+withSomeValue' _ _ (SomeValue (_ :: CTag c') (SomeValueKinded _ (r :: Value c' a'))) f =
+  case (,) (typeRep @a `eqTypeRep` typeRep @a')
+           (typeRep @c `eqTypeRep` typeRep @c') of
+    (Just HRefl, Just HRefl) -> Right $ f r
+    _ -> fallS $ printf "withSomeValue: expected %s/%s, got %s/%s"
+                 (show $ typeRep @a)  (show $ typeRep @c)
+                 (show $ typeRep @a') (show $ typeRep @c')
+
 --------------------------------------------------------------------------------
 -- * Parsing
 --

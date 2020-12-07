@@ -1,11 +1,10 @@
 module Lift.Pipe (module Lift.Pipe) where
 
-import qualified Data.Text                        as Text
+import Data.Text qualified                     as Text
 
-import qualified Control.Concurrent.STM           as STM
--- import qualified Data.Text                        as Text
-import           Control.Concurrent.STM             (STM, TVar, atomically)
-import qualified System.IO.Unsafe                 as Unsafe
+import Control.Concurrent.STM qualified        as STM
+import Control.Concurrent.STM                    (STM, TVar, atomically)
+import System.IO.Unsafe qualified              as Unsafe
 
 import Basis
 
@@ -31,9 +30,9 @@ import Lift.Haskell as Haskell
 
 initialPipeSpace :: SomePipeSpace Dynamic
 initialPipeSpace
-  =  Haskell.pipeSpace      (qname "Data")
+  =  rootPipeSpace
   <> Hackage.pipeSpace       mempty
-  <> rootPipeSpace
+  <> Haskell.pipeSpace      (qname "Data")
 
 getState :: STM (SomePipeSpace Dynamic)
 getState = STM.readTVar mutablePipeSpace

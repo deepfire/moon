@@ -108,7 +108,7 @@ import Data.These
 import Data.Tuple.Extra           (fst3, snd3, thd3, uncurry3)
 import Data.Type.Equality         ((:~:)(..), (:~~:)(..))
 import Data.Type.List             (spineConstraint)
-import Data.TypeRep               (showSomeTypeRep, showTypeRep)
+import Data.TypeRep
 import Data.Witherable            (catMaybes, mapMaybe, wither)
 import Debug.Trace                (trace, traceM)
 import Debug.TraceErr             (traceErr, traceIOErr)
@@ -127,8 +127,6 @@ import qualified Data.Map.Monoidal.Strict as MMap
 import qualified Data.Set.Monad  as Set
 import qualified Data.Set        as Set'
 import qualified Data.Text       as T
-import qualified GHC.Types       as GHC
-import qualified Type.Reflection as Refl
 
 
 -- | 'Control.Monad.Trans.Except.Extra.left' is too conflicting of a name.
@@ -263,11 +261,6 @@ lpop4 (_, b, c, d) = (b, c, d)
 rpop4 :: (a, b, c, d) -> (a, b, c)
 rpop4 (a, b, c, _) = (a, b, c)
 
-listTyCon, tuple2TyCon, tuple3TyCon, charTyCon :: GHC.TyCon
-listTyCon   = Refl.typeRepTyCon $ typeRep @[()]
-tuple2TyCon = Refl.typeRepTyCon $ typeRep @((),())
-tuple3TyCon = Refl.typeRepTyCon $ typeRep @((),(),())
-charTyCon   = Refl.typeRepTyCon $ typeRep @Char
 
 stderr :: Tracer IO Text
 stderr = Tracer $ traceIOErr . T.unpack

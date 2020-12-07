@@ -55,7 +55,7 @@ data ExecutionPort t p =
   ExecutionPort
   { epPost    :: Execution t p -> IO ()
   , epReplies :: Event t (PFallible SomeValue)
-  , epSpacE   :: Event t (PipeSpace (SomePipe p))
+  , epSpacE   :: Event t (PFallible (PipeSpace (SomePipe p)))
   }
 
 data Execution t p =

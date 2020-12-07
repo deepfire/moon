@@ -4,7 +4,7 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Data.Orphanage (failRead) where
+module Data.Orphanage (failRead, failRead') where
 
 import Algebra.Graph
 import Algebra.Graph.AdjacencyMap
@@ -37,6 +37,9 @@ instance (Ord a, Serialise a) => Serialise (Set.Set a) where
 
 failRead :: forall a. Typeable a => ReadPrec a
 failRead = error $ "Cannot read instances of "<>show (typeRep @a)<>".  Sorry."
+
+failRead' :: String -> ReadPrec a
+failRead' desc = error $ "Cannot read instances of "<>desc<>".  Sorry."
 
 instance Read SomeTypeRep where readPrec = failRead
 

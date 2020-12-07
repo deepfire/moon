@@ -92,6 +92,10 @@ defineGroundTypes qDec = emit <$> qDec
                        -- Here again, 'Nothing' for the type means catchall.
                            fromMaybe (VarT tyIxName) tdTy)))
          derivs     -- no derive clauses
+     -- instance Eq (VTag' () a) where
+     --   a == b = case (,) a b of
+     --              (,) VXxx VXxx -> True
+     --              _ -> False
      , InstanceD Nothing []
          (AppT (ConT $ mkName "Eq") (AppT (AppT (ConT vtag') (ConT unit))
                                           (VarT a)))
@@ -108,9 +112,9 @@ defineGroundTypes qDec = emit <$> qDec
                            [Match WildP
                                   (NormalB . ConE $ mkName "False") []])) []
              ]]
-     -- instance GEq CTag where
+     -- instance GEq (VTag' ()) where
      --   geq a b = case (a,b) of
-     --     (,) CPoint  CPoint -> Just Refl ...
+     --     (,) VXxx VXxx -> Just Refl ...
      --     _ -> Nothing
      , InstanceD Nothing []
          (AppT (ConT $ mkName "GEq") (AppT (ConT vtag') (ConT unit)))
@@ -160,6 +164,9 @@ defineGroundTypes qDec = emit <$> qDec
                                          [ Match (ConP (mkName "LT") [])
                                                  (NormalB $ ConE glt) []
                                          , Match (ConP (mkName "GT") [])
+                                                 (NormalB $ ConE ggt) []
+                                         -- XXX: this is dangerous.
+                                         , Match (ConP (mkName "EQ") [])
                                                  (NormalB $ ConE ggt) []
                                          ]) []
                           ])

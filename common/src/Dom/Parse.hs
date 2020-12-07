@@ -15,6 +15,6 @@ class Parse a where
 
 instance {-# OVERLAPPABLE #-} Typeable a => Parse a where
   parser = failParser
-    where
-      failParser :: (MonadFail m, TokenParsing m) => m a
-      failParser = fail ("No parser for " <> show (someTypeRep $ Proxy @a) <> ".")
+
+failParser :: forall m a. (MonadFail m, TokenParsing m, Typeable a) => m a
+failParser = fail ("No parser for " <> show (someTypeRep $ Proxy @a) <> ".")

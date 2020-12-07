@@ -1,7 +1,7 @@
 module Dom.Pipe.SomePipe (module Dom.Pipe.SomePipe) where
 
-import qualified Data.Dynamic                     as Dynamic
-import qualified Generics.SOP                     as SOP
+import Data.Dynamic                     qualified as Dynamic
+import Generics.SOP                     qualified as SOP
 
 import Basis
 

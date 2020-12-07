@@ -5,8 +5,6 @@ import           Data.Kind                          (Constraint)
 import           Generics.SOP                       (All, Top)
 import           Type.Reflection                    (Typeable)
 
-import qualified Unsafe.Coerce                    as Unsafe
-
 import Dom.CTag
 import Dom.VTag
 

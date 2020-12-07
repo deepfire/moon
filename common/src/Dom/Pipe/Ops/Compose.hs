@@ -2,7 +2,7 @@
 module Dom.Pipe.Ops.Compose (module Dom.Pipe.Ops.Compose) where
 
 import qualified Algebra.Graph                    as G
-import           Data.Dynamic                       (Dynamic, fromDynamic)
+import           Data.Dynamic                       (fromDynamic)
 import qualified Data.SOP                         as SOP
 import           Type.Reflection
 

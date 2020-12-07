@@ -124,6 +124,7 @@ library
                        FlexibleInstances
                        GADTs
                        GeneralisedNewtypeDeriving
+                       ImportQualifiedPost
                        KindSignatures
                        LambdaCase
                        MultiParamTypeClasses
@@ -195,6 +196,7 @@ executable cli
                      , serialise
                      , set-monad
                      , shelly
+                     , stm
                      , text
                      , tuple
                      , typed-protocols
@@ -222,6 +224,7 @@ executable cli
                        FlexibleInstances
                        GADTs
                        GeneralisedNewtypeDeriving
+                       ImportQualifiedPost
                        KindSignatures
                        LambdaCase
                        MultiParamTypeClasses

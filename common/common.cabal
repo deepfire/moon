@@ -14,6 +14,7 @@ library
   ghc-options:         -j3 -fprint-explicit-kinds -fprint-explicit-foralls -Wno-unticked-promoted-constructors +RTS -A128m -n2m -qg -RTS
 
   exposed-modules:
+                       Data.Class
                        Data.Dict
                        Data.Orphanage
                        Data.Parsing
@@ -146,6 +147,7 @@ library
                        GADTs
                        GeneralisedNewtypeDeriving
                        InstanceSigs
+                       ImportQualifiedPost
                        KindSignatures
                        LambdaCase
                        MultiParamTypeClasses

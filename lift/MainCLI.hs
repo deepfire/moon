@@ -1,34 +1,32 @@
 --{-# OPTIONS_GHC -dshow-passes -dppr-debug -ddump-rn -ddump-tc #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wall -Wno-name-shadowing -Wno-unticked-promoted-constructors#-}
 
-import qualified Control.Concurrent.Async               as Async
-import           Control.Concurrent.Chan.Unagi            (InChan, OutChan)
-import qualified Control.Concurrent.Chan.Unagi          as Unagi
-import           Control.Monad
-import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Control.Monad.Fix
-import           Control.Monad.NodeId
-import           Control.Tracer                           (Tracer(..), traceWith)
-import           Data.Char                                (isDigit)
-import qualified Data.Dynamic                           as Dyn
-import           Data.Semialign                           (align)
-import           Data.Text                                (Text)
+import Control.Concurrent                        (threadDelay)
+import Control.Concurrent.Async qualified      as Async
+import Control.Concurrent.Chan.Unagi             (InChan, OutChan)
+import Control.Concurrent.Chan.Unagi qualified as Unagi
+import Control.Concurrent.STM                    (TVar)
+import Control.Concurrent.STM qualified        as STM
+import Control.Monad
+import Control.Monad.Fix
+import Control.Monad.NodeId
+import Data.Char                                 (isDigit)
+import Data.Dynamic qualified                  as Dyn
+import Data.Semialign                            (align)
 
-import           Reflex                            hiding (Request)
-import           Reflex.Network
-import           Reflex.Vty                        hiding (Request)
-import qualified Data.Text                              as T
-import qualified Graphics.Vty                           as V
-import qualified Network.WebSockets                     as WS
+import Reflex                             hiding (Request)
+import Reflex.Network
+import Reflex.Vty                         hiding (Request)
+import Data.Text qualified                     as T
+import Graphics.Vty qualified                  as V
+import Network.WebSockets qualified            as WS
+import System.IO.Unsafe qualified              as Unsafe
 
-
-import           Reflex.Vty.Widget.Extra
-import           Reflex.Vty.Widget.Selector
-
+import Reflex.Vty.Widget.Extra
+import Reflex.Vty.Widget.Selector
 
 import Basis hiding (Dynamic)
 import Debug.Reflex
--- import Debug.TraceErr
 
 import Dom.CTag
 import Dom.Error
@@ -41,17 +39,19 @@ import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
 import Dom.RequestReply
 import Dom.Scope
+import Dom.Scope.SomePipe
 import Dom.Sig
 import Dom.SomeType
 import Dom.SomeValue
 import Dom.Space
 import Dom.Space.Pipe
+import Dom.Space.SomePipe
 import Dom.Value
 
 import Ground.Table
 
-import qualified Wire.Peer                              as Wire
-import qualified Wire.Protocol                          as Wire
+import qualified Wire.Peer                     as Wire
+import qualified Wire.Protocol                 as Wire
 
 import Lift hiding (main)
 import Lift.Pipe
@@ -82,7 +82,7 @@ mkExecutionPort ::
   forall t m p
   .  (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
   => (Event t (PFallible SomeValue)
-      -> Event t (PFallible (Value Point (PipeSpace (SomePipe p)))))
+      -> Event t (PFallible (PipeSpace (SomePipe p))))
   -> (OutChan (Execution t p) -> (PFallible SomeValue -> IO ()) -> IO ())
   -> Event t ()
   -> VtyWidget t m (ExecutionPort t p)
@@ -93,12 +93,12 @@ mkExecutionPort selectSpaceEvents handler setupE = do
   evs <- performEventAsync $
     ffor setupE \_ fire -> liftIO $
       (Async.link =<<) . Async.async $
-        handler exeSendR fire
+        handler exeSendR (\e -> fire $ traceErr ("fire!: " <> show e) e)
 
   pure ExecutionPort
     { epPost    = Unagi.writeChan exeSendW
     , epReplies = evs
-    , epSpacE   = stripValue <$> snd (fanEither (selectSpaceEvents evs))
+    , epSpacE   = selectSpaceEvents evs
     }
 
 pointRepliesE :: Reflex t => Event t (PFallible SomeValue) -> Event t (Wrap PFallible SomeValueKinded Point)
@@ -119,9 +119,9 @@ mkRemoteExecutionPort tr WSAddr{..} =
           void $ Wire.runClient tr webSockChan $
             client tr fire exeSendR
  where
-   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (Value Point (PipeSpace (SomePipe ()))))
+   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (PipeSpace (SomePipe ())))
    spacePointRepliesE evs =
-     unWrap <$> selectG (splitSVKByVTag VPipeSpace (pointRepliesE evs)) VPipeSpace
+     fmap stripValue . unWrap <$> selectG (splitSVKByVTag VPipeSpace (pointRepliesE evs)) VPipeSpace
 
 mkLocalExecutionPort ::
   forall t m
@@ -129,16 +129,43 @@ mkLocalExecutionPort ::
   => Tracer IO Text
   -> Event t ()
   -> VtyWidget t m (ExecutionPort t Dyn.Dynamic)
-mkLocalExecutionPort tr =
+mkLocalExecutionPort _tr =
   mkExecutionPort spacePointRepliesE $
-    \exeSendR fire ->
+    \exeSendR fire -> do
+      threadDelay 1000000
+      fire =<< (left EExec <$> runSomePipe localSpacePipe)
       forever $ do
         Execution{..} <- Unagi.readChan exeSendR
         fire =<< (left EExec <$> runSomePipe ePipe)
  where
-   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (Value Point (PipeSpace (SomePipe Dyn.Dynamic))))
+   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (PipeSpace (SomePipe Dyn.Dynamic)))
    spacePointRepliesE evs =
-     unWrap <$> selectG (splitSVKByVTag (VTop @(PipeSpace (SomePipe Dyn.Dynamic))) (pointRepliesE evs)) VTop
+     join . fmap splitPipeSpaces <$> evs
+   splitPipeSpaces :: SomeValue -> PFallible (PipeSpace (SomePipe Dyn.Dynamic))
+   splitPipeSpaces sv =
+     case withSomeValue' CPoint (Proxy @(PipeSpace (SomePipe Dyn.Dynamic))) sv id of
+       Left  e -> Left $ EExec $ traceErr (unpack $ showError e) e
+       Right x -> Right $ stripValue x
+
+localPipeSpace :: TVar (SomePipeSpace Dyn.Dynamic)
+localPipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO Main.initialPipeSpace
+{-# NOINLINE localPipeSpace #-}
+
+getLocalPipeSpace :: IO (PipeSpace (SomePipe Dyn.Dynamic))
+getLocalPipeSpace = STM.readTVarIO localPipeSpace
+
+localSpacePipe :: SomePipe Dyn.Dynamic
+localSpacePipe = pipe0T  "local-space" CVPoint (Right <$> getLocalPipeSpace)
+
+initialPipeSpace :: SomePipeSpace Dyn.Dynamic
+initialPipeSpace
+  = emptySomePipeSpace "Root"
+    & spsInsertScopeAt mempty
+      (pipeScope ""
+       -- Generators:
+       --
+        [ localSpacePipe
+        ])
 
 data WSAddr
   = WSAddr
@@ -200,10 +227,12 @@ spaceInteraction epRemote epLocal = mdo
       (G @() @'[] @(CTagV Point ())  mempty $ Pipe undefined undefined) never
 
   -- server + local -> spaceD
+  let (,) remoteSpaceErrsE remoteSpaceE = fanEither $ epSpacE epRemote
+      (,) localSpaceErrsE   localSpaceE = fanEither $ epSpacE epLocal
   remoteSpaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
-    holdDyn mempty (epSpacE epRemote)
+    holdDyn mempty remoteSpaceE
   localSpaceD :: Dynamic t (PipeSpace (SomePipe Dyn.Dynamic)) <-
-    holdDyn mempty (epSpacE epLocal)
+    holdDyn mempty localSpaceE
   let spaceD :: Dynamic t (PipeSpace MixedPipe)
       spaceD = zipDynWith (<>)
                  (fmap (fmap Right) <$> localSpaceD)
@@ -215,7 +244,7 @@ spaceInteraction epRemote epLocal = mdo
     <- performEvent $
         (attachPromptlyDyn spaceD runnablE <&>) $
         liftIO .
-        (\(spc, (pr@PreRunnable{..}, p)) ->
+        (\(_spc, (PreRunnable{..}, p)) ->
            maybe (error "postMixedPipeRequest returned Nothing")
            id <$>
            (postMixedPipeRequest epRemote epLocal prText prReq p)
@@ -234,7 +263,7 @@ spaceInteraction epRemote epLocal = mdo
     <- pure $ zipDyn (zipDyn remoteSpaceD localSpaceD) fPreRunnableD <&>
        \((spcRem, spcLoc), fpr) -> do
          pr@PreRunnable{..} <- fpr
-         pexp <- prPExpr
+         _pexp <- prPExpr
          p <- if | preRunnableIsT pr
                  -> fmap Left  <$> compile opsDesc (lookupSomePipe spcRem) prExpr
                  | preRunnableIsG pr
@@ -243,13 +272,16 @@ spaceInteraction epRemote epLocal = mdo
          void $ maybeLeft checkPipeRunnability p
          pure (pr, separateMixedPipe p)
 
+  let errorsE :: Event t EPipe
+      errorsE = leftmost [failRunnablE, remoteSpaceErrsE, localSpaceErrsE]
+
   -- 0. UI provides syntactically valid requests, and also
   --    displays results of validation.
   fPreRunnableD ::
     Dynamic t (PFallible (PreRunnable MixedPipeGuts)) <-
     mainSceneWidget
       (pipeEditorWidget spaceD
-        (summaryWidget executionE failRunnablE))
+        (summaryWidget executionE errorsE))
       (presentExecution
         (trevs "-- spaceInteraction: new execution" executionE) >> pure ())
       (feedbackWidget

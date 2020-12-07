@@ -1,7 +1,6 @@
 module Dom.SomeType (module Dom.SomeType) where
 
 import           GHC.Generics                       (Generic)
-import qualified Text.Builder                     as TB
 import qualified Type.Reflection                  as Refl
 
 import Basis
@@ -73,36 +72,6 @@ instance Show SomeType where
     show tycon<>":"<>unpack (showTypeRepNoKind rep)
 
 --------------------------------------------------------------------------------
-showSomeTypeRepNoKind :: SomeTypeRep -> Text
-showSomeTypeRepNoKind (SomeTypeRep x) = showTypeRepNoKind x
-
-showTypeRepNoKind :: TypeRep a -> Text
-showTypeRepNoKind = TB.run . flip go False
- where
-   go :: TypeRep b -> Bool -> TB.Builder
-   go (Refl.App (Refl.Con f) a1) _
-     | f == listTyCon =
-       case a1 of
-         Refl.Con x | x == charTyCon
-           -> TB.text "String"
-         _ -> TB.char '[' <> go a1 False <> TB.char ']'
-   go (Refl.App (Refl.App (Refl.Con f) a1) a2) _
-     | f == tuple2TyCon =
-       TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ')'
-   go (Refl.App (Refl.App (Refl.App (Refl.Con f) a1) a2) a3) _
-     | f == tuple3TyCon =
-       TB.char '(' <> go a1 False <> TB.char ',' <> TB.char ' ' <> go a2 False <> TB.char ',' <> TB.char ' ' <> go a3 False <> TB.char ')'
-   go (Refl.Con c) _ =
-     TB.string $ show c
-   go a@Refl.App{} True =
-     TB.char '(' <> go a False <> TB.char ')'
-   go (Refl.App f x) False =
-     go f True <> TB.char ' ' <> go x True
-   go f@Refl.Fun{} True =
-     TB.char '(' <> go f False <> TB.char ')'
-   go (Refl.Fun x r) False =
-     go x True <> TB.text " -> " <> go r True
-
 showSomeType :: Bool -> SomeType -> Text
 showSomeType showDot CSomeType{tName=(showName -> n), tCon} =
   case Refl.tyConName tCon of
