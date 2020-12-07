@@ -30,6 +30,8 @@ module Generics.SOP.Mapping
   , ForgetCtor
   , ForgetField
   , collect
+  , FieldFun(..)
+  , liftAllFields
   , mapSOP
     -- * Re-exports
   , All(..)
@@ -48,7 +50,7 @@ import Data.Functor.Const (Const(..))
 import Data.Kind
 import Data.SOP.NP
 import Generics.SOP
-import qualified Generics.SOP as SOP
+import Generics.SOP qualified as SOP
 import Generics.SOP.Traversal
 
 
@@ -138,6 +140,67 @@ collect c u {-fr ff-} forgetADT {-forgetCtor forgetField-} =
          FieldDesc
          forgetADT -- forgetCtor forgetField
 
+-- ADT ::
+--     ModuleName
+--  -> DatatypeName
+--  -> NP ConstructorInfo xss
+--  -> POP StrictnessInfo xss
+--  -> DatatypeInfo xss
+-- Newtype ::
+--     ModuleName
+--  -> DatatypeName
+--  -> ConstructorInfo '[x]
+--  -> DatatypeInfo '[ '[x]]
+--
+-- Constructor ::
+--      SListI xs
+--   => ConstructorName
+--   -> ConstructorInfo xs
+-- Infix ::
+--      ConstructorName
+--   -> Associativity
+--   -> Fixity
+--   -> ConstructorInfo '[x, y]
+-- Record ::
+--      SListI xs
+--   => ConstructorName
+--   -> NP FieldInfo xs
+--   -> ConstructorInfo xs
+--
+-- FieldInfo ::
+--      FieldName
+--   -> FieldInfo a
+
+newtype FieldFun u r a =
+  FieldFun
+    (SOP.FieldInfo a
+     -> (u -> a)
+     -> r)
+
+liftAllFields ::
+  forall u xss r
+  . ( Code u ~ xss
+    , SOP.HasDatatypeInfo u)
+  => Proxy u
+  -> NP (NP (FieldFun u r)) xss
+  -> [[r]]
+liftAllFields (SOP.datatypeInfo -> (dti :: SOP.DatatypeInfo xss)) fss =
+  case dti of
+    SOP.ADT _ _ (cinfos :: NP SOP.ConstructorInfo xss) _ ->
+      SOP.hcollapse $
+      SOP.hliftA3
+        (\fs (SOP.Record _ (finfos :: NP SOP.FieldInfo xs)) ctravs ->
+            K $ SOP.hcollapse $
+            SOP.hliftA3
+              (\(FieldFun f) finfo trav ->
+                 K $ f finfo (gtravget trav))
+              fs
+              finfos
+              ctravs)
+        fss
+        cinfos
+        (gtraversals :: NP (NP (GTraversal (->) (->) u)) xss)
+
 -- | A parametrised version of 'collect', which potentially presents a choice of
 --   the intermediate type, but currently, however, locked to 'FieldDesc'.
 mapSOP
@@ -162,7 +225,7 @@ mapSOP
   -- -> (forall xs. All c xs  => ForgetCtor       u c xs  fr)
   -- -> (forall x.      c x   => ForgetField      u c x   ff)
   -> fa
-mapSOP c u@(datatypeInfo -> dti) f {-fr-} {-ff-}
+mapSOP c u@(datatypeInfo -> (dti :: DatatypeInfo xss)) f {-fr-} {-ff-}
        cadt cctor cfield fadt =
   let polyfad :: All2 c xss => a c xss -> fa
       polyfad = fadt

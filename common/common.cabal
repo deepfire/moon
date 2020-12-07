@@ -15,10 +15,11 @@ library
 
   exposed-modules:
                        Data.Class
-                       Data.Dict
                        Data.Orphanage
                        Data.Parsing
                        Data.RTTI
+                       Data.Shelf
+                       Data.TyDict
                        Data.Type.List
                        Data.TypeRep
                        Debug.TraceErr
@@ -28,6 +29,7 @@ library
                        Generics.SOP.Traversal
 
                        Dom.CTag
+                       Dom.Cap
                        Dom.Error
                        Dom.Expr
                        Dom.Ground
@@ -37,12 +39,13 @@ library
                        Dom.Parse
                        Dom.Parsers
                        Dom.Pipe
+                       Dom.Pipe.Constr
                        Dom.Pipe.EPipe
                        Dom.Pipe.Ops
                        Dom.Pipe.Ops.Apply
                        Dom.Pipe.Ops.Compose
                        Dom.Pipe.Ops.Traverse
-                       Dom.Pipe.Constr
+                       Dom.Pipe.Pipe
                        Dom.Pipe.IOA
                        Dom.Pipe.SomePipe
                        Dom.Representable

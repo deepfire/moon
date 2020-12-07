@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Lift.Hackage
   ( -- * Namespace
     Lift.Hackage.pipeSpace
@@ -18,21 +19,64 @@ import           Control.Concurrent.CachedIO
 import           Network.HTTP.Req
 import           System.Exit
 import           System.Process
-import qualified System.IO.Unsafe                 as Unsafe
+import System.IO.Unsafe qualified                 as Unsafe
 
-import qualified Distribution.Hackage.DB        as Hackage
-import qualified Distribution.Types.PackageName as Cabal
-import qualified Distribution.PackageDescription as Cabal
-import qualified Distribution.PackageDescription.Parsec as Cabal
-import qualified Distribution.Types.GenericPackageDescription as Cabal
-
+import Distribution.Hackage.DB qualified        as Hackage
+import Distribution.Types.PackageName qualified as Cabal
+import Distribution.PackageDescription qualified as Cabal
+import Distribution.PackageDescription.Parsec qualified as Cabal
+import Distribution.Types.GenericPackageDescription qualified as Cabal
+---------------- Due to TH picking up TyCons:
+import GHC.Maybe qualified
+import GHC.Types qualified
+import Data.Either qualified
+import Distribution.Types.Benchmark qualified
+import Distribution.Types.CondTree qualified
+import Distribution.Types.ConfVar qualified
+import Distribution.Types.Dependency qualified
+import Distribution.Types.Executable qualified
+import Distribution.Types.GenericPackageDescription
+import Distribution.Types.Flag qualified
+import Distribution.Types.ForeignLib qualified
+import Distribution.Types.Library qualified
+import Distribution.Types.TestSuite qualified
+import Distribution.Types.PackageDescription qualified
+import Distribution.Types.PackageId qualified
+import Distribution.Types.UnqualComponentName qualified
+import Distribution.Types.Version qualified
+import Distribution.Types.VersionRange qualified
+import Distribution.Types.VersionRange.Internal qualified
+import Distribution.SPDX.License qualified
+import Distribution.License qualified
+import Distribution.Utils.ShortText qualified
+import Distribution.Compiler qualified
+import Distribution.Types.SourceRepo qualified
+import Distribution.Types.BuildType qualified
+import Distribution.Types.SetupBuildInfo qualified
+import Distribution.Types.LibraryName qualified
+import Distribution.ModuleName qualified
+import Distribution.Types.ModuleReexport qualified
+import Distribution.Types.LibraryVisibility qualified
+import Distribution.Types.BuildInfo qualified
+import Distribution.Types.ExecutableScope qualified
+import Distribution.Types.LegacyExeDependency qualified
+import Distribution.Types.ExeDependency qualified
+import Distribution.Types.PkgconfigDependency qualified
+import Language.Haskell.Extension qualified
+import Distribution.Types.Mixin qualified
+---------------- Local
 import Basis
 
+import Generics.SOP.Mapping
+
 import Dom.CTag
+import Dom.Cap
 import Dom.Error
+import Dom.Ground
 import Dom.Ground.Hask
 import Dom.Name
 import Dom.Pipe.IOA
+import Dom.Pipe.Pipe
 import Dom.Pipe.SomePipe
 import Dom.Scope
 import Dom.Scope.ADTPipe
@@ -49,16 +93,22 @@ pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Hackage"
   & spsAttachScopes (graft)
       [ pipeScope "Hackage"
-        [ pipe0T "packages"        CVSet hackagePackageNames
-        , pipe1T "cabal" CVPoint CVPoint getHackagePackageCabalDesc
+        [ somePipe0 "packages" capsTS         CVSet   hackagePackageNames
+        , somePipe1 "cabal"    capsTS CVPoint CVPoint getHackagePackageCabalDesc
         ]
       , emptyPipeScope "Cabal"
-        <> (dataProjScope $ Proxy @Cabal.GenericPackageDescription)
-        <> (dataProjScope $ Proxy @Cabal.PackageDescription)
-        <> (dataProjScope $ Proxy @Cabal.SourceRepo)
-        <> (dataProjScope $ Proxy @Cabal.Library)
-        <> (dataProjScope $ Proxy @Cabal.Executable)
-        <> (dataProjScope $ Proxy @Cabal.BuildInfo)
+        <> (dataProjScope   (Proxy @Cabal.GenericPackageDescription)
+            $(dataProjPipes (Proxy @Cabal.GenericPackageDescription)))
+        <> (dataProjScope   (Proxy @Cabal.PackageDescription)
+            $(dataProjPipes (Proxy @Cabal.PackageDescription)))
+        <> (dataProjScope   (Proxy @Cabal.SourceRepo)
+            $(dataProjPipes (Proxy @Cabal.SourceRepo)))
+        <> (dataProjScope   (Proxy @Cabal.Library)
+            $(dataProjPipes (Proxy @Cabal.Library)))
+        <> (dataProjScope   (Proxy @Cabal.Executable)
+            $(dataProjPipes (Proxy @Cabal.Executable)))
+        <> (dataProjScope   (Proxy @Cabal.BuildInfo)
+            $(dataProjPipes (Proxy @Cabal.BuildInfo)))
       ]
 
 

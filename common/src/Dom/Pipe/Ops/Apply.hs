@@ -7,13 +7,17 @@ import           Type.Reflection
 
 import Basis
 
+import Data.Shelf
+
 import Dom.CTag
+import Dom.Cap
 import Dom.Error
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Constr
 import Dom.Pipe.IOA
+import Dom.Pipe.Pipe
 import Dom.Pipe.SomePipe
 import Dom.Sig
 import Dom.SomeValue
@@ -35,11 +39,11 @@ demoApply = case apply appDyn pipe val of
     Right _ -> pure ()
  where
    pipe :: SomePipe Dynamic
-   pipe = pipe1G "demo pipe" CVPoint CVPoint
+   pipe = somePipe1 "demo pipe" capsT CVPoint CVPoint
      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
    val :: SomeValue
-   val = SomeValue CPoint $ SomeValueKinded VString $ VPoint ("Apply!" :: String)
+   val = SV CPoint $ SVK VString capsT $ VPoint ("Apply!" :: String)
 
 --------------------------------------------------------------------------------
 -- * Conceptually:
@@ -47,12 +51,12 @@ demoApply = case apply appDyn pipe val of
 -- apply ~:: Pipe (ca:cas) o -> Value ca -> Pipe cas o
 --
 apply ::
-     (forall g cas cas' o ca
-      . ( PipeConstr g cas  o
-        , PipeConstr g cas' o
+     (forall cas cas' o ca
+      . ( PipeConstr cas  o
+        , PipeConstr cas' o
         , cas ~ (ca : cas')
         )
-      => Desc g cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
+      => Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
   -> SomePipe p
   -> SomeValue
   -> PFallible (SomePipe p)
@@ -66,33 +70,36 @@ apply pf sp x = somePipeUncons sp
                   <> ".")
 
 apply' ::
-    forall g ca (cas :: [*]) (cas' :: [*]) o p
-  . ( PipeConstr g cas o
+    forall ca (cas :: [*]) (cas' :: [*]) o p
+  . ( PipeConstr cas o
     , cas ~ (ca:cas')
     )
-  => (Desc g cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
-  -> Pipe g cas o p
+  => (Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
+  -> Pipe cas o p
   -> SomeValue
-  -> Fallible (Pipe g cas' o p)
+  -> Fallible (Pipe cas' o p)
 apply' pf
   f@P{pPipeRep=ioa@IOATyCons{tagARep=tA, aRep=a}}
-  (SomeValue _ (SomeValueKinded _ (v :: Value cv v) :: SomeValueKinded cv))
-  | Just e <- ioaTyConsInvalidity ioa
-  = fallDesc "Apply" e
+  (SV _ (SVK _ vcaps (v :: Value cv v) :: SomeValueKinded cv)) =
+  fromMaybe (error "impossible:  apply':  non-Typeable value leaked through the cracks!") $
+  withOpenShelf vcaps CTypeable $
+  if
+    | Just e <- ioaTyConsInvalidity ioa
+      -> fallDesc "Apply" e
 
-  | Nothing <- typeRep @cv `eqTypeRep`  tA
-  = fallDesc "Apply: Value mismatch" $ show2 "cv" (typeRep @cv) "ca" tA
-  | Nothing <- typeRep @v  `eqTypeRep`   a
-  = fallDesc "Apply: Con mismatch"   $ show2  "v" (typeRep @v)   "a"  a
+    | Nothing <- typeRep @cv `eqTypeRep`  tA
+      -> fallDesc "Apply: Value mismatch" $ show2 "cv" (typeRep @cv) "ca" tA
+    | Nothing <- typeRep @v  `eqTypeRep`   a
+      -> fallDesc "Apply: Con mismatch"   $ show2  "v" (typeRep @v)   "a"  a
 
-  | Just HRefl <- typeRep @cv `eqTypeRep` tA
-  , Just HRefl <- typeRep @cv `eqTypeRep` typeRep @(CTagVC ca)
-  , Just HRefl <- typeRep @v  `eqTypeRep`  a
-  , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(CTagVV ca)
-  = case spineConstraint of
-      (Dict :: Dict Typeable cas') -> doApply pf f v
-  | otherwise
-  = Left "Apply: matched, but checks failed."
+    | Just HRefl <- typeRep @cv `eqTypeRep` tA
+    , Just HRefl <- typeRep @cv `eqTypeRep` typeRep @(CTagVC ca)
+    , Just HRefl <- typeRep @v  `eqTypeRep`  a
+    , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(CTagVV ca)
+      -> case spineConstraint of
+        (Dict :: Dict Typeable cas') -> doApply pf f v
+    | otherwise
+      -> Left "Apply: matched, but checks failed."
   where
     show2 :: Text -> TypeRep l -> Text -> TypeRep r -> Text
     show2 ln l rn r = ln<>"="<>pack (show l)<>", "<>rn<>"="<>pack (show r)
@@ -104,13 +111,13 @@ apply' _ _ _ =
 -- | 'doApply': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 doApply ::
-     forall g cas o c a p ca cass
-   . ( PipeConstr g cas o
+     forall cas o c a p ca cass
+   . ( PipeConstr cas o
      , cas ~ (ca : cass))
-  => (Desc g cas o -> Value c a -> p -> Fallible p)
-  -> Pipe  g cas o p
+  => (Desc cas o -> Value c a -> p -> Fallible p)
+  -> Pipe  cas o p
   -> Value   c a
-  -> Fallible (Pipe g (Tail cas) o p)
+  -> Fallible (Pipe (Tail cas) o p)
 doApply pf
         (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (_ca SOP.:* cass) o) f)
         v
@@ -121,41 +128,41 @@ doApply pf
             name    = Name $ "app-"<>rn
             sig     = Sig (tail ras) ro
             struct  = Struct rg -- XXX ???
-            rep     = typeRep :: TypeRep (IOA g cass o)
+            rep     = typeRep :: TypeRep (IOA cass o)
         in Pipe desc' <$> pf desc v f
 
 appDyn ::
-     forall g cas cass (o :: *) ca
-   . ( PipeConstr g cas o
+     forall cas cass (o :: *) ca
+   . ( PipeConstr cas o
      , cas ~ (ca:cass)
      )
-  => Desc g cas o -> Value (CTagVC ca) (CTagVV ca) -> Dynamic
+  => Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> Dynamic
   -> Fallible Dynamic
 appDyn
   Desc {pdArgs = Tags _ _ SOP.:* _}
   v ioaDyn = case spineConstraint of
       (Dict :: Dict Typeable cass) ->
         Dynamic typeRep <$> case fromDynamic ioaDyn of
-          Just (ioa :: IOA g cas o) -> Right $ applyIOA ioa v
+          Just (ioa :: IOA cas o) -> Right $ applyIOA ioa v
           Nothing -> fallS $ printf
             "appDyn: invariant failure: as %s, o %s, dyn %s"
             (show $ typeRep @cas) (show $ typeRep @o) (show $ dynRep ioaDyn)
 
 applyIOA ::
-     forall g cas cass o c a
-  .  ( PipeConstr g cas o
+     forall cas cass o c a
+  .  ( PipeConstr cas o
      , cas ~ (CTagV c a : cass)
      )
-  => IOA g cas  o
+  => IOA cas  o
   -> Value c a
-  -> IOA g cass o
+  -> IOA cass o
 applyIOA
   (IOA (f :: PipeFunTy (CTagV c a:ass) o)
-    c _as o
+    _as o
   ) v = case spineConstraint of
           (Dict :: Dict Typeable cas) ->
             IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
-             c (Proxy @ass) (Proxy @o)
+             (Proxy @ass) (Proxy @o)
 
 -- | 'applyPipeFun': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b

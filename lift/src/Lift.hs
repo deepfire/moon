@@ -26,7 +26,6 @@ import           Options.Applicative
 import           Options.Applicative.Common
 import qualified Type.Reflection                  as R
 
--- import qualified Control.Concurrent.Chan.Unagi    as Unagi
 import qualified Control.Concurrent               as Conc
 import qualified Control.Concurrent.STM           as STM
 import           Control.Concurrent.STM             (STM, TVar, atomically)
@@ -39,12 +38,6 @@ import           Shelly                             (liftIO, run, shelly)
 import           System.Environment
 import qualified Unsafe.Coerce                    as Unsafe
 
--- import qualified Cardano.BM.Configuration         as BM
--- import qualified Cardano.BM.Configuration.Model   as BM
--- import qualified Cardano.BM.Setup                 as BM
--- import qualified Cardano.BM.Backend.Switchboard   as BM
--- import qualified Cardano.BM.Trace                 as BM
-
 import qualified Network.TypedProtocol.Channel    as Net
 
 import           Generics.SOP.Some
@@ -53,6 +46,7 @@ import qualified Generics.SOP.Some                as SOP
 import Basis
 
 import Dom.CTag
+import Dom.Cap
 import Dom.Error
 import Dom.Expr
 import Dom.Ground.Hask
@@ -173,7 +167,7 @@ channelFromWebsocket conn =
     tracer :: Show x => String -> x -> x
     tracer desc x = trace (printf "%s:\n%s\n" desc (show x)) x
 
-wsServer :: Env -> IO ()
+wsServer :: HasCallStack => Env -> IO ()
 wsServer env@Env{envConfig=Config{..},..} = forever $
   WS.runServer cfWSBindHost cfWSPortOut $
     \pending-> do
@@ -184,8 +178,23 @@ wsServer env@Env{envConfig=Config{..},..} = forever $
           handleDisconnect x = putStrLn $ "Web disconnected: " <> show x
           tracer = stdoutTracer
 
-      handle handleDisconnect . forever $
-        runServer tracer (haskellServer env) $ channelFromWebsocket conn
+      void $ catches
+        (forever
+          (runServer tracer (haskellServer env) $ channelFromWebsocket conn))
+        [ Handler $
+          \(SomeException (e :: a)) -> do
+            traceM $ Prelude.concat
+              [ "Uncaught exception ("
+              , unpack $ showTypeRepNoKind $ typeRep @a, "): "
+              , show e
+              ]
+            pure ()
+        , Handler $
+          \(e :: WS.ConnectionException) -> do
+            handleDisconnect e
+            pure ()
+        ]
+      pure ()
 
 haskellServer
   :: forall m a
@@ -204,18 +213,20 @@ haskellServer env@Env{..} =
     }
 
 handleRequest :: Env -> StandardRequest -> IO (Either EPipe Reply)
-handleRequest Env{..} req = runExceptT $ case req of
+handleRequest Env{} req = runExceptT $ case req of
   Run      expr -> runRun      expr
   Let name expr -> runLet name expr
 
-runRun :: Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
+runRun :: HasCallStack => Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
 runRun expr = do
   spc <- liftIO $ atomically getState
 
   runnable <- newExceptT . pure $
     compile opsFull (lookupSomePipe spc) expr
 
-  ReplyValue <$> newPipeExceptErr EExec (runSomePipe runnable)
+  result <- ReplyValue <$> newPipeExceptErr EExec (runSomePipe runnable)
+
+  pure result
 
 runLet :: QName Pipe -> Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
 runLet name expr = do
@@ -239,7 +250,7 @@ runLet name expr = do
       putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
 
     liftIO $ ReplyValue
-      . SomeValue CPoint . SomeValueKinded VPipeSpace
+      . SV CPoint . SVK VPipeSpace capsTSG
       . mkValue CPoint VPipeSpace <$>
       getThePipeSpace
 

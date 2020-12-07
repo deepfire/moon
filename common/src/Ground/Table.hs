@@ -5,29 +5,28 @@
 
 module Ground.Table (module Ground.Table) where
 
-import qualified Algebra.Graph                    as G
--- import           Codec.Serialise
-import           Data.Dynamic                       (toDyn)
-import           Data.GADT.Compare
-import qualified Data.SOP                         as SOP
+import Data.GADT.Compare
+import Data.SOP                         qualified as SOP
+import Generics.SOP.Some                qualified as SOP
 
 import Text.Megaparsec.Parsers
 
 import Basis
-import qualified Data.Dict as Dict
 import Data.Parsing
+import Data.TyDict                      qualified as TyDict
 
 import Dom.CTag
+import Dom.Cap
 import Dom.Expr
 import Dom.Ground
-import qualified Dom.Ground.Hask as Hask
+import Dom.Ground.Hask                  qualified as Hask
 import Dom.Located
 import Dom.Name
 import Dom.Parse
 import Dom.Pipe
-import Dom.Pipe.IOA
 import Dom.Pipe.SomePipe
 import Dom.Scope
+import Dom.Scope.ADTPipe
 import Dom.Sig
 import Dom.SomeType
 import Dom.SomeValue
@@ -103,13 +102,18 @@ decodeVTop = do
 
 deriving instance Eq       (Tags t)
 
+-- xs :: [SomePipe Dynamic]
+-- xs = dataProjScope'
+--        (Proxy @Foo)
+--        $(dataProjPipes (Proxy @Foo))
+
 --------------------------------------------------------------------------------
 -- * Depends on Serialise SomeVTag, which comes from the ground table.
 --
 instance Serialise (SomePipe ()) where
   encode p =
     withSomePipe p $
-     \(Pipe (Desc name sig struct rep args out :: Desc c args out) _) ->
+     \(Pipe (Desc name sig struct rep args out :: Desc args out) _) ->
       let nArgs = fromIntegral . SOP.lengthSList $ Proxy @args
       in encodeListLen (5 + (1 + nArgs) * 4)
          <> encode (somePipeQName p)
@@ -117,6 +121,7 @@ instance Serialise (SomePipe ()) where
          <> encode sig
          <> encode struct
          <> encode rep
+         -- NOTE: out first, then args:
          <> mconcat (encodeTagss $ out :* args)
    where
      encodeTagss :: All Top xs => NP Tags xs -> [Encoding]
@@ -129,183 +134,19 @@ instance Serialise (SomePipe ()) where
   decode :: Decoder s (SomePipe ())
   decode = do
     len <- decodeListLen
-    let (arity, err) = (len - 5) `divMod` 4
-    unless (err == 0 && arity > 0)
-      (fail $ "decode SomePipe: expected list len=5+4x && >= 9, got: " <> show len)
-    recoverPipe
+    let (arityPlusOne, err) = (len - 5) `divMod` 4
+    unless (err == 0 && arityPlusOne > 0)
+      (fail $ "decode SomePipe: expected list len=5+4x && x >= 1, got: " <> show len)
+    either fail pure =<< recoverPipe
       <$> (decode :: Decoder s (QName Pipe))
       <*> (decode :: Decoder s (Name Pipe))
       <*> (decode :: Decoder s ISig)
       <*> (decode :: Decoder s Struct)
       <*> (decode :: Decoder s SomeTypeRep)
-      <*> (forM [0..(arity - 1)] $ const $
+      -- NOTE: out first, then args:
+      <*> (forM [0..(arityPlusOne - 1)] $ const $
             (,,,) <$> decode <*> decode <*> decode <*> decode
            :: Decoder s [(SomeCTag, SomeVTag, SomeTypeRep, SomeTypeRep)])
-
---------------------------------------------------------------------------------
--- * Pipe construction:  due to withVTag
---
--- [Note: Type argument numbering]
---
--- In order to maintain stable & simple enumeration of arrow type constituents,
--- the enumeration starts from end -- i.e:
---   - the arrow result is #0
---   - the last function argument, if any, is #1
---   and so on.
-pipe0 ::
-  forall c ioa c0 t0.
-  ( Typeable c
-  , ioa ~ IOA c '[] (CTagV c0 t0)
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0)
-  => Name Pipe
-  -> CTagV c0 t0
-  -> Result (Repr c0 t0)
-  -> Pipe c '[] (CTagV c0 t0) Dynamic
-pipe0 n (typesTags -> ts0) mf =
-  Pipe (Desc n sig str (dynRep dyn) Nil ts0) dyn
- where
-   dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
-   sig = Sig [] (I $ tagsSomeType ts0)
-   str = Struct G.empty
-  --               = Pipe desc dyn
-  -- where ty      = tagsSomeType tags0
-  --       desc    = Desc name sig struct (dynRep dyn) Nil tags0
-  --       sig     = Sig [] (I ty)
-  --       struct  = Struct graph
-  --       graph   = G.vertex ty
-  --       dyn     = Dynamic typeRep pipeFun
-  --       pipeFun = IOA mv Proxy Proxy Proxy ::
-  --                 IOA c '[] (CTagV c0 t0)
-
-pipe1 ::
-  forall c ioa c1 t1 c0 t0.
-  ( Typeable c
-  , ioa ~ IOA c '[CTagV c1 t1] (CTagV c0 t0)
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0
-  , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1)
-  => Name Pipe
-  -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c1 t1 -> Result (Repr c0 t0))
-  -> Pipe c '[CTagV c1 t1] (CTagV c0 t0) Dynamic
-pipe1 n (typesTags -> ts1) (typesTags -> ts0) mf =
-  Pipe (Desc n sig str (dynRep dyn) (ts1 :* Nil) ts0) dyn
- where
-   dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
-   sig = Sig [I $ tagsSomeType ts1] (I $ tagsSomeType ts0)
-   str = Struct G.empty
-   -- G.connect (G.vertex $ sIn sig) (G.vertex $ sOut sig)
-
-pipe2 ::
-  forall c ioa c2 t2 c1 t1 c0 t0.
-  ( Typeable c
-  , ioa ~ IOA c '[CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0
-  , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
-  , ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2)
-  => Name Pipe
-  -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
-  -> Pipe c '[CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0) Dynamic
-pipe2 n (typesTags -> ts2) (typesTags -> ts1) (typesTags -> ts0) mf =
-  Pipe (Desc n sig str (dynRep dyn) (ts2 :* ts1 :* Nil) ts0) dyn
- where
-   dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
-   sig = Sig [I $ tagsSomeType ts2, I $ tagsSomeType ts1] (I $ tagsSomeType ts0)
-   str = Struct G.empty
-
-pipe3 ::
-  forall c ioa c3 t3 c2 t2 c1 t1 c0 t0.
-  ( Typeable c
-  , ioa ~ IOA c '[CTagV c3 t3, CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0, c t0
-  , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
-  , ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2
-  , ReifyCTag c3, ReifyVTag t3, Typeable c3, Typeable t3)
-  => Name Pipe
-  -> CTagV c3 t3 -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c3 t3 -> Repr  c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
-  -> Pipe c '[CTagV c3 t3, CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0) Dynamic
-pipe3 n (typesTags -> ts3) (typesTags -> ts2) (typesTags -> ts1) (typesTags -> ts0) mf =
-  Pipe (Desc n sig str (dynRep dyn) (ts3 :* ts2 :* ts1 :* Nil) ts0) dyn
- where
-   dyn = toDyn (IOA mf Proxy Proxy Proxy :: ioa)
-   sig = Sig [ I $ tagsSomeType ts3
-             , I $ tagsSomeType ts2
-             , I $ tagsSomeType ts1
-             ] (I $ tagsSomeType ts0)
-   str = Struct G.empty
-
-pipe0G ::
-  forall c0 t0.
-  (ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
-  => Name Pipe
-  -> CTagV c0 t0
-  -> Result (Repr c0 t0)
-  -> SomePipe Dynamic
-pipe0G n t0 pf = G mempty $ pipe0 n t0 pf
-
-pipe0T ::
-  forall c0 t0.
-  (ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0)
-  => Name Pipe
-  -> CTagV c0 t0
-  -> Result (Repr c0 t0)
-  -> SomePipe Dynamic
-pipe0T n t0 pf = T mempty $ pipe0 n t0 pf
-
-pipe1G ::
-  forall c1 t1 c0 t0.
-  ( ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
-  => Name Pipe
-  -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c1 t1 -> Result (Repr c0 t0))
-  -> SomePipe Dynamic
-pipe1G n t1 t0 pf = G mempty $ pipe1 n t1 t0 pf
-
-pipe1T ::
-  forall c1 t1 c0 t0.
-  ( ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0)
-  => Name Pipe
-  -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c1 t1 -> Result (Repr c0 t0))
-  -> SomePipe Dynamic
-pipe1T n t1 t0 pf = T mempty $ pipe1 n t1 t0 pf
-
-pipe2G ::
-  forall c2 t2 c1 t1 c0 t0.
-  ( ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2
-  , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
-  => Name Pipe
-  -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
-  -> SomePipe Dynamic
-pipe2G n t2 t1 t0 pf = G mempty $ pipe2 n t2 t1 t0 pf
-
-pipe2T ::
-  forall c2 t2 c1 t1 c0 t0.
-  ( ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2
-  , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0)
-  => Name Pipe
-  -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
-  -> SomePipe Dynamic
-pipe2T n t2 t1 t0 pf = T mempty $ pipe2 n t2 t1 t0 pf
-
-pipe3G ::
-  forall c3 t3 c2 t2 c1 t1 c0 t0.
-  ( ReifyCTag c3, ReifyVTag t3, Typeable c3, Typeable t3
-  , ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2
-  , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
-  , ReifyCTag c0, ReifyVTag t0, Typeable c0, Ground t0)
-  => Name Pipe
-  -> CTagV c3 t3 -> CTagV c2 t2 -> CTagV c1 t1 -> CTagV c0 t0
-  -> (Repr c3 t3 -> Repr  c2 t2 -> Repr  c1 t1 -> Result (Repr c0 t0))
-  -> SomePipe Dynamic
-pipe3G n t3 t2 t1 t0 pf = G mempty $ pipe3 n t3 t2 t1 t0 pf
 
 --------------------------------------------------------------------------------
 -- * SomeValue literals:  here, due to:
@@ -314,19 +155,19 @@ pipe3G n t3 t2 t1 t0 pf = G mempty $ pipe3 n t3 t2 t1 t0 pf
 --
 parseSomeValueLiteral :: Parser SomeValue
 parseSomeValueLiteral =
-  (SomeValue CPoint . SomeValueKinded VText . mkValue' (Proxy @Text) CPoint <$> stringLiteral)
+  (SV CPoint . SVK VText    capsTSG . mkValue' (Proxy @Text)    CPoint <$> stringLiteral)
   <|>
-  (SomeValue CPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) CPoint <$> integer)
+  (SV CPoint . SVK VInteger capsTSG . mkValue' (Proxy @Integer) CPoint <$> integer)
   <|>
-  (SomeValue CPoint . SomeValueKinded VInteger . mkValue' (Proxy @Integer) CPoint <$> hexadecimal)
+  (SV CPoint . SVK VInteger capsTSG . mkValue' (Proxy @Integer) CPoint <$> hexadecimal)
   <|>
-  (SomeValue CPoint . SomeValueKinded VDouble . mkValue' (Proxy @Double) CPoint <$> double)
+  (SV CPoint . SVK VDouble  capsTSG . mkValue' (Proxy @Double)  CPoint <$> double)
 
 instance Parse SomeValue where
   parser = parseSomeValue parseSomeValueLiteral
 
 someValueUnit :: SomeValue
-someValueUnit = SomeValue CPoint $ SomeValueKinded VUnit (VPoint ())
+someValueUnit = mkSomeValue CPoint VUnit capsTSG ()
 
 someValueText :: Text -> SomeValue
-someValueText = mkSomeGroundValue CPoint VText
+someValueText = mkSomeValue CPoint VText capsTSG

@@ -30,29 +30,29 @@ import Dom.Value
 data Ops p where
   Ops ::
     { app
-      :: forall c cas cas' o ca
-      . ( PipeConstr c cas  o
-        , PipeConstr c cas' o
+      :: forall cas cas' o ca
+      . ( PipeConstr cas  o
+        , PipeConstr cas' o
         , cas ~ (ca : cas')
         )
-      => Desc c cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p
+      => Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p
     , comp
-      :: forall cf cv vas vo fas fass ras fo
-      . ( PipeConstr cv vas vo
-        , PipeConstr cf fas fo
+      :: forall vas vo fas fass ras fo
+      . ( PipeConstr vas vo
+        , PipeConstr fas fo
         , fas ~ (vo:fass)
         , ras ~ fass
         )
-      => Desc cv vas vo -> p -> Desc cf fas fo -> p -> Fallible p
+      => Desc vas vo -> p -> Desc fas fo -> p -> Fallible p
     , trav
-      :: forall cf ct fas fo a tas to
-      . ( PipeConstr cf fas fo
-        , PipeConstr ct tas to
+      :: forall fas fo a tas to
+      . ( PipeConstr fas fo
+        , PipeConstr tas to
         , fas ~ (CTagV 'Point a ': '[])
         , tas ~ '[]
         , CTagVV to ~ a
         , CTagVC fo ~ 'Point)
-      => Desc cf fas fo -> p -> Desc ct tas to -> p -> Fallible p
+      => Desc fas fo -> p -> Desc tas to -> p -> Fallible p
     } -> Ops p
 
 opsFull :: Ops Dynamic
@@ -137,8 +137,8 @@ doCompile Ops{app, comp, trav} = go
 doAnalyse ::
      Expr (Located (Either (QName Pipe) (SomePipe p)))
   -> PFallible (Expr (Located (PartPipe p)))
-doAnalyse exp =
-  snd <$> tcExpr (TyCtx [] (Nothing, Nothing) False) exp
+doAnalyse expr =
+  snd <$> tcExpr (TyCtx [] (Nothing, Nothing) False) expr
 
 data TyCtx =
   TyCtx
@@ -151,9 +151,9 @@ tcExpr ::
      TyCtx
   -> Expr (Located (Either (QName Pipe) (SomePipe p)))
   -> PFallible (TyCtx, (Expr (Located (PartPipe p))))
-tcExpr ctx exp =
+tcExpr ctx expr =
   let tcArity = length (tcArgs ctx) in
-  case exp of
+  case expr of
     PVal sv@(someValueSomeType -> v) ->
       if | tcArity > 0
            -> failTc
@@ -255,11 +255,11 @@ tcExpr ctx exp =
        | otherwise = Right ()
    failTc = Left . EType . Error . mconcat
 
-checkPipeRunnability :: SomePipe p -> Maybe EPipe
-checkPipeRunnability sp
+checkPipeRunnability :: Bool -> SomePipe p -> Maybe EPipe
+checkPipeRunnability remote sp
   | not $ null args
   = Just $ EUnsat "Not a saturated pipe" args (unI . sOut $ somePipeSig sp)
-  | withSomePipeGroundCase sp (const False) (const True)
+  | remote && withSomePipeGroundCase sp (const False) (const True)
   = Just $ ENonGround "Not a ground pipe"
   | otherwise = Nothing
  where args = fmap unI . sArgs $ somePipeSig sp
@@ -282,5 +282,4 @@ instance Show (PartPipe p) where
     , " :?: "
     , T.unpack $ T.intercalate " ⇨ "
       (maybe "(?)" (showSomeType False) <$> unListSig (toListSig args))]
-  show (CSomePipe args G{..}) = unpack (showPipe gPipe)
-  show (CSomePipe args T{..}) = unpack (showPipe tPipe)
+  show (CSomePipe _args SP{..}) = unpack (showPipe spPipe)

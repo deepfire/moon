@@ -17,7 +17,7 @@ module Basis
   , module Data.Bifunctor
   , module Data.Bifunctor.Swap
   -- , module Data.Coerce
-  , module Data.Dict
+  , module Data.TyDict
   , module Data.Dynamic
   , module Data.Either
   , module Data.Either.Combinators
@@ -52,6 +52,7 @@ module Basis
   , module Debug.Trace
   , module Debug.TraceErr
   , module Generics.SOP
+  , module GHC.Stack
   , module Quiet
   , module Text.Printf
   , module Text.Read
@@ -78,7 +79,6 @@ import Control.Monad.Fail         (MonadFail)
 import Control.Tracer             (Tracer(..), traceWith)
 import Data.Bifunctor             (bimap)
 import Data.Bifunctor.Swap        (swap)
-import Data.Dict                  (TyDict(..), TyDicts)
 import Data.Dynamic               (Dynamic(..), Typeable)
 import Data.Either                (partitionEithers)
 import Data.Either.Combinators    (maybeToLeft, maybeToRight)
@@ -106,6 +106,7 @@ import Data.String                (IsString)
 import Data.Text                  (Text, pack, unpack)
 import Data.These
 import Data.Tuple.Extra           (fst3, snd3, thd3, uncurry3)
+import Data.TyDict                (TyDict(..), TyDicts)
 import Data.Type.Equality         ((:~:)(..), (:~~:)(..))
 import Data.Type.List             (spineConstraint)
 import Data.TypeRep
@@ -114,6 +115,7 @@ import Debug.Trace                (trace, traceM)
 import Debug.TraceErr             (traceErr, traceIOErr)
 import Generics.SOP               (All, All2, And, Compose, Code, NP(..), NS, Top
                                   , I(..), unI, K(..), unK)
+import GHC.Stack                  (HasCallStack)
 import Quiet
 import Text.Printf                (printf)
 import Text.Read                  (Read(..))

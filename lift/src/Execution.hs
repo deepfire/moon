@@ -10,7 +10,10 @@ import           Reflex                            hiding (Request)
 import           Reflex.Network
 import           Reflex.Vty                        hiding (Request)
 
+import Data.Shelf
+
 import Dom.CTag
+import Dom.Cap
 import Dom.Error
 import Dom.Expr
 import Dom.Ground
@@ -60,7 +63,7 @@ data ExecutionPort t p =
 
 data Execution t p =
   forall c a.
-  (Typeable c, Typeable a, Show a) =>
+  (Typeable c, Typeable a) =>
   Execution
   { eResCTag  :: !(CTag c)
   , eResVTag  :: !(VTag a)
@@ -69,7 +72,7 @@ data Execution t p =
   , ePipe     :: !(SomePipe p)
   -- TODO:  what does it mean for eText not to correspond to eExpr?
   --        a need for a smart constructor?
-  , eReply    :: !(Event t (PFallible (Value c a)))
+  , eReply    :: !(Event t (PFallible (CapValue c a)))
   }
 
 
@@ -104,11 +107,11 @@ postMixedPipeRequest ::
 postMixedPipeRequest epT epG txt req esp = runMaybeT $ do
   case esp of
     Left p -> do
-      e <- MaybeT . pure $ mkExecution epT txt req p
+      let e = mkExecution epT txt req p
       liftIO $ postExecution epT e
       pure $ Left <$> e
     Right p -> do
-      e <- MaybeT . pure $ mkExecution epG txt req p
+      let e = mkExecution epG txt req p
       liftIO $ postExecution epG e
       pure $ Right <$> e
 
@@ -120,30 +123,28 @@ mkExecution :: Reflex t
   -> Text
   -> StandardRequest
   -> SomePipe p
-  -> Maybe (Execution t p)
-mkExecution ep txt req p =
-  withSomeGroundPipe p $
-    \(Pipe{pDesc} :: Pipe Ground kas o p) ->
-      case req of
-        Run{} ->
-          let (,) ctag vtag = (descOutCTag pDesc :: CTag (CTagVC o),
-                               descOutVTag pDesc :: VTag (CTagVV o))
-          in Execution ctag vtag txt req p $
-           -- so, we need splitSVByCTag that would thread the Left
-             unWrap <$>
-             selectG (splitSVKByVTag vtag $
-                      selectG (splitSVByCTag ctag $ epReplies ep)
-                       ctag)
-             vtag
-        Let{} ->
-          let (,) ctag vtag = (,) CPoint VPipeSpace
-          in Execution ctag vtag txt req p $
-           -- so, we need splitSVByCTag that would thread the Left
-             unWrap <$>
-             selectG (splitSVKByVTag vtag $
-                      selectG (splitSVByCTag ctag $ epReplies ep)
-                       ctag)
-             vtag
+  -> Execution t p
+mkExecution ep txt req sp@(SP _ caps (Pipe{pDesc} :: Pipe kas o p)) =
+  case req of
+    Run{} ->
+      let (,) ctag vtag = (descOutCTag pDesc :: CTag (CTagVC o),
+                           descOutVTag pDesc :: VTag (CTagVV o))
+      in Execution ctag vtag txt req sp $
+       -- so, we need splitSVByCTag that would thread the Left
+         unWrap <$>
+         selectG (splitSVKByVTag vtag $
+                  selectG (splitSVByCTag ctag $ epReplies ep)
+                   ctag)
+         vtag
+    Let{} ->
+      let (,) ctag vtag = (,) CPoint VPipeSpace
+      in Execution ctag vtag txt req sp $
+       -- so, we need splitSVByCTag that would thread the Left
+         unWrap <$>
+         selectG (splitSVKByVTag vtag $
+                  selectG (splitSVByCTag ctag $ epReplies ep)
+                   ctag)
+         vtag
 
 postExecution :: ExecutionPort t p -> Execution t p -> IO ()
 postExecution = epPost
@@ -154,7 +155,7 @@ handleExecution ::
   -> PFallible Wire.Reply
   -> IO ()
 handleExecution doHandle Execution{..} (Right (Wire.ReplyValue rep)) =
-  case withSomeValue eResCTag eResVTag rep stripValue of
+  case withExpectedSomeValue eResCTag eResVTag rep stripValue of
     Right{} -> doHandle (Right rep)
     Left (Error e) -> fail . unpack $
       "Server response doesn't match Execution: " <> e
@@ -172,14 +173,20 @@ presentExecution exE =
       boxTitle (pure roundedBoxStyle) (" _"<>eText<>"_ ") $
         withExecutionReply
           (pres (presentPoint "-- no data yet --"))
-          (pres (presentList . fmap ((Index 0, ) . stripValue)))
-          (pres (presentList . fmap ((Index 0, ) . stripValue)))
+          (pres (presentList .
+                 fmap ((Index 0, ) .
+                       fromMaybe ["no-Show"] .
+                       withCapValueShow (fmap showT))))
+          (pres (presentList .
+                 fmap ((Index 0, ) .
+                       fromMaybe ["no-Show"] .
+                       withCapValueShow (fmap showT))))
           (const $ text $ pure "trees not presentable yet")
           (const $ text $ pure "DAGs not presentable yet")
           (const $ text $ pure "graphs not presentable yet")
           e
  where
-   pres :: (Event t (Value c a) -> VtyWidget t m ()) -> Event t (PFallible (Value c a)) -> VtyWidget t m ()
+   pres :: (Event t (CapValue c a) -> VtyWidget t m ()) -> Event t (PFallible (CapValue c a)) -> VtyWidget t m ()
    pres f e@(fanEither -> (errE, valE)) = do
      errPrefixHeight <- holdDyn (const 0) (const 1 <$ errE)
      void $ splitV errPrefixHeight (pure (False, False))
@@ -200,11 +207,32 @@ presentExecution exE =
         >>> fmap fbFocused)
        e
        <&> pure ()
-   presentPoint :: (MonadHold t m, Reflex t, Show a)
-     => Text -> Event t (Value Point a) -> VtyWidget t m ()
+   presentPoint :: (MonadHold t m, Reflex t)
+     => Text -> Event t (CapValue Point a) -> VtyWidget t m ()
    presentPoint defDesc e =
-     text =<< hold defDesc (e <&> pack . show . stripValue)
+     text =<< hold defDesc (e <&> withCVShow showT)
 
+withCapValueShow ::
+  forall c a b
+  . ReifyCTag c
+  => (Show a => Repr c a -> b)
+  -> CapValue c a
+  -> Maybe b
+withCapValueShow f CapValue{..} =
+  withOpenShelf cvCaps CShow $
+    f (stripValue cvValue)
+
+withCVShow ::
+  forall c a
+  . (ReifyCTag c)
+  => (Show a => Repr c a -> Text)
+  -> CapValue c a
+  -> Text
+withCVShow f cv@CapValue{..} =
+  fromMaybe ("#<no-Typeable>") $
+    withOpenShelf cvCaps CTypeable $
+      fromMaybe ("no-Show: " <> showTypeRepNoKind (typeRep @a)) $
+        withCapValueShow f cv
 
 presentExecutionSummary ::
      forall t m p
@@ -213,14 +241,14 @@ presentExecutionSummary ::
   -> VtyWidget t m ()
 presentExecutionSummary =
   withExecutionReply
-    (pres $ ("• " <>) . showT . stripValue)
-    (pres $ ("list of " <>) . showT . length . stripValue)
-    (pres $ ("set of " <>) . showT . length . stripValue)
+    (pres $ ("• " <>) . withCVShow showT)
+    (pres $ ("list of " <>) . showT . length . stripValue . cvValue)
+    (pres $ ("set of " <>) . showT . length . stripValue . cvValue)
     (const . text $ pure "tree")
     (const . text $ pure "dag")
     (const . text $ pure "graph")
  where
-   pres :: (Value c a -> Text) -> Event t (PFallible (Value c a)) -> VtyWidget t m ()
+   pres :: (CapValue c a -> Text) -> Event t (PFallible (CapValue c a)) -> VtyWidget t m ()
    pres f e = do
      prefixLen <- holdDyn (const 0) (const . T.length <$> prefix)
      void $ splitH prefixLen (pure (False, False))
@@ -232,12 +260,12 @@ presentExecutionSummary =
     where prefix = e <&> either (const "Server: ") (const "")
 
 withExecutionReply ::
-     (forall a. Show a => Event t (PFallible (Value Point a)) -> b)
-  -> (forall a. Show a => Event t (PFallible (Value List  a)) -> b)
-  -> (forall a. Show a => Event t (PFallible (Value 'Set  a)) -> b)
-  -> (forall a. Show a => Event t (PFallible (Value Tree  a)) -> b)
-  -> (forall a. Show a => Event t (PFallible (Value Dag   a)) -> b)
-  -> (forall a. Show a => Event t (PFallible (Value Graph a)) -> b)
+     (forall a. Event t (PFallible (CapValue Point a)) -> b)
+  -> (forall a. Event t (PFallible (CapValue List  a)) -> b)
+  -> (forall a. Event t (PFallible (CapValue 'Set  a)) -> b)
+  -> (forall a. Event t (PFallible (CapValue Tree  a)) -> b)
+  -> (forall a. Event t (PFallible (CapValue Dag   a)) -> b)
+  -> (forall a. Event t (PFallible (CapValue Graph a)) -> b)
   -> Execution t p
   -> b
 withExecutionReply fp fl fs ft fd fg Execution{..} =

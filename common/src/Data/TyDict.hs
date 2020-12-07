@@ -2,7 +2,7 @@
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeInType                 #-}
-module Data.Dict (module Data.Dict) where
+module Data.TyDict (module Data.TyDict) where
 
 import           Data.Kind                          (Constraint, Type)
 import qualified Data.Map                         as Map
@@ -16,6 +16,9 @@ import           Type.Reflection                    (SomeTypeRep, Typeable, some
 --
 -- data Dict  (c :: k -> Constraint) (a :: k) where
 --    Dict :: c a => Dict c a
+
+data Dict (a :: k) (c :: k -> Constraint) where
+  Dict :: c a => Dict a c
 
 data TyDict (c :: Type -> Constraint) where
   TyDict :: (c a, Typeable a) => Proxy a -> TyDict c

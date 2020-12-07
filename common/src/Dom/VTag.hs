@@ -1,11 +1,11 @@
 module Dom.VTag (module Dom.VTag) where
 
-import           Data.Functor                       ((<&>))
-import           Data.List.Extra                    (unsnoc)
-import           Data.Maybe                         (fromMaybe, isJust)
-import           Data.Typeable                      (Proxy)
-import           Language.Haskell.TH
-import           Language.Haskell.TH.Syntax
+import Data.Functor                       ((<&>))
+import Data.List.Extra                    (unsnoc)
+import Data.Maybe                         (fromMaybe, isJust)
+import Data.Typeable                      (Proxy)
+import Language.Haskell.TH
+import Language.Haskell.TH.Syntax
 
 
 --------------------------------------------------------------------------------
@@ -46,25 +46,18 @@ data TagDecl
 defineGroundTypes :: Q [Dec] -> Q [Dec]
 defineGroundTypes qDec = emit <$> qDec
  where
-   [a, b, c, f, r, v, x] = mkName <$> ["a", "b", "c", "f", "r", "v", "x"]
+   [a, b, c, f, r, x] = mkName <$> ["a", "b", "c", "f", "r", "x"]
    refl            = mkName "Refl"
    just            = mkName "Just"
    nothing         = mkName "Nothing"
    tag             = mkName "tag"
-   vtop            = mkName "VTop"
    vtag            = mkName "VTag"
    vtag'           = mkName "VTag'"
    pair            = mkName "(,)"
    unit            = mkName "()"
    dot             = mkName "."
    typeable        = mkName "Typeable"
-   reifyctag       = mkName "ReifyCTag"
    reifyvtag       = mkName "ReifyVTag"
-   ctag            = mkName "CTag"
-   repr            = mkName "Repr"
-   somevalue       = mkName "SomeValue"
-   somevaluekinded = mkName "SomeValueKinded"
-   mkvalue         = mkName "mkValue"
    eRror           = mkName "error"
 
    qualRef :: String -> String -> Name
@@ -212,8 +205,8 @@ defineGroundTypes qDec = emit <$> qDec
                               (NormalB $
                                 let tagE = AppE (VarE $ mkName "encodeWord")
                                                 (LitE $ IntegerL n)
-                                    prependTopRep x =
-                                      InfixE (Just x)
+                                    prependTopRep x' =
+                                      InfixE (Just x')
                                              (VarE $ mkName "<>")
                                              (Just $ AppE
                                                        (VarE $ mkName "encode")
@@ -266,7 +259,7 @@ defineGroundTypes qDec = emit <$> qDec
          (AppT (ConT $ mkName "TyDicts") (ConT $ mkName "Ground"))
      , let step :: TagDecl -> Exp -> Exp
            step TagDecl{tdTy = Just ty, ..} acc =
-             AppE (AppE (AppE (VarE (qualRef "Dict" "insert"))
+             AppE (AppE (AppE (VarE (qualRef "TyDict" "insert"))
                               (LitE (StringL tdStem)))
                         (AppTypeE (ConE $ mkName "Proxy")
                                   ty))
@@ -274,7 +267,7 @@ defineGroundTypes qDec = emit <$> qDec
            step _ acc = acc    -- skip the catch-all: no ground dict entry made
        in
        ValD (VarP $ mkName "groundTable")
-            (NormalB $ foldr step (VarE (qualRef "Dict" "empty")) decls) []
+            (NormalB $ foldr step (VarE (qualRef "TyDict" "empty")) decls) []
 
      -- withVTag :: VTag a -> ((Typeable a, ReifyVTag a) => r) -> r
      -- withVTag x f = case x of
@@ -366,13 +359,13 @@ defineGroundTypes qDec = emit <$> qDec
     where
       funT :: [Type] -> Type
       funT (fromMaybe (error "Empty list passed to funT -- no fun.")
-            . unsnoc -> (xs, x)) =
-        foldr (AppT . AppT ArrowT) x xs
+            . unsnoc -> (xs, x')) =
+        foldr (AppT . AppT ArrowT) x' xs
 
-      composeList :: [Exp] -> Exp
-      composeList (fromMaybe (error "Empty list passed to dot -- no fun.")
-           . unsnoc -> (xs, x)) =
-        foldr (flip UInfixE (VarE dot)) x xs
+      _composeList :: [Exp] -> Exp
+      _composeList (fromMaybe (error "Empty list passed to dot -- no fun.")
+           . unsnoc -> (xs, x')) =
+        foldr (flip UInfixE (VarE dot)) x' xs
 
       dataName = nameToDyn dataNameRaw
 
@@ -410,11 +403,8 @@ defineGroundTypes qDec = emit <$> qDec
         GadtC [name@(Name (OccName str) _)] _ _ -> (str, name)
         _                 -> error "Non-GADT constructor"
 
-   emit (x:xs) = x : emit xs
-   emit []     = []
-
-   shapeError =
-     error "A single GADT 'data' declaration with 0-arity clauses is required."
+   emit (x':xs) = x' : emit xs
+   emit []      = []
 
 -- http://hackage.haskell.org/package/template-haskell/docs/Language-Haskell-TH-Lib.html
 -- https://ghc.gitlab.haskell.org/ghc/doc/libraries/template-haskell-2.17.0.0/Language-Haskell-TH-Syntax.html
@@ -477,3 +467,33 @@ defineGroundTypes qDec = emit <$> qDec
 -- data Specificity
 --   SpecifiedSpec                      -- a
 --   InferredSpec                       -- {a}
+
+-- * data Type Source #
+--
+-- Constructors
+--
+--  ForallT [TyVarBndr] Cxt Type  forall <vars>. <ctxt> => <type>
+--  ForallVisT [TyVarBndr] Type  forall <vars> -> <type>
+--  AppT Type Type  T a b
+--  AppKindT Type Kind  T @k t
+--  SigT Type Kind  t :: k
+--  VarT Name  a
+--  ConT Name  T
+--  PromotedT Name  'T
+--  InfixT Type Name Type  T + T
+--  UInfixT Type Name Type  T + T
+--  ParensT Type  (T)
+--  TupleT Int  (,), (,,), etc.
+--  UnboxedTupleT Int  (#,#), (#,,#), etc.
+--  UnboxedSumT SumArity  (#|#), (#||#), etc.
+--  ArrowT  ->
+--  EqualityT  ~
+--  ListT  []
+--  PromotedTupleT Int  '(), '(,), '(,,), etc.
+--  PromotedNilT  '[]
+--  PromotedConsT  (':)
+--  StarT  *
+--  ConstraintT  Constraint
+--  LitT TyLit  0,1,2, etc.
+--  WildCardT  _
+--  ImplicitParamT String Type  ?x :: t

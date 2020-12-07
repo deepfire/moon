@@ -9,17 +9,19 @@ import           Type.Reflection
 import Basis
 
 import Dom.CTag
+import Dom.Cap
 import Dom.Error
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Constr
 import Dom.Pipe.IOA
+import Dom.Pipe.Pipe
 import Dom.Pipe.SomePipe
 import Dom.Sig
 import Dom.Struct
 
-import Ground.Table -- for demo only
+import Ground.Table() -- for demo only
 
 
 --------------------------------------------------------------------------------
@@ -33,11 +35,11 @@ demoCompose = case compose compDyn pipe val of
     Right _ -> pure ()
  where
    pipe :: SomePipe Dynamic
-   pipe = pipe1G "demo pipe" CVPoint CVPoint
+   pipe = somePipe1 "demo pipe" capsT CVPoint CVPoint
      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
    val :: SomePipe Dynamic
-   val = pipe0G "demo value" CVPoint
+   val = somePipe0 "demo value" capsT CVPoint
      (pure $ Right ("compose!" :: String))
 
 --------------------------------------------------------------------------------
@@ -46,42 +48,42 @@ demoCompose = case compose compDyn pipe val of
 -- compose ~:: (b -> c) -> (a -> b) -> a -> c
 --
 compose ::
-     (forall cf cv vas vo fas fass fo
-      . ( PipeConstr cv vas vo
-        , PipeConstr cf fas fo
+     (forall vas vo fas fass fo
+      . ( PipeConstr vas vo
+        , PipeConstr fas fo
         , fas ~ (vo:fass)
         )
-      => (Desc cv vas vo -> p -> Desc cf fas fo -> p -> Fallible p))
+      => (Desc vas vo -> p -> Desc fas fo -> p -> Fallible p))
   -> SomePipe p
   -> SomePipe p
   -> PFallible (SomePipe p)
 compose pf f v =
   somePipeUncons f
   (const $ EComp "Cannot compose value and a saturated pipe.") $
-  \(f' :: Pipe cf (ca : cas) fo p) ->
+  \(f' :: Pipe (ca : cas) fo p) ->
     withSomePipe v $
-    \(v' :: Pipe cv _vas vo p) ->
+    \(v' :: Pipe _vas vo p) ->
       case typeRep @ca  `eqTypeRep` typeRep @vo of
         Just HRefl -> left EComp $ compose'' pf f' v'
         _ -> error "compose"
 
 compose'' ::
-    forall cf cv vas vo fas fass ras fo p
-  . ( PipeConstr cv vas vo
-    , PipeConstr cf fas fo
+    forall vas vo fas fass ras fo p
+  . ( PipeConstr vas vo
+    , PipeConstr fas fo
     , fas ~ (vo:fass)
     , ras ~ fass
     )
-  => (forall cf' cv' vas' vo' fas' fass' ras' fo'
-       . ( PipeConstr cv' vas' vo'
-         , PipeConstr cf' fas' fo'
+  => (forall vas' vo' fas' fass' ras' fo'
+       . ( PipeConstr vas' vo'
+         , PipeConstr fas' fo'
          , fas' ~ (vo':fass')
          , ras' ~ fass'
          )
-      => Desc cv' vas' vo' -> p -> Desc cf' fas' fo' -> p -> Fallible p)
-  -> Pipe cf fas fo p
-  -> Pipe cv vas vo p
-  -> Fallible (Pipe cf ras fo p)
+      => Desc vas' vo' -> p -> Desc fas' fo' -> p -> Fallible p)
+  -> Pipe fas fo p
+  -> Pipe vas vo p
+  -> Fallible (Pipe ras fo p)
 compose'' pf
   -- | Just HRefl <- typeRep @ct2 `eqTypeRep` typeRep @cf1
   -- , Just HRefl <- typeRep @tt2 `eqTypeRep` typeRep @tf1
@@ -95,16 +97,16 @@ compose'' pf
 -- ..and convert to
 -- (=<<) :: (a -> m b) -> m a -> m b
 compose' ::
-     forall cf cv vas vo fas fass ras fo p
-   . ( PipeConstr cv vas vo
-     , PipeConstr cf fas fo
+     forall vas vo fas fass ras fo p
+   . ( PipeConstr vas vo
+     , PipeConstr fas fo
      , fas ~ (vo:fass)
      , ras ~ fass
      )
-  => (Desc cv vas vo -> p -> Desc cf fas fo -> p -> Fallible p)
-  -> Pipe cf fas fo p
-  -> Pipe cv vas vo p
-  -> Fallible (Pipe cf ras fo p)
+  => (Desc vas vo -> p -> Desc fas fo -> p -> Fallible p)
+  -> Pipe fas fo p
+  -> Pipe vas vo p
+  -> Fallible (Pipe ras fo p)
 compose' composeF
   pF@P{pPipeRep=frep}
   pV@P{pPipeRep=vrep}
@@ -123,20 +125,19 @@ compose' _ f v
 -- ..with the difference that we should handle a FLink on the left as well,
 -- ..but not just yet.
 doBind ::
-     forall cf cv vr fr fas fass ras fo vas vo p
-   . ( Typeable cf
-     , PipeConstr cv vas vo, vr ~ ReprOf vo
-     , PipeConstr cf fas fo, fr ~ ReprOf fo
+     forall vr fr fas fass ras fo vas vo p
+   . ( PipeConstr vas vo, vr ~ ReprOf vo
+     , PipeConstr fas fo, fr ~ ReprOf fo
      -- this is hard-coded to a 0-ary function being applied to a 1-ary one
      , fas ~ (vo:fass)
      , ras ~ fass
      )
-  => (Desc cv vas vo     -> p ->
-      Desc cf     fas fo -> p ->
+  => (Desc vas vo     -> p ->
+      Desc     fas fo -> p ->
       Fallible p)
-  -> Pipe cf        fas fo p
-  -> Pipe cv vas vo        p
-  -> Fallible (Pipe cf fass fo p)
+  -> Pipe        fas fo p
+  -> Pipe vas vo        p
+  -> Fallible (Pipe fass fo p)
 doBind pf
   P{ pDesc_=df, pName=Name fn, pArgStys=sfas, pOutSty=sfo, pStruct=Struct fg
    , pArgs=(_fa SOP.:* fass), pOut=fo, pPipe=f}
@@ -150,18 +151,18 @@ doBind pf
    struct  = Struct $ G.overlay fg vg
    rep     = case spineConstraint of
                (Dict :: Dict Typeable fass) ->
-                 typeRep :: TypeRep (IOA cf fass fo)
+                 typeRep :: TypeRep (IOA fass fo)
 doBind _ _ _ = error "doBind"
 
 compDyn ::
-     forall cf cv vas vo fas fass ras fo
-   . ( PipeConstr cv vas vo
-     , PipeConstr cf fas fo
+     forall vas vo fas fass ras fo
+   . ( PipeConstr vas vo
+     , PipeConstr fas fo
      , fas ~ (vo:fass)
      , ras ~ fass
      )
-  => Desc cv vas vo     -> Dynamic
-  -> Desc cf     fas fo -> Dynamic
+  => Desc vas vo     -> Dynamic
+  -> Desc     fas fo -> Dynamic
   -> Fallible Dynamic
 compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
   case spineConstraint of
@@ -170,8 +171,8 @@ compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
         (Dict :: Dict Typeable fas) ->
           case ( fromDynamic vIOADyn
                , fromDynamic fIOADyn) of
-            ( Just (IOA v' _cv _asv _vo :: IOA cv vas vo)
-             ,Just (IOA f'  cf _asf  fo :: IOA cf fas fo)) ->
+            ( Just (IOA v' _asv _vo :: IOA vas vo)
+             ,Just (IOA f' _asf  fo :: IOA fas fo)) ->
               -- NOTE:  not having implemented the general case,
               --        we essentially had two options here:
               --  1. pass type-level proof of the limited-case arguments top-down
@@ -180,8 +181,8 @@ compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
               case (pdArgsV, pdArgsF) of
                 (Nil, _ :* Nil) -> Right $ Dynamic typeRep
                   -- just a monadic value:
-                  (IOA (bindPipes0 v' f') cf (Proxy @ras) fo
-                       :: IOA cf ras fo)
+                  (IOA (bindPipes0 v' f') (Proxy @ras) fo
+                       :: IOA ras fo)
                 -- XXX: tough..
                 -- (_ :: TypePair va) :* Nil -> Right $ Dynamic typeRep
                 --   (IOA (bindPipes1 v' f')

@@ -1,7 +1,5 @@
 module Dom.Pipe.IOA (module Dom.Pipe.IOA) where
 
-import qualified Algebra.Graph                    as G
-import           GHC.Generics                       (Generic)
 import           Type.Reflection
                    ( pattern App
                    , pattern Con
@@ -14,7 +12,6 @@ import           Type.Reflection
 import Basis
 
 import Dom.CTag
-import Dom.Located
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.Constr
@@ -22,7 +19,6 @@ import Dom.Sig
 import Dom.SomeType
 import Dom.Struct
 import Dom.Tags
-import Dom.VTag
 
 
 --------------------------------------------------------------------------------
@@ -32,19 +28,18 @@ type family PipeFunTy (as :: [*]) (o :: *) :: * where
   PipeFunTy '[]    o = Result (ReprOf o)
   PipeFunTy (x:xs) o = ReprOf x -> PipeFunTy xs o
 
-data IOA (c :: * -> Constraint) (as :: [*]) (o :: *) where
-  IOA :: PipeConstr c as o
+data IOA (as :: [*]) (o :: *) where
+  IOA :: PipeConstr as o
       => PipeFunTy as o
-      -> Proxy c
       -> Proxy as
       -> Proxy o
-      -> IOA c as o
+      -> IOA as o
 
 pattern P
-  :: Desc c as o -> Name Pipe -> Struct -> SomeTypeRep -> p
+  :: Desc as o -> Name Pipe -> Struct -> SomeTypeRep -> p
   -> [SomeType]   -> SomeType
   -> NP Tags as -> Tags o
-  -> Pipe c as o p
+  -> Pipe as o p
 pattern P { pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pArgs, pOut }
   <- Pipe pDesc_@(Desc pName (Sig (fmap unI -> pArgStys) (I pOutSty)) pStruct
                   pPipeRep pArgs pOut)
@@ -63,7 +58,8 @@ pattern IOATyCons
   , typeOCon, tagORep, oRep
   }
   <- SomeTypeRep (App
-                  (App (App (Con ioaCon) (Con _constrRep))
+                  (App --(App (Con ioaCon) (Con _constrRep))
+                       (Con ioaCon)
                        (App (App (Con listCon)
                                  (App (App (Con typeACon) tagARep)
                                       aRep))
@@ -75,7 +71,8 @@ pattern IOATyNil
   :: TyCon -> TyCon -> TyCon -> TypeRep ko -> TypeRep o -> SomeTypeRep
 pattern IOATyNil ioaCon nilCon typeOCon tagORep oRep
   <- SomeTypeRep (App
-                  (App (App (Con ioaCon) (Con _cstr))
+                  (App -- (App (Con ioaCon) (Con _cstr))
+                       (Con ioaCon)
                        (Con nilCon))
                   (App (App (Con typeOCon) tagORep)
                        oRep))

@@ -15,8 +15,8 @@ import           Text.Printf
 import qualified Data.IORef                       as IO
 import qualified System.IO.Unsafe                 as IO
 
-import Data.Dict
 import Data.Parsing
+import Data.TyDict
 
 import Dom.Parse
 import Dom.VTag
@@ -30,7 +30,7 @@ type     GroundCtx a =
   -- , Ord            a   -- for Set encoding
   -- ,
     Parse          a
-  , Read           a
+  -- , Read           a
   , ReifyVTag      a
   , Serialise      a
   , Show           a
@@ -39,7 +39,7 @@ class    GroundCtx a => Ground a
 instance GroundCtx a => Ground a
 
 type     GroundDataCtx a =
-  ( HasTypeData Ground a
+  ( HasTypeData ReifyVTag a
   , All2 (And Typeable                Ground)  (Code a)
   , All2 (And ReifyVTag               Ground)  (Code a)
   , All2 (And Typeable (And ReifyVTag Ground)) (Code a)
@@ -48,10 +48,10 @@ type     GroundDataCtx a =
 class    (Ground a, GroundDataCtx a) => GroundData a
 instance (Ground a, GroundDataCtx a) => GroundData a
 
-class    ( Ground a, HasTypeData Ground a
+class    ( Ground a, HasTypeData ReifyVTag a
          , All2 Ground (Code a)
          ) => GroundDataFull a
-instance ( Ground a, HasTypeData Ground a
+instance ( Ground a, HasTypeData ReifyVTag a
          , All2 Ground (Code a)
          ) => GroundDataFull a
 

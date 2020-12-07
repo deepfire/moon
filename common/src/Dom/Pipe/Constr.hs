@@ -1,8 +1,7 @@
 {-# LANGUAGE UndecidableInstances       #-}
 module Dom.Pipe.Constr (module Dom.Pipe.Constr) where
 
-import           Data.Kind                          (Constraint)
-import           Generics.SOP                       (All, Top)
+import           Generics.SOP                       (All)
 import           Type.Reflection                    (Typeable)
 
 import Dom.CTag
@@ -16,7 +15,6 @@ type IsCTagVConstr ct =
   ( Typeable ct
   , Typeable (CTagVC ct)
   , Typeable (CTagVV ct)
-  , Top ct
   , ct ~ CTagV (CTagVC ct) (CTagVV ct)
   )
 
@@ -26,16 +24,13 @@ instance (IsCTagVConstr ct) => IsCTagV (ct :: *)
 --------------------------------------------------------------------------------
 -- * Pipe constraints
 --
-type ArgConstr (c :: * -> Constraint) (a :: *)
-  = ( Typeable c
-    , IsCTagV a
-    , c (CTagVV a)
+type ArgConstr (a :: *)
+  = ( IsCTagV a
     , ReifyCTag (CTagVC a), ReifyVTag (CTagVV a)
     )
 
-type PipeConstr (c :: * -> Constraint) (as :: [*]) (o :: *)
-  = ( ArgConstr c o
+type PipeConstr (as :: [*]) (o :: *)
+  = ( ArgConstr o
     , All Typeable as -- why do we need this, when we have IsCTagV?
     , All IsCTagV as
-    -- , All Top as
     )

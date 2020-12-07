@@ -29,6 +29,7 @@ import Basis hiding (Dynamic)
 import Debug.Reflex
 
 import Dom.CTag
+import Dom.Cap
 import Dom.Error
 import Dom.Expr
 import Dom.Located
@@ -36,6 +37,7 @@ import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
+import Dom.Pipe.Pipe
 import Dom.Pipe.SomePipe
 import Dom.RequestReply
 import Dom.Scope
@@ -121,7 +123,7 @@ mkRemoteExecutionPort tr WSAddr{..} =
  where
    spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (PipeSpace (SomePipe ())))
    spacePointRepliesE evs =
-     fmap stripValue . unWrap <$> selectG (splitSVKByVTag VPipeSpace (pointRepliesE evs)) VPipeSpace
+     fmap (stripValue . cvValue) . unWrap <$> selectG (splitSVKByVTag VPipeSpace (pointRepliesE evs)) VPipeSpace
 
 mkLocalExecutionPort ::
   forall t m
@@ -143,7 +145,7 @@ mkLocalExecutionPort _tr =
      join . fmap splitPipeSpaces <$> evs
    splitPipeSpaces :: SomeValue -> PFallible (PipeSpace (SomePipe Dyn.Dynamic))
    splitPipeSpaces sv =
-     case withSomeValue' CPoint (Proxy @(PipeSpace (SomePipe Dyn.Dynamic))) sv id of
+     case withExpectedSomeValue' CPoint (Proxy @(PipeSpace (SomePipe Dyn.Dynamic))) sv id of
        Left  e -> Left $ EExec $ traceErr (unpack $ showError e) e
        Right x -> Right $ stripValue x
 
@@ -155,7 +157,8 @@ getLocalPipeSpace :: IO (PipeSpace (SomePipe Dyn.Dynamic))
 getLocalPipeSpace = STM.readTVarIO localPipeSpace
 
 localSpacePipe :: SomePipe Dyn.Dynamic
-localSpacePipe = pipe0T  "local-space" CVPoint (Right <$> getLocalPipeSpace)
+localSpacePipe =
+  somePipe0  "local-space" capsTS CVPoint (Right <$> getLocalPipeSpace)
 
 initialPipeSpace :: SomePipeSpace Dyn.Dynamic
 initialPipeSpace
@@ -224,7 +227,8 @@ spaceInteraction ::
 spaceInteraction epRemote epLocal = mdo
   void $ liftIO $ postExecution epRemote $ -- Request remote's pipe space.
     Execution @t @() CPoint VPipeSpace "space" (Run "space")
-      (G @() @'[] @(CTagV Point ())  mempty $ Pipe undefined undefined) never
+      (SP @() @'[] @(CTagV Point ()) mempty capsTSG $
+       Pipe undefined undefined) never
 
   -- server + local -> spaceD
   let (,) remoteSpaceErrsE remoteSpaceE = fanEither $ epSpacE epRemote
@@ -238,7 +242,7 @@ spaceInteraction epRemote epLocal = mdo
                  (fmap (fmap Right) <$> localSpaceD)
                  (fmap (fmap Left)  <$> remoteSpaceD)
 
-  -- maybeRunnablE | filter isRight -> executionE
+  -- spaceE + runnablE -> executionE
   executionE ::
     Event t (Execution t MixedPipeGuts)
     <- performEvent $
@@ -246,8 +250,8 @@ spaceInteraction epRemote epLocal = mdo
         liftIO .
         (\(_spc, (PreRunnable{..}, p)) ->
            maybe (error "postMixedPipeRequest returned Nothing")
-           id <$>
-           (postMixedPipeRequest epRemote epLocal prText prReq p)
+             id <$>
+             (postMixedPipeRequest epRemote epLocal prText prReq p)
            -- maybe (error "postMixedPipeRequest returned Nothing")
            --   pure $
            --   liftIO (postMixedPipeRequest epRemote epLocal prText prReq p)
@@ -269,7 +273,7 @@ spaceInteraction epRemote epLocal = mdo
                  | preRunnableIsG pr
                  -> fmap Right <$> compile opsFull (lookupSomePipe spcLoc) prExpr
                  | otherwise -> Left $ ECompile "Inconsistent"
-         void $ maybeLeft checkPipeRunnability p
+         void $ maybeLeft (checkPipeRunnability $ preRunnableIsT pr) p
          pure (pr, separateMixedPipe p)
 
   let errorsE :: Event t EPipe

@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wextra -Wno-unused-binds -Wno-missing-fields -Wno-all-missed-specialisations -Wno-unused-imports #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Lift.Haskell
   ( GhcLibDir(..)
@@ -9,56 +10,65 @@ module Lift.Haskell
 where
 
 ---------------- Pure
-import qualified Algebra.Graph as Graph
-import qualified Data.Map      as Map
-import qualified Data.Set      as Set
-import           Algebra.Graph (Graph)
-import           Data.Map (Map)
-import           Data.Set (Set)
-import           Data.Maybe hiding (catMaybes)
-import           Data.Text hiding (append)
-import           Data.String
+import Algebra.Graph  qualified as Graph
+import Data.Map       qualified as Map
+import Data.Set       qualified as Set
+import Algebra.Graph              (Graph)
+import Data.Map                   (Map)
+import Data.Set                   (Set)
+import Data.Maybe          hiding (catMaybes)
+import Data.Text           hiding (append)
+import Data.String
 ---------------- Effectful
-import           Control.Exception
-import           Control.Monad
-import           Control.Monad.IO.Class
-import           Exception
-import           System.Environment
-import           System.FilePath
-import           System.IO.Extra
+import Control.Exception
+import Control.Monad
+import Control.Monad.IO.Class
+import Exception
+import System.Environment
+import System.FilePath
+import System.IO.Extra
 ---------------- GHC
-import           ApiAnnotation hiding (UnicodeSyntax)
-import           Config
-import qualified DriverPhases   as Drv
-import qualified DriverPipeline as Drv
-import           DriverPipeline (PipeState(..), PipeEnv(..))
-import           DynFlags
-import           EnumSet
-import           ErrUtils
-import           FastString
-import           Fingerprint
-import           FileCleanup
-import           GHC hiding (Module, Name)
-import           GHC.LanguageExtensions
-import           HeaderInfo
-import           HscTypes
-import           Lexer
-import           Outputable
-import           Packages
-import qualified Parser
-import           Panic
-import           Panic
-import           PipelineMonad
-import           Prelude
-import           Pretty
-import           RdrName
-import           SrcLoc
-import           StringBuffer
-import           SysTools
+import ApiAnnotation       hiding (UnicodeSyntax)
+import Config
+import DriverPhases   qualified as Drv
+import DriverPipeline qualified as Drv
+import DriverPipeline             (PipeState(..), PipeEnv(..))
+import DynFlags
+import EnumSet
+import ErrUtils
+import FastString
+import Fingerprint
+import FileCleanup
+import GHC                 hiding (Module, Name)
+import GHC.LanguageExtensions
+import HeaderInfo
+import HscTypes
+import Lexer
+import Outputable
+import Packages
+import Parser qualified
+import Panic
+import Panic
+import PipelineMonad
+import Prelude
+import Pretty
+import RdrName
+import SrcLoc
+import StringBuffer
+import SysTools
+---------------- Due to TH picking up TyCons:
+import GHC.Types qualified
+import Data.Set.Monad qualified
+import Data.Map.Internal qualified
 ---------------- Local
 import Basis
 
+import Generics.SOP                     qualified as SOP
+import Generics.SOP.Mapping
+
+import Dom.Cap
 import Dom.Error
+import Dom.Ground
 import Dom.Ground.Hask
 import Dom.Name
 import Dom.Scope
@@ -77,14 +87,15 @@ newtype GhcLibDir = GhcLibDir FilePath deriving Show
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Haskell"
   & spsAttachScopes (graft `append` "Hask")
-      [ dataProjScope $ Proxy @Loc
+      [ dataProjScope (Proxy @Loc)     $(dataProjPipes (Proxy @Loc))
       -- *
-      , dataProjScope $ Proxy @Index
-      , dataProjScope $ Proxy @Repo
-      , dataProjScope $ Proxy @Package
-      , dataProjScope $ Proxy @Module
-      , dataProjScope $ Proxy @Def
-      , dataProjScope $ Proxy @DefType
+      , dataProjScope (Proxy @Index)   $(dataProjPipes (Proxy @Index))
+      , dataProjScope (Proxy @Repo)    $(dataProjPipes (Proxy @Repo))
+      , dataProjScope (Proxy @Package) $(dataProjPipes (Proxy @Package))
+      , dataProjScope (Proxy @Module)  $(dataProjPipes (Proxy @Module))
+      , dataProjScope (Proxy @Def)     $(dataProjPipes (Proxy @Def))
+      -- DefType aren't records, so not supported.
+      -- , dataProjScope (Proxy @DefType) $(dataProjPipes (Proxy @DefType))
       ]
 
 fileToHsModule
