@@ -207,11 +207,13 @@ instance Serialise SomeValue where
     <> valueEncoding
    where
      (repEncoding :: Encoding, valueEncoding :: Encoding) =
-       fromMaybe (error "non-Ground in Serialise",
-                  error "non-Ground in Serialise") $
-         withOpenShelf s CGround $
-           (,) (encode $ typeRep @a)
-               (encodeValue a)
+         fromMaybe (join (,) $ error $
+                    "non-Ground in Serialise for " <>
+                    show (withOpenShelf s CTypeable $
+                           showTypeRepNoKind $ typeRep @a)) $
+           withOpenShelf s CGround $
+             (,) (encode $ typeRep @a)
+                 (encodeValue a)
      encodeValue :: Ground a => Value k a -> Encoding
      encodeValue = \case
        VPoint x -> encode x

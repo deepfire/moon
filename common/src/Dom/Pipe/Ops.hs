@@ -7,6 +7,7 @@ import           Type.Reflection                    (TyCon, typeRepTyCon)
 import Basis
 
 import Dom.CTag
+import Dom.Cap
 import Dom.Error
 import Dom.Expr
 import Dom.Located
@@ -272,9 +273,11 @@ checkPipeRunnability remote sp
                   args (unI . sOut $ somePipeSig sp)
                   (length args) args
                   "Not a saturated pipe"
-  | remote && withSomePipeGroundCase sp (const False) (const True)
-  = Just $ ENonGround "Not a ground pipe"
-  | otherwise = Nothing
+  | remote && not (somePipeHasCap CGround sp)
+  = Just . ENonGround . Error $
+    "Remote execution of a Non-ground pipe: " <> showQName (somePipeQName sp)
+  | otherwise =
+    Nothing
  where args = fmap unI . sArgs $ somePipeSig sp
 
 -- Represents a pipe, known or not.

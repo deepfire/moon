@@ -76,15 +76,18 @@ data Execution t p =
   }
 
 
-preRunnableIsT, preRunnableIsG :: PreRunnable MixedPipeGuts -> Bool
-preRunnableIsT =
-  (either (const False)
-          (S.getAll . foldMap (foldMap (S.All . E.isLeft) . locVal)))
-  . prPExpr
-preRunnableIsG =
-  (either (const False)
-          (S.getAll . foldMap (foldMap (S.All . E.isRight) . locVal)))
-  . prPExpr
+mixedPartPipeAll ::
+     (MixedPipeGuts -> Bool)
+  -> Expr (Located (PartPipe MixedPipeGuts)) -> Bool
+mixedPartPipeAll f =
+  S.getAll . foldMap (foldMap (S.All . f) . locVal)
+
+preRunnableAllLeft, preRunnableAllRight ::
+  PreRunnable MixedPipeGuts -> Bool
+preRunnableAllLeft =
+  either (const False) (mixedPartPipeAll E.isLeft) . prPExpr
+preRunnableAllRight =
+  either (const False) (mixedPartPipeAll E.isRight) . prPExpr
 
 mixedPipeIsT, mixedPipeIsG :: MixedPipe -> Bool
 mixedPipeIsT = S.getAll . foldMap (S.All . E.isLeft)

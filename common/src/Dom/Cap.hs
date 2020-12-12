@@ -56,3 +56,6 @@ capsTSG =
   Shelf (DMap.fromList [ CGround   :=> Dict
                        , CShow     :=> Dict
                        , CTypeable :=> Dict])
+
+hasCap :: Cap c -> Caps a -> Bool
+hasCap s c = hasShelf c s

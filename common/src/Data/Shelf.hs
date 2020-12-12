@@ -3,6 +3,7 @@ module Data.Shelf (module Data.Shelf) where
 import Data.Dependent.Map               qualified as DMap
 import Data.GADT.Compare                            (GCompare(..))
 import Data.Kind                                    (Constraint)
+import Data.Maybe
 import Data.TyDict
 import Type.Reflection                              (Typeable)
 
@@ -33,3 +34,12 @@ withOpenShelf (Shelf m) cs f =
   case DMap.lookup cs m of
     Nothing -> Nothing
     Just Dict -> Just f
+
+hasShelf ::
+  forall cs c a
+  .  GCompare cs
+  => Shelf cs a
+  -> cs c
+  -> Bool
+hasShelf (Shelf m) cs =
+  isJust $ DMap.lookup cs m

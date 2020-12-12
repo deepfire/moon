@@ -60,14 +60,16 @@ defineGroundTypes [d|
     VQNamePipe       :: QName Pipe
 
     -- Atom
+    VUnit            :: ()
+    VBool            :: Bool
+
     VInt             :: Int
     VInteger         :: Integer
     VFloat           :: Float
-
     VDouble          :: Double
+
     VString          :: String
     VText            :: Text
-    VUnit            :: ()
 
     -- Common
     VFileName        :: Hask.FileName

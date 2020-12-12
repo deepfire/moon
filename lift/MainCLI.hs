@@ -288,14 +288,23 @@ spaceInteraction epRemote epLocal = mdo
        \((spcRem, spcLoc), fpr) -> do
          pr@PreRunnable{..} <- fpr
          _pexp <- prPExpr
-         p <- if | preRunnableIsT pr
+         p <- if | preRunnableAllLeft pr
                  -> fmap Left  <$> compile opsDesc (lookupSomePipe spcRem) prExpr
-                 | preRunnableIsG pr
+                 | preRunnableAllRight pr
                  -> fmap Right <$> compile opsFull (lookupSomePipe spcLoc) prExpr
-                 | otherwise -> Left $ ECompile "Inconsistent"
+                 | otherwise ->
+                   Left . ECompile . Error $ "Inconsistent pipe locality: " <> showT prExpr
+         traceM . mconcat $
+           [ "preRunnable: ", show pr, ", "
+           , "allLeft: ", show $ preRunnableAllLeft pr, ", "
+           , "has CGround: ", show $ somePipeHasCap CGround p, ", "
+           , "runnability issues: ", show $ checkPipeRunnability
+                                              (preRunnableAllLeft pr) p, ", "
+           ]
          void $ maybeLeft (checkPipeRunnability
-                           $ (\x -> flip trace x $ "preRunnableIsT: " <> show x <> " " <> show p)
-                           $ preRunnableIsT pr) p
+                           $ (\x -> flip trace x $
+                               "preRunnableAllLeft: " <> show x <> " " <> show p)
+                           $ preRunnableAllLeft pr) p
          pure (pr, separateMixedPipe p)
 
   let errorsE :: Event t EPipe
@@ -354,8 +363,8 @@ spaceInteraction epRemote epLocal = mdo
        (PFallible ( PreRunnable MixedPipeGuts
                   , [Acceptable])) <-
        pure $
-         (\spc (prText, coln) constr ->
-            parseGroundRequest Nothing prText
+         (\spc (prText, coln@(Column intColn)) constr ->
+            parseGroundRequest (Just intColn) prText
             >>= \prReq@(reqExpr -> prExpr) -> pure
              let prPExpr = analyse (lookupSomePipe spc) prExpr
              in  ( PreRunnable{..}

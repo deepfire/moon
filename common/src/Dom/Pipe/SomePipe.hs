@@ -169,14 +169,14 @@ mkPipeBase out name sig struct rep =
   case lookupGroundByRep (SomeTypeRep outRep) of
     Nothing ->
       -- Non-ground (unknown) type, nothing useful we can recapture about it.
-      -- trace ("no Ground for:  " <> show name <> "/" <> show outRep) $
+      trace ("no Ground for:  " <> show name <> "/" <> show outRep) $
       withTypeable outRep $
         SP mempty capsT $
           Pipe (Desc name sig struct rep Nil out) ()
     Just (_, _, _, TyDict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @(CTagVV out) of
         Just HRefl ->
-          -- trace ("Ground for:  " <> show name <> "/" <> show outRep) $
+          trace ("Ground for:  " <> show name <> "/" <> show outRep) $
           SP mempty capsTSG $
             Pipe (Desc name sig struct rep Nil out :: Desc '[] out)
                  ()
@@ -205,6 +205,9 @@ somePipeSig _ = error "impossible somePipeSig"
 somePipeRep :: SomePipe p -> SomeTypeRep
 somePipeRep p = withSomePipe p pipeRep
 
+somePipeHasCap :: Cap c -> SomePipe p -> Bool
+somePipeHasCap c SP{..} = hasCap c spCaps
+
 withSomePipe
   :: forall (p :: *) (a :: *)
    . SomePipe p
@@ -213,18 +216,6 @@ withSomePipe
       => Pipe kas  o  p -> a)
   -> a
 withSomePipe SP{..} = ($ spPipe)
-
-withSomePipeGroundCase
-  :: forall (p :: *) (a :: *)
-   . SomePipe p
-  -> (forall (kas :: [*]) (o :: *)
-      . (PipeConstr   kas o)
-      => Pipe   kas  o  p -> a)
-  -> (forall (kas :: [*]) (o :: *)
-      . (PipeConstr kas o)
-      => Pipe kas  o  p -> a)
-  -> a
-withSomePipeGroundCase SP{..} g _ = g spPipe
 
 somePipeUncons
   :: forall (p :: *) (e :: *)
