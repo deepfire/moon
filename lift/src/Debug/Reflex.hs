@@ -1,7 +1,7 @@
 module Debug.Reflex where
 
 import Control.Exception
-import Debug.TraceErr (traceErr, traceHandle)
+import Debug.TraceErr
 import Data.String (IsString(..))
 import Data.Functor ((<&>))
 import Language.Haskell.TH
@@ -102,7 +102,7 @@ withDotTracing :: FilePath -> IO () -> IO ()
 withDotTracing fp body = do
   setupDotTracing fp
   catches (body >> closeDotTrace)
-    [ Handler $ \SomeException{} -> closeDotTrace
+    [ Handler $ \e@SomeException{} -> closeDotTrace >> throw e
     ]
 
 traceDotEventWith :: Reflex t => (a -> String) -> Event t a -> Event t a
@@ -114,6 +114,9 @@ traceDotEventWith f =
 traceDotDynEvWith :: Reflex t => (a -> String) -> Dynamic t a -> Dynamic t a
 traceDotDynEvWith f d =
   unsafeBuildDynamic (sample $ current d) (traceDotEventWith f $ updated d)
+
+traceDotM :: Applicative f => String -> f ()
+traceDotM = traceHandleM _dotTraceHandle . (<> ";")
 
 --------------------------------------------------------------------------------
 -- * src/dst + f a -> .dot edge
@@ -167,14 +170,13 @@ dot :: Exp -> To -> Name -> Q Exp
 dot tracer to x@(Name (OccName from) _) =
   AppE <$> dot' tracer to (From from) <*> pure (VarE x)
 
-ev' :: To -> From -> Q Exp
-ev' = dot' trdotevN
+ev', dev' :: To -> From -> Q Exp
+ev'  = dot' trdotevN
+dev' = dot' trdotdevN
 
-ev :: To -> Name -> Q Exp
-ev = dot trdotevN
-
-dev :: To -> Name -> Q Exp
-dev = dot trdotdevN
+ev, dev :: To -> Name -> Q Exp
+ev   = dot trdotevN
+dev  = dot trdotdevN
 
 evl'' :: To -> From -> Q Exp -> Q Exp
 evl'' to from showExp =

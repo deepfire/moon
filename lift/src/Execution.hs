@@ -1,14 +1,16 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Execution where
 
-import           Control.Monad.Trans.Maybe
-import qualified Data.Dynamic                           as Dyn
-import qualified Data.Either                            as E
-import qualified Data.Semigroup                         as S
-import qualified Data.Text                              as T
+import Control.Monad.Trans.Maybe
+import Data.Dynamic qualified                  as Dyn
+import Data.Either qualified                   as E
+import Data.Semigroup qualified                as S
+import Data.Text qualified                     as T
+import Data.String
 
-import           Reflex                            hiding (Request)
-import           Reflex.Network
-import           Reflex.Vty                        hiding (Request)
+import Reflex                            hiding (Request)
+import Reflex.Network
+import Reflex.Vty                        hiding (Request)
 
 import Data.Shelf
 
@@ -31,7 +33,7 @@ import Dom.VTag
 
 import Ground.Table
 
-import qualified Wire.Protocol                          as Wire
+import qualified Wire.Protocol                 as Wire
 
 import Basis hiding (Dynamic)
 
@@ -82,13 +84,17 @@ data Execution t p =
   Execution
   { eResCTag  :: !(CTag c)
   , eResVTag  :: !(VTag a)
-  , eText     :: !Text
+  , _eText    :: !Text
   , eRequest  :: !StandardRequest
   , ePipe     :: !(SomePipe p)
   -- TODO:  what does it mean for eText not to correspond to eExpr?
   --        a need for a smart constructor?
   , eReply    :: !(Event t (PFallible (CapValue c a)))
   }
+
+eText :: Execution t p -> Text
+eText = _eText
+{-# INLINE eText #-}
 
 
 mixedPartPipeAll ::
@@ -114,6 +120,36 @@ separateMixedPipe p =
      | mixedPipeIsG p -> Right $ fromRight (error "mixedPipeIsG but Left?")  <$> p
      | otherwise -> error "Mix pipe neither T nor G?"
 
+-- XXX: this probably suboptimal, as it does selectG per call
+-- XXX: potential to allow non-Ground execution
+selectEvents :: (Reflex t, ReifyCTag c)
+  => Event t (Either EPipe SomeValue)
+  -> CTag c
+  -> VTag v
+  -> Event t (PFallible (CapValue c v))
+selectEvents evs ctag vtag =
+  unWrap <$>
+  selectG (splitSVKByVTag vtag $
+            -- so, we need splitSVByCTag that would thread the Left
+            selectG (splitSVByCTag ctag evs)
+            ctag)
+          vtag
+
+makePostRemoteExecution :: forall t m c v.
+  (Reflex t, ReifyCTag c, MonadIO m, Typeable c, Typeable v)
+  => ExecutionPort t ()
+  -> Text
+  -> CTag c
+  -> VTag v
+  -> m (Maybe (Execution t MixedPipeGuts))
+makePostRemoteExecution ep txt c v = runMaybeT $ do
+  let e = Execution @t @() c v txt (Run . fromString $ unpack txt)
+                    (SP @() @'[] @(CTagV c v) mempty capsT $
+                     Pipe undefined undefined)
+                    (selectEvents (epReplies ep) c v)
+  liftIO $ postExecution ep e
+  pure $ Left <$> e
+
 postMixedPipeRequest ::
      (Reflex t, MonadIO m)
   => ExecutionPort t ()
@@ -134,35 +170,27 @@ postMixedPipeRequest epT epG txt req esp = runMaybeT $ do
       pure $ Right <$> e
 
 
--- XXX: this probably suboptimal, as it does selectG per call
--- XXX: potential to allow non-Ground execution
-mkExecution :: Reflex t
+mkExecution :: forall t p. Reflex t
   => ExecutionPort t p
   -> Text
   -> StandardRequest
   -> SomePipe p
   -> Execution t p
-mkExecution ep txt req sp@(SP _ caps (Pipe{pDesc} :: Pipe kas o p)) =
+mkExecution ep txt req sp@(SP _ _ (Pipe{pDesc} :: Pipe kas o p)) =
   case req of
     Run{} ->
-      let (,) ctag vtag = (descOutCTag pDesc :: CTag (CTagVC o),
-                           descOutVTag pDesc :: VTag (CTagVV o))
-      in Execution ctag vtag txt req sp $
-       -- so, we need splitSVByCTag that would thread the Left
-         unWrap <$>
-         selectG (splitSVKByVTag vtag $
-                  selectG (splitSVByCTag ctag $ epReplies ep)
-                   ctag)
-         vtag
+      mkExecution' ep (descOutCTag pDesc :: CTag (CTagVC o))
+                      (descOutVTag pDesc :: VTag (CTagVV o))
     Let{} ->
-      let (,) ctag vtag = (,) CPoint VPipeSpace
-      in Execution ctag vtag txt req sp $
-       -- so, we need splitSVByCTag that would thread the Left
-         unWrap <$>
-         selectG (splitSVKByVTag vtag $
-                  selectG (splitSVByCTag ctag $ epReplies ep)
-                   ctag)
-         vtag
+      mkExecution' ep CPoint VPipeSpace
+ where
+   mkExecution' :: forall c v. (ReifyCTag c, Typeable c, Typeable v)
+     => ExecutionPort t p
+     -> CTag c
+     -> VTag v
+     -> Execution t p
+   mkExecution' ep ctag vtag =
+     Execution ctag vtag txt req sp (selectEvents (epReplies ep) ctag vtag)
 
 postExecution :: ExecutionPort t p -> Execution t p -> IO ()
 postExecution = epPost
@@ -187,9 +215,10 @@ presentExecution executionE =
   networkHold
     (boxStatic roundedBoxStyle $ text $ pure
      "You are standing at the end of a road before a small brick building.") $
-    trevs "executionE -> networkHold @ presentExecution"
-     executionE <&> \e@Execution{..} ->
-      boxTitle (pure roundedBoxStyle) (" _"<>eText<>"_ ") $
+     $(evl "executionReplyE" 'executionE
+            [e|showQ . eText|])
+      <&> \e@Execution{..} ->
+      boxTitle (pure roundedBoxStyle) (" _"<>_eText<>"_ ") $
         withExecutionReply
           (pres (presentPoint "-- no data yet --"))
           (pres (presentList .
@@ -218,14 +247,13 @@ presentExecution executionE =
 
    -- | Present a list, with N-th element selected.
    presentList :: Event t (Index, [Text]) -> VtyWidget t m ()
-   presentList e =
+   presentList presentListXsE =
      selectionMenu
        (focusButton (buttonPresentText
                       richTextFocusConfigDef
                       id)
         >>> fmap fbFocused)
-       (trevs "SHOULD NOT RETRIGGER ON NAVIGATION"
-        e)
+       ($(ev' "indexXsE" "executionReplyE") presentListXsE)
        <&> pure ()
    presentPoint :: (MonadHold t m, Reflex t)
      => Text -> Event t (CapValue Point a) -> VtyWidget t m ()
@@ -240,7 +268,7 @@ withCapValueShow ::
   -> Maybe b
 withCapValueShow f CapValue{..} =
   withOpenShelf cvCaps CShow $
-    f (stripValue cvValue)
+    f (stripValue _cvValue)
 
 withCVShow ::
   forall c a

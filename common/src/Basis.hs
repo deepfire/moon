@@ -290,3 +290,27 @@ eitherOfTheseL = \case
 
 showT :: Show a => a -> Text
 showT = pack . show
+
+toFst :: (a -> b) -> a -> (b, a)
+toFst f a = (f a, a)
+{-# INLINE toFst #-}
+
+toSnd :: (a -> b) -> a -> (a, b)
+toSnd f a = (a, f a)
+{-# INLINE toSnd #-}
+
+fstToLeftFst :: (a, Either b c) -> Either (a, b) c
+fstToLeftFst (_, Right c) = Right c
+fstToLeftFst (a, Left b) = Left (a, b)
+{-# INLINE fstToLeftFst #-}
+
+fstToRightFst :: (a, Either b c) -> Either b (a, c)
+fstToRightFst (_, Left b) = Left b
+fstToRightFst (a, Right c) = Right (a, c)
+{-# INLINE fstToRightFst #-}
+
+eqEither :: (a -> a -> Bool) -> (b -> b -> Bool) -> Either a b -> Either a b -> Bool
+eqEither lf _ (Left  l) (Left  r) = lf l r
+eqEither _ rf (Right l) (Right r) = rf l r
+eqEither _ _ _ _ = False
+{-# INLINABLE eqEither #-}

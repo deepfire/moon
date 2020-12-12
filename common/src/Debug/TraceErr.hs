@@ -1,5 +1,6 @@
 module Debug.TraceErr
   ( traceHandle
+  , traceHandleM
   , traceErr
   , traceIOErr
   )
@@ -17,6 +18,9 @@ traceHandle :: Handle -> String -> a -> a
 traceHandle h string expr = Unsafe.unsafePerformIO $ do
     hPutStrLn h string
     return expr
+
+traceHandleM :: Applicative f => Handle -> String -> f ()
+traceHandleM h string = traceHandle h string $ pure ()
 
 traceErr :: String -> a -> a
 traceErr string expr = Unsafe.unsafePerformIO $ do

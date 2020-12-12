@@ -22,9 +22,13 @@ newtype Wrap f a c =
 
 data CapValue c a =
   CapValue
-  { cvCaps  :: Caps a
-  , cvValue :: Value c a
+  { cvCaps   :: Caps a
+  , _cvValue :: Value c a
   }
+
+cvValue :: CapValue c a -> Value c a
+cvValue = _cvValue
+{-# INLINE cvValue #-}
 
 splitSVByCTag ::
   forall t c. (Reflex t)

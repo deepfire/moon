@@ -61,7 +61,7 @@ selector ::
   => SelectorParams t m a
   -> VtyWidget t m (Selector t m a)
 selector SelectorParams{..} = mdo
-  lenD <- holdDyn id $ $(ev "lenD" 'spElemsE) <&> (\l x->x-l) . length
+  lenD <- holdUniqDyn =<< holdDyn 0 ($(ev "lenD" 'spElemsE) <&> length)
 
   -- this is highly suspect!
   selIndexD  :: Dynamic t Index <-
@@ -74,7 +74,7 @@ selector SelectorParams{..} = mdo
 
       maySelrSelectE =
         leftmost
-        [ $(ev "maySelrSelectE" 'menuMaySelE)
+        [ $(ev' "maySelrSelectE" "selectionMenu") menuMaySelE
         -- The initial value:
         , $(ev "maySelrSelectE" 'spElemsE)
           <&> fmap (Index 0,) . flip atMay 0]
@@ -82,7 +82,8 @@ selector SelectorParams{..} = mdo
   -- This is used immediately above to update the input with menu choice.
   selrInputOfftD :: Dynamic t (Text, Column) <-
     holdDyn ("", Column 0) $
-    $(ev "selrInputOfftD" 'inputOfftErrE) <&> rpop3
+    $(evl "selrInputOfftD" 'inputOfftErrE
+          [e|showQ . unpack . fst3|]) <&> rpop3
 
   -- widgets:  menu + incremental input
   ((_, (menuMaySelE,  _menuPickE)
@@ -90,7 +91,7 @@ selector SelectorParams{..} = mdo
            , Event t (Index, a))),
    (_, inputOfftErrE :: Event t (Text, Column, Maybe Text))) <-
     splitV (pure (\x->x-2)) (pure $ join (,) True)
-     (splitV lenD (pure $ join (,) True)
+     (splitV (lenD <&> \x y -> y - x) (pure $ join (,) True)
        blank
        (fmap fanEither $
         selectionMenu
@@ -98,14 +99,15 @@ selector SelectorParams{..} = mdo
              a & focusButton (flip spPresent)
                & fmap (fmap (ix,) . fbPress))
           $ attachPromptlyDyn
-              $(dev "xsE" 'selIndexD)
-              ($(evl "xsE" 'spElemsE [e|show . length|])
+              $(dev "indexXsE" 'selIndexD)
+              ($(evl "indexXsE" 'spElemsE [e|show . length|])
                 <&> zip (Index <$> [0..]))))
      (splitV (pure $ const 1) (pure $ join (,) True)
        spInsertW
        (inputWidget
-          $(devl  "inputOfftErrE" 'selrInputOfftD [e|showQ . fst|])
-          ($(devl "inputOfftErrE" 'menuChoiceD    [e|showQ . fmap (unIndex . fst)|])
+          $(devl  "selInputGuideD" 'selrInputOfftD
+                  [e|showQ . fst|])
+          (current menuChoiceD
            <&> fmap snd)
         :: VtyWidget t m (Event t (Text, Column, Maybe Text))))
 
@@ -113,18 +115,20 @@ selector SelectorParams{..} = mdo
  where
    inputWidget ::
         Dynamic t (Text, Column)
-     -> Dynamic t (Maybe a)
+     -> Behavior t (Maybe a)
      -> VtyWidget t m (Event t (Text, Column, Maybe Text))
-   inputWidget selInputGuideD menuChoiceD =
+   inputWidget selInputGuideD menuChoiceB =
      fmap snd <$>
      splitV (pure $ \x->x-1) (pure (False, True))
      (richTextStatic (foregro V.green) $
-       maybe "-no data-" spShow <$> current menuChoiceD) $
+       maybe "-no data-" spShow <$> menuChoiceB) $
      completingInput
        spConstituency
        spCompletep
-       (current menuChoiceD)
-       "> " selInputGuideD
+       menuChoiceB
+       "> "
+       $(devl "inputOfftErrE" 'selInputGuideD
+              [e|showQ . fst|])
 
 selectionMenu ::
   forall t m a
@@ -132,11 +136,11 @@ selectionMenu ::
   => (a -> VtyWidget t m (Event t a))
   -> Event t (Index, [a])
   -> VtyWidget t m (Event t (Either (Maybe a) a))
-selectionMenu presentMenuRow xsE =
+selectionMenu presentMenuRow indexXsE =
   fmap (fmap eitherOfTheseL . switchDyn) $
   networkHold
     (staticDataWidget (Index 0) [])
-    ($(ev "staticDataWidget_postBuildE" 'xsE)
+    ($(evl "staticDataWidget_postBuildE" 'indexXsE [e|show . length . snd|])
      <&> uncurry staticDataWidget)
  where
    -- These: This=focus change, That=pick
@@ -172,13 +176,13 @@ selectionMenu presentMenuRow xsE =
              nowE <- getPostBuild
              pure $ align
                (leftmost
-                  [ $(evl'' "menuMaySelE" "staticDataWidget_postBuildE"
+                  [ $(evl'' "selectionMenu" "staticDataWidget_postBuildE"
                             [e|const "Just"|]) nowE
                     <&> (const $ xs !! selIx)
-                  , $(ev "menuMaySelE" 'focusE)
+                  , $(ev "selectionMenu" 'focusE)
                   ]
                 <&> Just)
-               $(ev "menuMaySelE" 'pickE))
+               $(ev "selectionMenu" 'pickE))
 
 completingInput ::
   forall t m a
@@ -219,13 +223,14 @@ completingInput constituency completep completion prompt textColD = do
      row $ do
        fixedInert 2 $
          richTextStatic (foregro V.blue) (pure prompt)
-       fixed (width - 2) $
-         fmap (\(TextInput sTxtD _ xyD) ->
-                 updated $
-                   zipDynWith
-                     (\(mErr, txt) (col, row) ->
-                        (txt, (Column col, row), mErr))
-                     sTxtD xyD) $
+       join $ fixed (width - 2) $
+         fmap (\(TextInput sTxtD _ xyD) -> do
+                 let inputD = zipDynWith
+                              (\(mErr, txt) (col, row) ->
+                                 (txt, (Column col, row), mErr))
+                              sTxtD xyD
+                 uniqInputD <- holdUniqDyn inputD
+                 pure $ updated uniqInputD) $
          textInput completion $
            (defaultTextInputConfig Nothing)
            { _textInputConfig_initialValue =

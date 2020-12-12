@@ -11,9 +11,9 @@ import Data.Text (Text, pack, unpack)
 import Data.Typeable (Typeable)
 import GHC.Generics
 
-import qualified Data.Sequence                    as Seq
-import qualified Data.Text                        as Text
-import qualified Unsafe.Coerce                    as Unsafe
+import Data.Sequence qualified                    as Seq
+import Data.Text qualified                        as Text
+import Unsafe.Coerce qualified                    as Unsafe
 
 import Data.Parsing
 

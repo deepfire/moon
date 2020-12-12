@@ -90,7 +90,7 @@ rootScope =
      , somePipe0 "unit"   capsTSG          CVPoint $
        pure (Right ())
 
-     , somePipe0 "two"    capsTSG         CVPoint $
+     , somePipe0 "two"    capsTSG          CVPoint $
        pure (Right (2 :: Integer))
 
      , somePipe2 "+"      capsTSG  CVPoint CVPoint CVPoint $

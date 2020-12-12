@@ -47,8 +47,8 @@ type ReflexVty t m =
 
 newtype Width  = Width  { unWidth'  :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
 newtype Height = Height { unHeight' :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
-newtype Index  = Index  { unIndex'  :: Int } deriving Show
-newtype Column = Column { unColumn' :: Int } deriving Show
+newtype Index  = Index  { unIndex'  :: Int } deriving (Eq, Show)
+newtype Column = Column { unColumn' :: Int } deriving (Eq, Show)
 
 unWidth :: Width -> Int
 unWidth = unWidth'

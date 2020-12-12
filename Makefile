@@ -1,3 +1,5 @@
+SHELL := bash
+
 all: cli lift
 
 .PHONY: lift cli cls clean
@@ -6,12 +8,13 @@ lift:
 	bash -c "time cabal -j build all"
 	cabal exec   $@ daemon
 cli vty xp:
-	cd lift
-	bash -c "time cabal -j build exe:$@"
-	cabal exec   $@ 2>stderr.log || true
-	cat stderr.log
-	cat trace.dot
-	dot -Tpdf trace.dot > trace.pdf && zathura trace.pdf
+	@cd lift
+	@bash -c "time cabal -j build exe:$@"
+	@cabal exec   $@ 2>stderr.log || true
+	@echo -e "\n\n.oO(stderr):"
+	@cat stderr.log
+	@echo
+	@{ read -ei "trace.pdf" -p "Trace pdf: " TRACEPDF && dot -Tpdf trace.dot > $$TRACEPDF && zathura $$TRACEPDF; }
 
 ghci-parse:
 	true ## cabal v2-repl cli -O0
