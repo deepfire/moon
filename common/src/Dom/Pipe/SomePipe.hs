@@ -169,14 +169,14 @@ mkPipeBase out name sig struct rep =
   case lookupGroundByRep (SomeTypeRep outRep) of
     Nothing ->
       -- Non-ground (unknown) type, nothing useful we can recapture about it.
-      trace ("no Ground for:  " <> show name <> "/" <> show outRep) $
+      -- trace ("no Ground for:  " <> show name <> "/" <> show outRep) $
       withTypeable outRep $
         SP mempty capsT $
           Pipe (Desc name sig struct rep Nil out) ()
     Just (_, _, _, TyDict (_ :: Ground b' => Proxy b')) ->
       case typeRep @b' `eqTypeRep` typeRep @(CTagVV out) of
         Just HRefl ->
-          trace ("Ground for:  " <> show name <> "/" <> show outRep) $
+          -- trace ("Ground for:  " <> show name <> "/" <> show outRep) $
           SP mempty capsTSG $
             Pipe (Desc name sig struct rep Nil out :: Desc '[] out)
                  ()

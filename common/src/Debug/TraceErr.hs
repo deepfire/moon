@@ -1,5 +1,6 @@
 module Debug.TraceErr
-  ( traceErr
+  ( traceHandle
+  , traceErr
   , traceIOErr
   )
 where
@@ -9,7 +10,13 @@ import Data.List (partition)
 import Control.Monad (unless)
 import Foreign.C.String as Foreign
 import System.IO.Unsafe as Unsafe
+import System.IO as IO
 
+
+traceHandle :: Handle -> String -> a -> a
+traceHandle h string expr = Unsafe.unsafePerformIO $ do
+    hPutStrLn h string
+    return expr
 
 traceErr :: String -> a -> a
 traceErr string expr = Unsafe.unsafePerformIO $ do

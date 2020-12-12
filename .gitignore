@@ -1,13 +1,14 @@
 *~
 .\#*
 \#*\#
+*.dot
+*.js_hi
+*.js_o
+*.log
 *.pdf
 *.rej
 *.swp
 *.zip
-*.js_o
-*.js_hi
-*.log
 .ghc.environment.*
 
 zipfs/

@@ -39,6 +39,18 @@ import Reflex.SomeValue
 import Reflex.Vty.Widget.Extra
 import Reflex.Vty.Widget.Selector
 
+import Debug.Reflex
+
+
+
+-- * Utils
+trdynt :: forall t a.
+  (Reflex t, Typeable a) => (a -> String) -> Dynamic t a -> Dynamic t a
+trdynt = trdynd (unpack . showTypeRepNoKind $ typeRep @a)
+
+trevt :: forall t a.
+  (Reflex t, Typeable a) => (a -> String) -> Event t a -> Event t a
+trevt = trevd (unpack . showTypeRepNoKind $ typeRep @a)
 
 
 type MixedPipeGuts = Either () Dyn.Dynamic
@@ -53,6 +65,9 @@ data PreRunnable p
     , prPExpr :: !(PFallible (Expr (Located (PartPipe p))))
     , prReq   :: !StandardRequest
     }
+
+preRunnableText :: PreRunnable p -> Text
+preRunnableText = prText
 
 data ExecutionPort t p =
   ExecutionPort
@@ -168,11 +183,12 @@ presentExecution :: forall t m p
   . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m)
   => Event t (Execution t p)
   -> VtyWidget t m (Dynamic t ())
-presentExecution exE =
+presentExecution executionE =
   networkHold
     (boxStatic roundedBoxStyle $ text $ pure
      "You are standing at the end of a road before a small brick building.") $
-    exE <&> \e@Execution{..} ->
+    trevs "executionE -> networkHold @ presentExecution"
+     executionE <&> \e@Execution{..} ->
       boxTitle (pure roundedBoxStyle) (" _"<>eText<>"_ ") $
         withExecutionReply
           (pres (presentPoint "-- no data yet --"))
@@ -208,7 +224,8 @@ presentExecution exE =
                       richTextFocusConfigDef
                       id)
         >>> fmap fbFocused)
-       e
+       (trevs "SHOULD NOT RETRIGGER ON NAVIGATION"
+        e)
        <&> pure ()
    presentPoint :: (MonadHold t m, Reflex t)
      => Text -> Event t (CapValue Point a) -> VtyWidget t m ()

@@ -10,6 +10,8 @@ cli vty xp:
 	bash -c "time cabal -j build exe:$@"
 	cabal exec   $@ 2>stderr.log || true
 	cat stderr.log
+	cat trace.dot
+	dot -Tpdf trace.dot > trace.pdf && zathura trace.pdf
 
 ghci-parse:
 	true ## cabal v2-repl cli -O0

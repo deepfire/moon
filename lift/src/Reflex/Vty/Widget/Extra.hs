@@ -45,11 +45,26 @@ type ReflexVty t m =
   , Reflex t
   )
 
-newtype Width  = Width  { unWidth  :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
-newtype Height = Height { unHeight :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
-newtype Index  = Index  { unIndex  :: Int } deriving Show
-newtype Column = Column { unColumn :: Int } deriving Show
+newtype Width  = Width  { unWidth'  :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
+newtype Height = Height { unHeight' :: Int } deriving (Eq, Enum, Num, Ord, Real, Integral)
+newtype Index  = Index  { unIndex'  :: Int } deriving Show
+newtype Column = Column { unColumn' :: Int } deriving Show
 
+unWidth :: Width -> Int
+unWidth = unWidth'
+{-# INLINE unWidth #-}
+
+unHeight :: Height -> Int
+unHeight = unHeight'
+{-# INLINE unHeight #-}
+
+unColumn :: Column -> Int
+unColumn = unColumn'
+{-# INLINE unColumn #-}
+
+unIndex :: Index -> Int
+unIndex = unIndex'
+{-# INLINE unIndex #-}
 
 -- XXX:  efficiency of fmap (fmap Just . leftmost) over 100+ elts?
 

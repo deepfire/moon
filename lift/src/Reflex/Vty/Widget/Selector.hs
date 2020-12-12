@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Reflex.Vty.Widget.Selector (module Reflex.Vty.Widget.Selector) where
 
 import Safe
@@ -60,29 +61,34 @@ selector ::
   => SelectorParams t m a
   -> VtyWidget t m (Selector t m a)
 selector SelectorParams{..} = mdo
-  lenD <- holdDyn id $ (\l x->x-l) . length <$> spElemsE
+  lenD <- holdDyn id $ $(ev "lenD" 'spElemsE) <&> (\l x->x-l) . length
 
   -- this is highly suspect!
   selIndexD  :: Dynamic t Index <-
-    holdDyn (Index 0) $ fst <$> menuSelE
+    holdDyn (Index 0) $ $(ev "selIndexD" 'selrSelectE) <&> fst
 
   menuChoiceD :: Dynamic t (Maybe (Index, a)) <-
-    holdDyn Nothing menuMaySelE'
+    holdDyn Nothing $(ev "menuChoiceD" 'maySelrSelectE)
 
-  let menuMaySelE' = leftmost
-        [ menuMaySelE
+  let selrSelectE = fmapMaybe id $(ev "selrSelectE" 'maySelrSelectE)
+
+      maySelrSelectE =
+        leftmost
+        [ $(ev "maySelrSelectE" 'menuMaySelE)
         -- The initial value:
-        , spElemsE <&> fmap (Index 0,) . flip atMay 0]
-      menuSelE = fmapMaybe id menuMaySelE'
+        , $(ev "maySelrSelectE" 'spElemsE)
+          <&> fmap (Index 0,) . flip atMay 0]
 
   -- This is used immediately above to update the input with menu choice.
-  selInputOfftD :: Dynamic t (Text, Column) <-
-    holdDyn ("", Column 0) $ rpop3 <$> inputOfftErrE
+  selrInputOfftD :: Dynamic t (Text, Column) <-
+    holdDyn ("", Column 0) $
+    $(ev "selrInputOfftD" 'inputOfftErrE) <&> rpop3
 
   -- widgets:  menu + incremental input
-  ((_, (menuMaySelE, _menuPickE)
-        :: (Event t (Maybe (Index, a)), Event t (Index, a))),
-   (_, inputOfftErrE  :: Event t (Text, Column, Maybe Text))) <-
+  ((_, (menuMaySelE,  _menuPickE)
+        :: ( Event t (Maybe (Index, a))
+           , Event t (Index, a))),
+   (_, inputOfftErrE :: Event t (Text, Column, Maybe Text))) <-
     splitV (pure (\x->x-2)) (pure $ join (,) True)
      (splitV lenD (pure $ join (,) True)
        blank
@@ -92,19 +98,18 @@ selector SelectorParams{..} = mdo
              a & focusButton (flip spPresent)
                & fmap (fmap (ix,) . fbPress))
           $ attachPromptlyDyn
-              selIndexD
-              (zip (Index <$> [0..]) <$> spElemsE)))
+              $(dev "xsE" 'selIndexD)
+              ($(evl "xsE" 'spElemsE [e|show . length|])
+                <&> zip (Index <$> [0..]))))
      (splitV (pure $ const 1) (pure $ join (,) True)
        spInsertW
        (inputWidget
-          selInputOfftD
-          (fmap snd <$> menuChoiceD)
+          $(devl  "inputOfftErrE" 'selrInputOfftD [e|showQ . fst|])
+          ($(devl "inputOfftErrE" 'menuChoiceD    [e|showQ . fmap (unIndex . fst)|])
+           <&> fmap snd)
         :: VtyWidget t m (Event t (Text, Column, Maybe Text))))
 
-  pure Selector
-    { selrInputOfftD = selInputOfftD
-    , selrSelectE    = menuSelE
-    }
+  pure Selector{..}
  where
    inputWidget ::
         Dynamic t (Text, Column)
@@ -131,13 +136,18 @@ selectionMenu presentMenuRow xsE =
   fmap (fmap eitherOfTheseL . switchDyn) $
   networkHold
     (staticDataWidget (Index 0) [])
-    (xsE <&> uncurry staticDataWidget)
+    ($(ev "staticDataWidget_postBuildE" 'xsE)
+     <&> uncurry staticDataWidget)
  where
    -- These: This=focus change, That=pick
    staticDataWidget :: Index -> [a] -> VtyWidget t m (Event t (These (Maybe a) a))
    staticDataWidget _ []
+     = pure never
      -- If there's nothing to complete _to_, signal this:
-     = getPostBuild <&> ($> This Nothing)
+     -- = getPostBuild
+     --   <&> $(evl'' "menuMaySelE" "staticDataWidget_postBuildE"
+     --               [e|const "Nothing"|])
+     --       . ($> This Nothing)
    staticDataWidget (Index selIx {- selIx doesn't change! -}) xs
      -- Display elements as row widgets, packaged into 1-large layouts,
      = (zip [0..] xs &) $
@@ -145,21 +155,30 @@ selectionMenu presentMenuRow xsE =
                      fixed 1 . fmap (fmap (i,)) $ presentMenuRow $ x)
      -- Wrap in an arrow-navigable layout,
      >>> (\itemsLay -> do
-             nav :: Event t Int <- upDownNavigation
+             upDownNav :: Event t Int <-
+               upDownNavigation
 
-             focusD :: Dynamic t a
-               <-  fmap ((xs !!) . (`mod` length xs)) <$>
-                     foldDyn (+) selIx nav
-             pickEs <- runLayout (pure Orientation_Column) selIx nav itemsLay
+             focusE :: Event t a
+               <-  updated . fmap ((xs !!) . (`mod` length xs)) <$>
+                     foldDyn (+)
+                             selIx
+                             $(ev "focusE" 'upDownNav)
+             pickEs <- runLayout (pure Orientation_Column)
+                                 selIx
+                                 $(ev "pickE" 'upDownNav)
+                                 itemsLay
              let pickE = snd <$> leftmost pickEs
 
              nowE <- getPostBuild
              pure $ align
                (leftmost
-                  [ nowE <&> (const $ xs !! selIx)
-                  , updated focusD]
+                  [ $(evl'' "menuMaySelE" "staticDataWidget_postBuildE"
+                            [e|const "Just"|]) nowE
+                    <&> (const $ xs !! selIx)
+                  , $(ev "menuMaySelE" 'focusE)
+                  ]
                 <&> Just)
-               pickE)
+               $(ev "menuMaySelE" 'pickE))
 
 completingInput ::
   forall t m a

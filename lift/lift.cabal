@@ -81,6 +81,7 @@ library
                      , hackage-db
                      , process
                      , shelly
+                     , template-haskell
                      , websockets
 
                      , contra-tracer
