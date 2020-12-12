@@ -26,27 +26,26 @@ pipeScope name pipes = scope (coerceName name) $
   zip (coerceName . somePipeName <$> pipes) pipes
 
 scopeIndices
-  :: QName Scope
-  -> PointScope (SomePipe p)
+  :: PointScope (SomePipe p)
   -> ( MonoidalMap (Maybe SomeTypeRep) (Set (QName Pipe))
      , MonoidalMap        SomeTypeRep  (Set (QName Pipe)))
-scopeIndices prefix =
+scopeIndices =
   scopeEntries
-  >>> ((<&> (\sp-> pipeEdge sp prefix $ if null (sArgs $ somePipeSig sp)
-                                        then const Nothing
-                                        else Just . tRep . unI . head . sArgs))
+  >>> ((<&> (\sp-> pipeEdge sp $ if null (sArgs $ somePipeSig sp)
+                                 then const Nothing
+                                 else Just . tRep . unI . head . sArgs))
        &&&
-       (<&> (\sp-> pipeEdge sp prefix $ tRep . unI . sOut)))
+       (<&> (\sp-> pipeEdge sp $ tRep . unI . sOut)))
   >>> (mconcat *** mconcat)
  where
    pipeEdge :: Show a
-            => SomePipe p -> QName Scope -> (ISig -> a)
+            => SomePipe p -> (ISig -> a)
             -> MonoidalMap a (Set (QName Pipe))
-   pipeEdge sp pfx sigKey =
+   pipeEdge sp sigKey =
      sp &
      ((somePipeSig  >>> sigKey)
       &&&
-      (somePipeName >>> (coerceQName pfx `append`)
+      (somePipeQName
        >>> Set.singleton)
       >>> (\(k, v) -> -- XXX:
                       -- traceErr (mconcat [show (head $ toList v), ": ", show k])

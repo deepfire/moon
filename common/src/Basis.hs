@@ -25,6 +25,7 @@ module Basis
   , module Data.Foldable
   , module Data.Function
   , module Data.Functor
+  , module Data.Functor.Contravariant
   , module Data.GADT.Compare
   , module Data.Hashable
   , module Data.HashMap.Strict
@@ -85,6 +86,7 @@ import Data.Either.Combinators    (maybeToLeft, maybeToRight)
 import Data.Either.Extra          (mapLeft, mapRight, fromLeft, fromRight, eitherToMaybe, maybeToEither)
 import Data.Function              ((&), on)
 import Data.Functor               ((<&>), (<$), ($>))
+import Data.Functor.Contravariant (contramap)
 import Data.Foldable              (toList)
 import Data.GADT.Compare          (GOrdering(..))
 import Data.Hashable              (Hashable)
@@ -98,7 +100,7 @@ import Data.Maybe                 (isJust, isNothing, fromMaybe)
 import Data.Map.Monoidal.Strict   (MonoidalMap)
 import Data.Orphanage
 import Data.Proxy                 (Proxy(..))
-import Data.Sequence              (Seq)
+import Data.Sequence              (Seq, pattern (:|>), pattern (:<|))
 import Data.Set.Monad             (Set)
 import Data.SOP.Dict              (Dict(..))
 import Data.SOP.Constraint        (Head, Tail)

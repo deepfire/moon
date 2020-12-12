@@ -86,7 +86,7 @@ newtype GhcLibDir = GhcLibDir FilePath deriving Show
 
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Haskell"
-  & spsAttachScopes (graft `append` "Hask")
+  & spsAttachScopes graft
       [ dataProjScope (Proxy @Loc)     $(dataProjPipes (Proxy @Loc))
       -- *
       , dataProjScope (Proxy @Index)   $(dataProjPipes (Proxy @Index))

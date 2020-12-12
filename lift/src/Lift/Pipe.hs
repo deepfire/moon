@@ -34,7 +34,7 @@ initialPipeSpace :: SomePipeSpace Dynamic
 initialPipeSpace
   =  rootPipeSpace
   <> Hackage.pipeSpace       mempty
-  <> Haskell.pipeSpace      (qname "Data")
+  <> Haskell.pipeSpace       mempty
 
 getState :: STM (SomePipeSpace Dynamic)
 getState = STM.readTVar mutablePipeSpace

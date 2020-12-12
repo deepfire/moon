@@ -92,7 +92,7 @@ spsInsertScopeAt pfx scop ps =
              scop
    fro :: MonoidalMap (Maybe SomeTypeRep) (Set (QName Pipe))
    to  :: MonoidalMap        SomeTypeRep  (Set (QName Pipe))
-   (,) fro to = scopeIndices (pfx <> qname (scopeName scop)) scop
+   (,) fro to = scopeIndices scop'
 
    _showPRI :: MonoidalMap SomeTypeRep (Set (QName Pipe)) -> Text
    _showPRI index =

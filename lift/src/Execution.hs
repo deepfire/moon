@@ -198,12 +198,12 @@ presentExecution exE =
      pure ()
 
    -- | Present a list, with N-th element selected.
-   presentList :: Show a => Event t (Index, [a]) -> VtyWidget t m ()
+   presentList :: Event t (Index, [Text]) -> VtyWidget t m ()
    presentList e =
      selectionMenu
        (focusButton (buttonPresentText
                       richTextFocusConfigDef
-                      showT)
+                      id)
         >>> fmap fbFocused)
        e
        <&> pure ()

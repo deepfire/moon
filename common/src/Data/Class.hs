@@ -13,4 +13,4 @@ reifyConstr _p n k = Unsafe.unsafeCoerce
                        (Magic k :: Magic c r)
                        n
                        Proxy
-{-# INLINE_UNSAFE_COERCE reifyConstr #-}
+{-# INLINE reifyConstr #-}

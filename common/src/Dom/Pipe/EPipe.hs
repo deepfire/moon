@@ -5,6 +5,8 @@ import Data.String (IsString(..))
 import GHC.Generics (Generic)
 
 import Dom.Error
+import Dom.Name
+import Dom.Pipe
 import Dom.SomeType
 
 import Basis
@@ -19,7 +21,13 @@ data ErrPipe a
   | EName      { unEPipe :: !a }
   | ECompile   { unEPipe :: !a }
 
-  | EUnsat     { unEPipe :: !a, epArgs :: [SomeType], epOut :: SomeType }
+  | EUnsat     { epName :: !(Name Pipe)
+               , epArgs :: ![SomeType] -- ! still saves one reference.
+               , epOut  :: !SomeType
+               , epDone :: !Int
+               , epMiss :: ![SomeType] -- ! still saves one reference.
+               , unEPipe :: !a }
+
   | ENonGround { unEPipe :: !a }
 
   | EApply     { unEPipe :: !a }
@@ -27,6 +35,8 @@ data ErrPipe a
   | EComp      { unEPipe :: !a }
 
   | EType      { unEPipe :: !a }
+  | EKind      { unEPipe :: !a }
+
   | EExec      { unEPipe :: !a }
   deriving (Functor, Eq, Generic)
   deriving (Show) via Quiet (ErrPipe a)
@@ -50,6 +60,8 @@ instance IsString EPipe where
       'C':'o':'m':'p':            ':':' ':s -> EComp    . Error . pack $ s
 
       'T':'y':'p':'e':            ':':' ':s -> EType    . Error . pack $ s
+      'K':'i':'n':'d':            ':':' ':s -> EKind    . Error . pack $ s
+
       'E':'x':'e':'c':            ':':' ':s -> EExec    . Error . pack $ s
       e -> error $ "Invalid IsString encoding of EPipe: " <> e
     e -> error $ "Invalid IsString encoding of EPipe: " <> e

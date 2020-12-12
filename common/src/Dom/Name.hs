@@ -19,6 +19,8 @@ import Data.Parsing
 
 import Dom.Located
 
+import Basis (trace)
+
 
 --------------------------------------------------------------------------------
 -- * Generic names
@@ -54,8 +56,13 @@ append (QName xs) x = QName $ xs Seq.|> x
 prepend :: Name a -> QName a -> QName a
 prepend x (QName xs) = QName $ x Seq.<| xs
 
-unconsQName :: QName a -> Maybe (QName a, Name a)
-unconsQName (QName xs) = case Seq.viewr xs of
+unconsQName :: QName a -> Maybe (Name a, QName a)
+unconsQName (QName xs) = case Seq.viewl xs of
+  Seq.EmptyL -> Nothing
+  n Seq.:< pfx -> Just (n, QName pfx)
+
+unsnocQName :: QName a -> Maybe (QName a, Name a)
+unsnocQName (QName xs) = case Seq.viewr xs of
   Seq.EmptyR -> Nothing
   pfx Seq.:> n -> Just (QName pfx, n)
 

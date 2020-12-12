@@ -36,6 +36,10 @@ pipesFromCstr :: PipeSpace a -> Maybe SomeTypeRep -> [a]
 pipesFromCstr spc Nothing  = spaceEntries (psSpace spc)
 pipesFromCstr spc (Just x) = pipesFrom spc (Just x)
 
+pipesToCstr :: PipeSpace a -> Maybe SomeTypeRep -> [a]
+pipesToCstr spc Nothing  = spaceEntries (psSpace spc)
+pipesToCstr spc (Just x) = pipesTo spc x
+
 pipesFrom :: PipeSpace a -> Maybe SomeTypeRep -> [a]
 pipesFrom spc mStr = setToList (pipeNamesFrom mStr spc) &
   mapMaybe (flip lookupPipeSpace spc . coerceQName)
@@ -51,7 +55,8 @@ pipeNamesFrom str =
   --traceErr (mconcat ["pipeNamesFrom ", show str, " -> ", show (length xs)])
 
 pipeNamesTo :: SomeTypeRep -> PipeSpace a -> Set (QName Pipe)
-pipeNamesTo   str = psTo   >>> MMap.lookup str >>> fromMaybe mempty
+pipeNamesTo   str =
+  psTo >>> MMap.lookup str >>> fromMaybe mempty
 
 --------------------------------------------------------------------------------
 -- * Scope ops
@@ -135,6 +140,6 @@ showPipeSpace PipeSpace{..} =
     : toList (showElt <$> spaceEntries psSpace))
  where
    showElt sp = Text.concat
-     [ "  ", showName $ somePipeName sp
+     [ "  ", showQName $ somePipeQName sp
      , ": ", showSig $ somePipeSig sp
      ]

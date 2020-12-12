@@ -5,7 +5,7 @@ lift:
 	cd lift
 	bash -c "time cabal -j build all"
 	cabal exec   $@ daemon
-cli vty:
+cli vty xp:
 	cd lift
 	bash -c "time cabal -j build exe:$@"
 	cabal exec   $@ 2>stderr.log || true

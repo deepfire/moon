@@ -63,20 +63,39 @@ deleteRightWord (TextZipper lb b a la) =
 killLine :: TextZipper -> TextZipper
 killLine (TextZipper lb b _ la) = TextZipper lb b "" la
 
-complete :: Char -> Maybe Text -> TextZipper -> TextZipper
-complete compChar mText tz@(TextZipper _ b _ _) =
+substIfNot :: (Char -> Bool) -> Char -> Text -> Text
+substIfNot f to xs = Data.Text.map (\c -> if f c then c else to) xs
+{-# INLINE substIfNot #-}
+
+complete :: (Char -> Bool) -> Char -> Maybe Text -> TextZipper -> TextZipper
+complete constituency
+         compChar
+         mCompleteTo
+         tz@(TextZipper _ b _ _) =
   let lastW = lastWord b
-      nonNull = not (null lastW)
-      lastCompletible = nonNull && all isAlphaNum (lastWord b)
-      lastIsSpace     = nonNull && last b == compChar
-  in case (lastCompletible, lastIsSpace || not nonNull, mText) of
-    (True,  False, Just x) ->
-      case ( lastW `isPrefixOf` x
-           , commonPrefixes x (takeEnd (lastWordLen b) b)
-           ) of
-        (True,  Nothing)         -> insert   x tz
-        (True,  Just (_, tl, _)) -> insert   tl tz
-        (False, _)               -> deleteLeftWord tz
-                                    & insert x
-    (_,     True,  Just x) -> insert x tz
-    _                      -> insertChar compChar tz
+      lastWcompletible = flip all lastW
+        \x -> constituency x || x == '.'
+  in
+      (traceErr $ mconcat $
+        [ "complete: "
+        , "lastW=", show lastW, ", "
+        , "completible=", show lastWcompletible, ", "
+        , "mCompleteTo=", show mCompleteTo, ", "
+        ]) $
+    case (lastWcompletible, mCompleteTo) of
+      (True, Just completeTo) ->
+        let lastWisPrefix = lastW `isPrefixOf` completeTo
+            commons = commonPrefixes completeTo (takeEnd (lastWordLen b) b)
+        in
+          (traceErr $ mconcat $
+           [ "complete: "
+           , "lastWisPrefix=", show lastWisPrefix, ", "
+           , "commons=", show commons, ", "
+           ]) $
+        case (lastWisPrefix, commons) of
+          (True,  Nothing)         -> insert completeTo tz
+          (True,  Just (_, tl, _)) -> insert tl tz
+          (False, _)               -> deleteLeftWord tz
+                                      & insert completeTo
+      (_,   Just completeTo)       -> insert completeTo tz
+      _                            -> insertChar compChar tz

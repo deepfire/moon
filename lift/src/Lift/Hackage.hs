@@ -75,23 +75,21 @@ import Dom.Error
 import Dom.Ground
 import Dom.Ground.Hask
 import Dom.Name
-import Dom.Pipe.IOA
 import Dom.Pipe.Pipe
-import Dom.Pipe.SomePipe
 import Dom.Scope
 import Dom.Scope.ADTPipe
 import Dom.Scope.SomePipe
 import Dom.Space.SomePipe
-import Dom.Value
 
-import Ground.Table
+import Ground.Table()
 
-import Lift.Orphanage
+import Lift.Orphanage()
+
 
 
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Hackage"
-  & spsAttachScopes (graft)
+  & spsAttachScopes graft
       [ pipeScope "Hackage"
         [ somePipe0 "packages" capsTS         CVSet   hackagePackageNames
         , somePipe1 "cabal"    capsTS CVPoint CVPoint getHackagePackageCabalDesc

@@ -147,7 +147,7 @@ data TyCtx =
   , tcIsVal :: Bool
   }
 
-tcExpr ::
+tcExpr :: HasCallStack =>
      TyCtx
   -> Expr (Located (Either (QName Pipe) (SomePipe p)))
   -> PFallible (TyCtx, (Expr (Located (PartPipe p))))
@@ -156,14 +156,14 @@ tcExpr ctx expr =
   case expr of
     PVal sv@(someValueSomeType -> v) ->
       if | tcArity > 0
-           -> failTc
+           -> failTc EType
            ["Expected pipe of arity ", showT tcArity, ", "
            ,"got a value: "
            , showT $ tCon v, "/", showSomeTypeRepNoKind $ tRep v]
          | otherwise -> do
              tcTy "value"
                (tcOut ctx)
-               (tCon v) (tRep v)
+               (Just $ tCon v) (Just $ tRep v)
              pure $ (,PVal sv) $
                TyCtx [] (Just $ tCon v, Just $ tRep v) True
     PPipe l@(locVal -> Left name) ->
@@ -174,24 +174,24 @@ tcExpr ctx expr =
           pipeArity = length args
       in
       if | tcArity > pipeArity
-           -> failTc
-           ["Pipe should accept ", showT tcArity, " "
-           ,"args, but '", showName (somePipeName p), "' "
-           ,"only accepts ", showT pipeArity]
+           -> failTc EType
+           ["Pipe '", showName (somePipeName p), "' accepts ", showT pipeArity, " "
+           ,"args, but is given ", showT pipeArity]
          | pipeArity > tcArity
-           -> failTc
-           ["Pipe should only require ", showT tcArity, " "
-           ,"args, but '", showName (somePipeName p), "' "
-           ,"needs ", showT pipeArity]
+           -> failTc (EUnsat (somePipeName p)
+                             args out
+                             tcArity (drop tcArity args))
+           ["Pipe '", showName (somePipeName p), "' requires ", showT pipeArity, " "
+           ,"args, but is given ", showT pipeArity]
          | otherwise -> do
              tcTy ("output of pipe " <> showName (somePipeName p))
                (tcOut ctx)
-               (tCon out) (tRep out)
-             forM_ (zip (tcArgs ctx) (zip [0..] args)) $
+               (Just $ tCon out) (Just $ tRep out)
+             forM_ (zip (tcArgs ctx) (zip [1..] args)) $
                \(tcArg, (i :: Int, arg)) ->
                  tcTy ("arg "<> showT i<> " of pipe " <> showName (somePipeName p))
-                      tcArg
-                      (tCon arg) (tRep arg)
+                      (Just $ tCon arg, Just $ tRep arg)
+                      (fst tcArg) (snd tcArg)
              pure . (, PPipe (l {locVal = CSomePipe (tcMSig ctx) p})) $
                TyCtx ((Just *** Just) . (tCon &&& tRep) <$> args)
                     (Just $ tCon out, Just $ tRep out)
@@ -213,7 +213,9 @@ tcExpr ctx expr =
         else do
         -- traverse, so we need to recheck
         when (tcArity /= 0) $
-          failTc ["Pipe traversal in context that supplies ", showT tcArity, " args"]
+          failTc EType
+            ["Pipe traversal (by ", showT f, ") "
+            , "in context that supplies ", showT tcArity, " args"]
         (fCtx, eF) <- tcExpr (ctx { tcArgs = [(Just pointTyCon, snd $ tcOut xCtx)]
                                   , tcOut = (Just pointTyCon, Nothing)}) f
         (xCtx', eX') <- tcExpr (TyCtx [] (Nothing, Nothing) False) x
@@ -239,26 +241,37 @@ tcExpr ctx expr =
                       }
      _ -> Nothing
    pointTyCon = typeRepTyCon $ typeRep @Point
-   tcTy :: Text -> (Maybe TyCon, Maybe SomeTypeRep) -> TyCon -> SomeTypeRep
+   tcTy :: HasCallStack => Text
+        -> (Maybe TyCon, Maybe SomeTypeRep)
+        -> Maybe TyCon -> Maybe SomeTypeRep
         -> PFallible ()
-   tcTy desc (mcon, mty) con ty
-       | Just oCon <- mcon
-       , oCon /= con
-         = failTc
-          ["Expected kind of ", desc, ": ", showT oCon, ", "
+   tcTy desc (mCtxCon, mCtxTy) mCon mTy
+       | Just ctxCon <- mCtxCon, Just con <- mCon
+       , ctxCon /= con
+         = failTc EKind
+          ["Expected kind of ", desc, ": ", showT ctxCon, ", "
           ,"actual: ", showT con]
-       | Just oTy <- mty
-       , oTy /= ty
-         = failTc
-          ["Expected type of ", desc, ": ", showT oTy, ", "
+       | Just ctxTy <- mCtxTy, Just ty <- mTy
+       , ctxTy /= ty
+         = failTc EType
+          ["Expected type of ", desc, ": ", showT ctxTy, ", "
           ,"actual: ", showSomeTypeRepNoKind ty]
-       | otherwise = Right ()
-   failTc = Left . EType . Error . mconcat
+       | otherwise -- no conflict
+         = Right ()
+       -- | otherwise = error $ mconcat
+       --   [ "tcTy: unhandled for ", unpack desc, " (ctx/actual):  "
+       --   , "con: ", show mCtxCon, "/", show mCon, ",  "
+       --   , "ty: ",  show mCtxTy, "/",  show mTy
+       --   ]
+   failTc ctor = Left . ctor . Error . mconcat
 
 checkPipeRunnability :: Bool -> SomePipe p -> Maybe EPipe
 checkPipeRunnability remote sp
   | not $ null args
-  = Just $ EUnsat "Not a saturated pipe" args (unI . sOut $ somePipeSig sp)
+  = Just $ EUnsat (somePipeName sp)
+                  args (unI . sOut $ somePipeSig sp)
+                  (length args) args
+                  "Not a saturated pipe"
   | remote && withSomePipeGroundCase sp (const False) (const True)
   = Just $ ENonGround "Not a ground pipe"
   | otherwise = Nothing

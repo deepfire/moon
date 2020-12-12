@@ -167,6 +167,67 @@ executable lift
                      , reflex-vty
                      , unagi-chan
 
+executable xp
+  default-language:    Haskell2010
+  ghc-options:         -threaded -Wno-unticked-promoted-constructors
+  hs-source-dirs:      .
+  main-is:             MainXP.hs
+  build-depends:       common
+                     , lift
+                     , async
+                     , base
+                     , containers
+                     , optparse-applicative
+                     , reflex
+                     , reflex-vty
+                     , text
+                     , vty
+  default-extensions:  AllowAmbiguousTypes
+                       BangPatterns
+                       BlockArguments
+                       ConstraintKinds
+                       -- CPP
+                       DataKinds
+                       -- DeriveAnyClass
+                       DeriveFunctor
+                       DeriveGeneric
+                       DeriveTraversable
+                       DerivingVia
+                       DuplicateRecordFields
+                       EmptyCase
+                       ExplicitNamespaces
+                       FlexibleContexts
+                       FlexibleInstances
+                       GADTs
+                       GeneralisedNewtypeDeriving
+                       ImportQualifiedPost
+                       KindSignatures
+                       LambdaCase
+                       MultiParamTypeClasses
+                       MultiWayIf
+                       NamedFieldPuns
+                       NoMonomorphismRestriction
+                       OverloadedLabels
+                       OverloadedStrings
+                       PackageImports
+                       PartialTypeSignatures
+                       PatternSynonyms
+                       QuantifiedConstraints
+                       RankNTypes
+                       RecordWildCards
+                       RecursiveDo
+                       ScopedTypeVariables
+                       StandaloneDeriving
+                       TupleSections
+                       TypeApplications
+                       TypeFamilies
+                       TypeInType
+                       TypeOperators
+                       TypeSynonymInstances
+                       UndecidableInstances
+                       UndecidableSuperClasses
+                       ViewPatterns
+
 executable cli
   default-language:    Haskell2010
   ghc-options:         -threaded -Wno-unticked-promoted-constructors
