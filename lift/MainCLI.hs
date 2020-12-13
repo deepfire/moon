@@ -261,8 +261,8 @@ spaceInteraction epRemote epLocal = mdo
     performEvent $
       initE $>
       makePostRemoteExecution epRemote
-        "ground" CSet VText
-        -- "Hackage.packages" CSet VNameHaskPackage
+        -- "ground" CSet VText
+        "Hackage.packages" CSet VNameHaskPackage
 
   -- server + local -> spaceD
   let (,) remoteSpaceErrsE remoteSpaceE = fanEither $ epSpacE epRemote

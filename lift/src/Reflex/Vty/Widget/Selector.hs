@@ -13,21 +13,24 @@ import Control.Monad.Fix
 import Control.Monad.NodeId
 
 import Data.Function
-import Data.Semialign                           (align)
-import Data.Text                    qualified as T
+import Data.Semialign                               (align)
+import Data.Sequence qualified                    as Seq
+import Data.Text                        qualified as T
 import Data.Text.Zipper
 import Data.Text.Zipper.Extra
 import Data.These
+import Data.Vector qualified                      as Vec
+import Data.Vector                                  (Vector)
 
 import Reflex
 import Reflex.Network
-import Reflex.Vty.Widget                 hiding (text)
+import Reflex.Vty.Widget                     hiding (text)
 import Reflex.Vty.Widget.Input.RichText
 import Reflex.Vty.Widget.Layout
 
-import Graphics.Vty                 qualified as V
+import Graphics.Vty                     qualified as V
 
-import Basis                             hiding (Dynamic, left, right)
+import Basis                                 hiding (Dynamic, left, right)
 
 import Reflex.Vty.Widget.Extra
 
@@ -132,57 +135,114 @@ selector SelectorParams{..} = mdo
 
 selectionMenu ::
   forall t m a
-  . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m, Reflex t)
+  . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m, Reflex t, HasCallStack)
   => (a -> VtyWidget t m (Event t a))
   -> Event t (Index, [a])
   -> VtyWidget t m (Event t (Either (Maybe a) a))
-selectionMenu presentMenuRow indexXsE =
-  fmap (fmap eitherOfTheseL . switchDyn) $
-  networkHold
-    (staticDataWidget (Index 0) [])
-    ($(evl "staticDataWidget_postBuildE" 'indexXsE [e|show . length . snd|])
-     <&> uncurry staticDataWidget)
+selectionMenu presentMenuRow indexXsE = mdo
+  vportHeightD <- fmap Height <$> displayHeight
+  height0 <- sample $ current vportHeightD
+  let initial = (0, Index 0, Vec.empty)
+      accumVportState ::
+           Either (Int, Index) (Index, Vector (Int, a))
+        -> (Int, Index, Vector (Int, a))
+        -> (Int, Index, Vector (Int, a))
+      accumVportState (Left  (x, y)) u@(_, _, z) = (x, y, z)
+        & trace ("accumVportState: L "<>show (Vec.length <$> u)<>
+                 " -> " <> show (Vec.length <$> (x, y, z)))
+      accumVportState (Right (y, z)) u@(x, _, _) = (x, y, z)
+        & trace ("accumVportState: R "<>show (Vec.length <$> u)<>
+                 " -> " <> show (Vec.length <$> (x, y, z)))
+  vportStateD <- foldDyn accumVportState initial $
+    leftmost [ Left <$> panE
+             , Right <$> $(evl'' "staticDataWidget_postBuildE"
+                              "indexXsE"
+                              [e|show . length . snd|])
+                         (fmap (Vec.indexed . Vec.fromList) <$> indexXsE)
+             ]
+  (,) (panE :: Event t (Int, Index))
+      (selE :: Event t (Either (Maybe a) a))
+    <- fmap (fanEither . fmap (fmap eitherOfTheseL) . switchDyn) $
+         networkHold
+           (staticDataWidget height0 initial)
+           (uncurry staticDataWidget
+            <$> attachPromptlyDyn
+                  vportHeightD
+                  (updated vportStateD))
+  pure selE
  where
    -- These: This=focus change, That=pick
-   staticDataWidget :: Index -> [a] -> VtyWidget t m (Event t (These (Maybe a) a))
-   staticDataWidget _ []
+   staticDataWidget :: HasCallStack =>
+        Height
+     -> (Int, Index, Vector (Int, a))
+     -> VtyWidget t m (Event t (Either (Int, Index) (These (Maybe a) a)))
+   staticDataWidget _ (_, _, Vec.null -> True)
      = pure never
      -- If there's nothing to complete _to_, signal this:
      -- = getPostBuild
      --   <&> $(evl'' "menuMaySelE" "staticDataWidget_postBuildE"
      --               [e|const "Nothing"|])
      --       . ($> This Nothing)
-   staticDataWidget (Index selIx {- selIx doesn't change! -}) xs
+   staticDataWidget (Height height) (vportPos, Index selIx, vec) = do
      -- Display elements as row widgets, packaged into 1-large layouts,
-     = (zip [0..] xs &) $
-         traverse (\(i :: Int, x) ->
-                     fixed 1 . fmap (fmap (i,)) $ presentMenuRow $ x)
-     -- Wrap in an arrow-navigable layout,
-     >>> (\itemsLay -> do
-             upDownNav :: Event t Int <-
-               upDownNavigation
+     let len     = Vec.length vec
+         visible = (len - vportPos) `min` height
+         slice   = Vec.slice vportPos visible vec
+         sliceIx = selIx - vportPos
+         initial = snd $ slice Vec.! sliceIx
 
-             focusE :: Event t a
-               <-  updated . fmap ((xs !!) . (`mod` length xs)) <$>
-                     foldDyn (+)
-                             selIx
-                             $(ev "focusE" 'upDownNav)
-             pickEs <- runLayout (pure Orientation_Column)
-                                 selIx
-                                 $(ev "pickE" 'upDownNav)
-                                 itemsLay
-             let pickE = snd <$> leftmost pickEs
+     let layout = trace ("traversing slice "<>show vportPos<>":"<>show visible<>":"<>show (vportPos + visible)<>"/"<>show len<>", height="<>show height) $
+                  flip traverse slice $
+                  \(i, x) ->
+                    fixed 1 . fmap (fmap (i,)) . presentMenuRow $ x
 
-             nowE <- getPostBuild
-             pure $ align
-               (leftmost
-                  [ $(evl'' "selectionMenu" "staticDataWidget_postBuildE"
-                            [e|const "Just"|]) nowE
-                    <&> (const $ xs !! selIx)
-                  , $(ev "selectionMenu" 'focusE)
-                  ]
-                <&> Just)
-               $(ev "selectionMenu" 'pickE))
+     upDownNav :: Event t Int <- upDownNavigation
+
+     focusIx <- foldDyn (+) selIx $(ev "focusIx" 'upDownNav)
+                  <&> fmap ((\ix->trace ("new focusIx: "<>show ix) ix) .
+                            (`mod` len))
+
+     let panE = fmapMaybe id $
+                updated focusIx <&> focusChangeNecessitatesPan
+         focusChangeNecessitatesPan :: Int -> Maybe (Int, Index)
+         focusChangeNecessitatesPan ix =
+           (\x->trace ("pan: "<>show ix<>" (of "<>show len<>", vport "<>show vportPos<>"-"<>show (vportPos + height)<>") -> "<>show x) x) $
+           (,Index ix) <$>
+           if | ix < vportPos
+                -> let wrap = ix == 0
+                   in Just if wrap then 0
+                           else max 0 (ix - height + 2)
+              | ix >= vportPos + height
+                -> let wrap = ix == len - 1
+                   in Just if wrap then len - height + 1
+                           else min (len - (height - 2)) (ix - 2)
+              | otherwise
+                -> Nothing
+
+     let focusE :: Event t a = snd . (vec Vec.!) <$> updated focusIx
+
+     -- pickEs <- runLayout (pure Orientation_Column)
+     void $ runLayout (pure Orientation_Column)
+                      sliceIx
+                      $(ev "pickE" 'upDownNav)
+                      layout
+     -- let pickE = snd <$> leftmost pickEs
+
+     nowE <- getPostBuild
+     pure $
+       leftmost
+         [ fmap Left panE
+         , fmap Right $ align
+             (leftmost
+              [ $(evl'' "selectionMenu" "staticDataWidget_postBuildE"
+                   [e|const "Just"|]) nowE
+                <&> const initial
+              , $(ev "selectionMenu" 'focusE)
+              ]
+              <&> Just)
+             never
+         -- $(ev "selectionMenu" 'pickE)
+         ]
 
 completingInput ::
   forall t m a
