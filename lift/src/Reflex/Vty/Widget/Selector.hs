@@ -14,13 +14,11 @@ import Control.Monad.NodeId
 
 import Data.Function
 import Data.Semialign                               (align)
-import Data.Sequence qualified                    as Seq
 import Data.Text                        qualified as T
 import Data.Text.Zipper
 import Data.Text.Zipper.Extra
 import Data.These
 import Data.Vector qualified                      as Vec
-import Data.Vector                                  (Vector)
 
 import Reflex
 import Reflex.Network
@@ -48,7 +46,7 @@ data Selector t m a =
 
 data SelectorParams t m a =
   SelectorParams
-  { spElemsE       :: !(Event t [a])
+  { spElemsE       :: !(Event t (Vector a))
   , spCompletep    :: !(Maybe Char -> Char -> a -> Maybe Text)
   , spShow         :: !(a -> Text)
   , spPresent      :: !(Behavior t Bool -> a -> VtyWidget t m a)
@@ -80,7 +78,7 @@ selector SelectorParams{..} = mdo
         [ $(ev' "maySelrSelectE" "selectionMenu") menuMaySelE
         -- The initial value:
         , $(ev "maySelrSelectE" 'spElemsE)
-          <&> fmap (Index 0,) . flip atMay 0]
+          <&> fmap (Index 0,) . (Vec.!? 0)]
 
   -- This is used immediately above to update the input with menu choice.
   selrInputOfftD :: Dynamic t (Text, Column) <-
@@ -103,8 +101,8 @@ selector SelectorParams{..} = mdo
                & fmap (fmap (ix,) . fbPress))
           $ attachPromptlyDyn
               $(dev "indexXsE" 'selIndexD)
-              ($(evl "indexXsE" 'spElemsE [e|show . length|])
-                <&> zip (Index <$> [0..]))))
+              ($(evl "indexXsE" 'spElemsE [e|show . Vec.length|])
+                <&> (fmap (Index *** id) . Vec.indexed))))
      (splitV (pure $ const 1) (pure $ join (,) True)
        spInsertW
        (inputWidget
@@ -137,7 +135,7 @@ selectionMenu ::
   forall t m a
   . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m, Reflex t, HasCallStack)
   => (a -> VtyWidget t m (Event t a))
-  -> Event t (Index, [a])
+  -> Event t (Index, Vector a)
   -> VtyWidget t m (Event t (Either (Maybe a) a))
 selectionMenu presentMenuRow indexXsE = mdo
   vportHeightD <- fmap Height <$> displayHeight
@@ -158,7 +156,7 @@ selectionMenu presentMenuRow indexXsE = mdo
              , Right <$> $(evl'' "staticDataWidget_postBuildE"
                               "indexXsE"
                               [e|show . length . snd|])
-                         (fmap (Vec.indexed . Vec.fromList) <$> indexXsE)
+                         (fmap Vec.indexed <$> indexXsE)
              ]
   (,) (panE :: Event t (Int, Index))
       (selE :: Event t (Either (Maybe a) a))

@@ -49,6 +49,7 @@ module Basis
   , module Data.Type.Equality
   , module Data.Type.List
   , module Data.TypeRep
+  , module Data.Vector
   , module Data.Witherable
   , module Debug.Trace
   , module Debug.TraceErr
@@ -112,6 +113,7 @@ import Data.TyDict                (TyDict(..), TyDicts)
 import Data.Type.Equality         ((:~:)(..), (:~~:)(..))
 import Data.Type.List             (spineConstraint)
 import Data.TypeRep
+import Data.Vector                (Vector)
 import Data.Witherable            (catMaybes, mapMaybe, wither)
 import Debug.Trace                (trace, traceM)
 import Debug.TraceErr             (traceErr, traceIOErr)

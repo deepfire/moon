@@ -264,6 +264,7 @@ executable cli
                      , typed-protocols
                      , typed-protocols-examples
                      , unagi-chan
+                     , vector
                      , vty
                      , websockets
                      , zippers

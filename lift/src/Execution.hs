@@ -7,6 +7,7 @@ import Data.Either qualified                   as E
 import Data.Semigroup qualified                as S
 import Data.Text qualified                     as T
 import Data.String
+import Data.Vector qualified                   as Vec
 
 import Reflex                            hiding (Request)
 import Reflex.Network
@@ -223,10 +224,12 @@ presentExecution executionE =
           (pres (presentPoint "-- no data yet --"))
           (pres (presentList .
                  fmap ((Index 0, ) .
+                       Vec.fromList .
                        fromMaybe ["no-Show"] .
                        withCapValueShow (fmap showT))))
           (pres (presentList .
                  fmap ((Index 0, ) .
+                       Vec.fromList .
                        fromMaybe ["no-Show"] .
                        withCapValueShow (fmap showT))))
           (const $ text $ pure "trees not presentable yet")
@@ -246,7 +249,7 @@ presentExecution executionE =
      pure ()
 
    -- | Present a list, with N-th element selected.
-   presentList :: Event t (Index, [Text]) -> VtyWidget t m ()
+   presentList :: Event t (Index, Vector Text) -> VtyWidget t m ()
    presentList presentListXsE =
      selectionMenu
        (focusButton (buttonPresentText

@@ -19,6 +19,7 @@ import Data.Dynamic qualified                  as Dyn
 import Data.Monoid
 import Data.Semialign                            (align)
 import Data.Sequence qualified                 as Seq
+import Data.Vector qualified                   as Vec
 
 import Reflex                             hiding (Request)
 import Reflex.Network
@@ -442,7 +443,8 @@ spaceInteraction epRemote epLocal = mdo
                               $(dev "spPresent" 'accbleRightsD)
                             <&> uncurry (mkPipePresentCtx " :: ")
        , spElemsE       = $(evl'' "spElemsE" "uniqAccbleRightsD"
-                                  [e|show . length|]) $
+                                  [e|show . Vec.length|]) $
+                           fmap Vec.fromList $
                            updated uniqAccbleRightsD
        , spInsertW      = resultSummaryW
        , spConstituency = Dom.Name.nameConstituent

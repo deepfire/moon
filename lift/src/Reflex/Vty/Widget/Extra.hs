@@ -14,6 +14,7 @@ import           Control.Monad
 import           Control.Monad.Fix
 import           Control.Monad.NodeId
 
+import Data.Coerce qualified                      as Coerce
 import           Data.Function
 import           Data.Functor ((<&>))
 import           Data.List                             as List
