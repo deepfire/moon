@@ -209,7 +209,8 @@ handleExecution doHandle Execution{..} (Right (Wire.ReplyValue rep)) =
 handleExecution doHandle Execution{} (Left err) = doHandle (Left err)
 
 presentExecution :: forall t m p
-  . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m)
+  . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m
+    , NotReady t m)
   => Event t (Execution t p)
   -> VtyWidget t m (Dynamic t ())
 presentExecution executionE =
@@ -250,14 +251,26 @@ presentExecution executionE =
 
    -- | Present a list, with N-th element selected.
    presentList :: Event t (Index, Vector Text) -> VtyWidget t m ()
-   presentList presentListXsE =
-     selectionMenu
-       (focusButton (buttonPresentText
-                      richTextFocusConfigDef
-                      id)
-        >>> fmap fbFocused)
-       ($(ev' "indexXsE" "executionReplyE") presentListXsE)
-       <&> pure ()
+   presentList presentListXsE = do
+     Selector{..} <- selector
+       SelectorParams
+       { spCompletep    = \_ _ _ -> Nothing
+       , spShow         = id
+       , spPresent      = \focusB x ->
+                            richText (richTextFocusConfigDef focusB) (pure x)
+                            >> pure x
+       , spElemsE       = snd <$> presentListXsE
+       , spInsertW      = pure ()
+       , spConstituency = const True
+       }
+     pure ()
+     -- selectionMenu
+     --   (focusButton (buttonPresentText
+     --                  richTextFocusConfigDef
+     --                  id)
+     --    >>> fmap fbFocused)
+     --   ($(ev' "indexXsE" "executionReplyE") presentListXsE)
+     --   <&> pure ()
    presentPoint :: (MonadHold t m, Reflex t)
      => Text -> Event t (CapValue Point a) -> VtyWidget t m ()
    presentPoint defDesc e =

@@ -555,6 +555,8 @@ spaceInteraction epRemote epLocal = mdo
        feedback
      pure runnable
 
+   -- | Given a char to the left, the trigger char and current completible,
+   --   decide whether to complete, and what to.
    completion :: Maybe Char -> Char -> Acceptable -> Maybe Text
    completion leftC newC acc =
            (\x ->
@@ -715,73 +717,3 @@ mkPipePresentCtx sep selrWidth xs =
    ppcName     = Width $ Prelude.maximum . (T.length . acceptablePresent <$>) $ xs
    ppcSig      = ppcFull - ppcReserved - ppcName
    ppcFull     = selrWidth
-
--- * UI
---
- -- where
-   -- escapable w = do
-   --   void w
-   --   i <- input
-   --   return $ fforMaybe i $ \case
-   --     V.EvKey V.KEsc [] -> Just Nothing
-   --     _ -> Nothing
-   -- look :: PipeSpace (SomePipe ()) -> QName Pipe -> Fallible (SomePipe ())
-   -- look space name = lookupSpace name space &
-   --   maybeToEither ("No such pipe: " <> showQName name)
-   -- loop :: Cons.InputT IO ()
-   -- loop = do
-   --   minput <- Cons.getInputLine "> "
-   --   case minput of
-   --     Nothing -> pure ()
-   --     Just "quit" -> pure ()
-   --     Just input -> do
-   --       Cons.outputStrLn $ "Input was: " ++ input
-   --       case parse (pack input) of
-   --         Left e -> Cons.outputStrLn $ "Parse:  " ++ unpack e
-   --         Right exp ->
-   --           case compil e opsDesc (pure . look s) exp of
-   --             Left e -> Cons.outputStrLn $ "Compile:  " ++ unpack e
-   --             Right pipe -> Cons.outputStrLn $ "OK:  " <> show pipe
-   --       loop
-   -- case (,) (lookupSpace "fromrep" space)
-   --            (lookupSpace "unit" space)
-   --     of (,) (Just fromrep)
-   --            (Just unit) -> do
-   --          case apply (app opsDesc) fromrep
-   --               (SomeValue
-   --                (SomeKindValue
-   --                 CPoint (VPoint (Name "Unit" :: Name Type)))) of
-   --            Left e -> putStrLn (unpack e)
-   --            Right p -> putStrLn (show p)
-
--- _reflexVtyApp :: forall t m.
---   (MonadIO (Performable m), ReflexVty t m, PerformEvent t m, PostBuild t m, TriggerEvent t m, MonadIO m)
---   => VtyWidget t m (Event t ())
--- _reflexVtyApp = mdo
---   init <- getPostBuild
---   let sp = SelectorParams
---         { sfpElemsE = init <&> const ["one", "two", "three"]
---         , sfpCompletep = charCompletionP
---         , sfpShow = id
---         , sfpPresent = \sel x ->
---             richText (richTextFocusConfig (foregro V.blue) sel) (pure x)
---             >> pure x
---         }
---   (_,
---     (Selector{..} :: Selector t m Text,
---       (_,
---          _text))) <-
---     splitV (pure \x->x-8) (pure (False, True))
---     blank $ splitV (pure $ const 5) (pure (True, False))
---     (selector sp blank) $ splitV (pure $ const 1) (pure (False, False))
---     blank $ splitV (pure $ const 1) (pure (False, False))
---     (richText (richTextFocusConfig (foregro V.green) (pure False)) (current selD))
---     (richText (richTextFocusConfig (foregro V.red)   (pure False)) (current accD))
-
---   selD <- ("sel: " <>) <$> holdDyn "" (snd <$> selrSelectionE)
---   accD <- ("acc: " <>) <$> holdDyn "" selrAcceptedE
-
---   exitOnTheEndOf input
---  where
---    charCompletionP leftC newC =
---      newC == ' ' || newC == '\t' || (newC == '.' && isJust leftC && leftC /= Just ' ')
