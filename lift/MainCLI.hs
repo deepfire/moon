@@ -375,7 +375,7 @@ spaceInteraction epRemote epLocal = mdo
           $(ev "summaryWidget" 'executionE)
           $(ev "summaryWidget" 'spcErrorsE)))
       (presentExecution allExecutionsE
-       >> pure ())
+        >> pure ())
       (feedbackWidget
         $(dev  "feedbackWidget" 'pipesFromD)
         $(dev  "feedbackWidget" 'spcConstraintD)
@@ -537,12 +537,16 @@ spaceInteraction epRemote epLocal = mdo
      -> VtyWidget t m ()
      -> VtyWidget t m (Dynamic t a)
    mainSceneWidget editor executionResults feedback = do
+     tabNav <- tabNavigation
+     let tabHalves :: Int -> (Bool, Bool) -> (Bool, Bool)
+         tabHalves = const swap
+     halves <- foldDyn tabHalves (True, False) tabNav
      (((runnable, _present),
        _blank),
        _feedb) <-
-      splitV (pure $ \x->x-8) (pure $ join (,) True)
-       (splitV (pure \x->x-1) (pure $ join (,) True)
-         (splitH (pure $ flip div 2) (pure $ join (,) True)
+      splitV (pure $ \x->x-8) (pure (True, False))
+       (splitV (pure \x->x-1) (pure (True, False))
+         (splitH (pure $ flip div 2) halves--(pure $ join (,) True)
             editor
             executionResults)
          blank)
