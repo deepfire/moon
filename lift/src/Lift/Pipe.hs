@@ -1,6 +1,7 @@
 module Lift.Pipe (module Lift.Pipe) where
 
 import Data.Text qualified                     as Text
+import Data.Vector qualified                   as Vec
 
 import Control.Concurrent.STM qualified        as STM
 import Control.Concurrent.STM                    (TVar)
@@ -34,7 +35,7 @@ initialPipeSpace :: SomePipeSpace Dynamic
 initialPipeSpace
   =  rootPipeSpace
   <> Hackage.pipeSpace       mempty
-  <> Haskell.pipeSpace       mempty
+  <> Haskell.pipeSpace       "Hask"
 
 getState :: STM (SomePipeSpace Dynamic)
 getState = STM.readTVar mutablePipeSpace
@@ -114,15 +115,15 @@ rootScope =
        \name ->
          STM.readTVarIO mutablePipeSpace
          <&> (pipeScopeAt name
-              >>> (toList . (coerceName <$>) . scopeNames <$>)
+              >>> (Vec.fromList . toList . (coerceName <$>) . scopeNames <$>)
               >>> maybeToEither (Error $ "No scope for name: " <> pack (show name))
-              >>> \x-> x :: Fallible [Name Pipe])
+              >>> \x-> x :: Fallible (Vector (Name Pipe)))
 
      , somePipe1 "scopes" capsTSG  CVPoint CVSet $
        \name ->
          STM.readTVarIO mutablePipeSpace
          -- <&> Right . Set.fromList . childScopeQNamesAt name
-         <&> Right . childPipeScopeQNamesAt name
+         <&> Right . Vec.fromList . childPipeScopeQNamesAt name
 
      -- Pipe sigs:
      --
@@ -148,7 +149,7 @@ rootScope =
                  atomically
                  $ STM.readTVar mutablePipeSpace
                    -- <&> Right . pipeNamesFrom (Just toRep)
-                   <&> Right . toList . pipeNamesFrom (Just toRep)
+                   <&> Right . Vec.fromList . toList . pipeNamesFrom (Just toRep)
 
      , somePipe1 "from"   capsTSG CVPoint CVSet $
        \name ->
@@ -159,21 +160,21 @@ rootScope =
                  if null args
                  then fallM $ "Pipe has no args: " <> pack (show name)
                  -- else Right
-                 else Right . toList
+                 else Right . Vec.fromList . toList
                  . pipeNamesFrom (Just . tRep . unI $ head args) <$> STM.readTVar mutablePipeSpace
 
      , somePipe1 "fromrep" capsTSG CVPoint CVSet $
        \case
          Nothing   -> atomically $
            -- Right
-           Right . toList
+           Right . Vec.fromList . toList
            . pipeNamesFrom Nothing <$> STM.readTVar mutablePipeSpace
          Just name -> atomically $
            case lookupGroundByName name of
              Nothing -> fallM $ "Unknown ground: " <> pack (show name)
              Just (tdrRep -> rep) ->
                -- Right
-               Right . toList
+               Right . Vec.fromList . toList
                . pipeNamesFrom (Just rep) <$> STM.readTVar mutablePipeSpace
 
      , somePipe1 "torep"    capsTSG CVPoint CVSet $
@@ -183,7 +184,7 @@ rootScope =
              Nothing -> fallM $ "Unknown ground: " <> pack (show name)
              Just (tdrRep -> rep) ->
                -- Right
-               Right . toList
+               Right . Vec.fromList . toList
                . pipeNamesTo rep <$> STM.readTVar mutablePipeSpace
 
      -- Debug:

@@ -5,6 +5,7 @@ module Dom.Ground (module Dom.Ground) where
 import           Codec.Serialise                    (Serialise(..))
 import           Data.Text                          (Text, pack)
 import           Data.Typeable                      (Typeable)
+import           Data.Vector                        (Vector, fromList)
 import           Generics.SOP
 import           Generics.SOP.Some                  (HasTypeData)
 import           Type.Reflection                    (SomeTypeRep)
@@ -150,5 +151,5 @@ groundTypeReps :: [SomeTypeRep]
 groundTypeReps = tyDictReps _groundTable
 
 {-# NOINLINE groundTypeNames #-}
-groundTypeNames :: [Text]
-groundTypeNames = tyDictNames _groundTable
+groundTypeNames :: Vector Text
+groundTypeNames = Data.Vector.fromList $ tyDictNames _groundTable

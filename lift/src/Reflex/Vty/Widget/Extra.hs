@@ -144,7 +144,7 @@ richTextFocusConfigDef = richTextFocusConfig V.defAttr
 richTextFocusConfig :: Reflex t => V.Attr -> Behavior t Bool -> RichTextConfig t
 richTextFocusConfig attr focB =
   RichTextConfig $
-    selecting (flip V.withBackColor $ V.rgbColor @Integer 1 1 1)
+    selecting (flip V.withBackColor $ V.rgbColor @Int 1 1 1)
               (pure attr)
               focB
 

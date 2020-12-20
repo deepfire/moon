@@ -2,9 +2,10 @@
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors -fprint-explicit-foralls -fprint-explicit-kinds  -fprint-explicit-coercions #-}
 module Dom.Pipe.Ops.Traverse (module Dom.Pipe.Ops.Traverse) where
 
-import qualified Algebra.Graph                    as G
-import           Data.Dynamic                       (fromDynamic)
-import qualified Data.SOP                         as SOP
+import Algebra.Graph                    qualified as G
+import Data.Dynamic                                 (fromDynamic)
+import Data.SOP                         qualified as SOP
+import Data.Vector                      qualified as Vec
 import           Type.Reflection
 
 import Basis
@@ -44,7 +45,7 @@ demoTraverse = case traverseP travDyn pipeFn pipeTr of
 
    pipeTr :: SomePipe Dynamic
    pipeTr = somePipe0 "demo traversable" capsT CVList
-     (pure $ Right ([1, 2, 3] :: [Integer]))
+     (pure $ Right (Vec.fromList [1, 2, 3 :: Integer]))
 
 --------------------------------------------------------------------------------
 -- * Conceptually:

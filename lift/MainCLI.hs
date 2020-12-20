@@ -1,6 +1,6 @@
 --{-# OPTIONS_GHC -dshow-passes -dppr-debug -ddump-rn -ddump-tc #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wall -Wno-name-shadowing -Wno-unticked-promoted-constructors#-}
+{-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors -Wno-name-shadowing #-}
 
 import Control.Concurrent                        (threadDelay)
 import Control.Concurrent.Async qualified      as Async
@@ -16,9 +16,12 @@ import Control.Monad.Fix
 import Control.Monad.NodeId
 import Data.Char                                 (isDigit)
 import Data.Dynamic qualified                  as Dyn
+import Data.IntMap qualified                   as IMap
+import Data.IORef qualified                    as IO
 import Data.Monoid
 import Data.Semialign                            (align)
 import Data.Sequence qualified                 as Seq
+import Data.IntUnique
 import Data.Vector qualified                   as Vec
 
 import Reflex                             hiding (Request)
@@ -91,36 +94,6 @@ reflexVtyApp = do
    -- XXX:  yeah, deal with that
    hostAddr = WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
 
-mkExecutionPort ::
-  forall t m p
-  .  (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
-  => (Event t (PFallible SomeValue)
-      -> Event t (PFallible (PipeSpace (SomePipe p))))
-  -> (OutChan (Execution t p) -> (PFallible SomeValue -> IO ()) -> IO ())
-  -> Event t ()
-  -> VtyWidget t m (ExecutionPort t p)
-mkExecutionPort selectSpaceEvents handler setupE = do
-  (exeSendW, exeSendR) :: (InChan (Execution t p), OutChan (Execution t p)) <-
-    liftIO Unagi.newChan
-
-  evs <- performEventAsync $
-    ffor setupE \_ fire -> liftIO $
-      (Async.link =<<) . Async.async $
-        handler exeSendR (\e ->
-                            fire $
-                            -- traceErr ("...\nA space has arrived: " <> show e
-                            --           <> "\ndigraph events {")
-                            e)
-
-  pure ExecutionPort
-    { epPost    = Unagi.writeChan exeSendW
-    , epReplies = evs
-    , epSpacE   = selectSpaceEvents evs
-    }
-
-pointRepliesE :: Reflex t => Event t (PFallible SomeValue) -> Event t (Wrap PFallible SomeValueKinded Point)
-pointRepliesE evs = selectG (splitSVByCTag CPoint evs) CPoint
-
 mkRemoteExecutionPort ::
   forall t m
   . (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
@@ -128,33 +101,84 @@ mkRemoteExecutionPort ::
   -> WSAddr
   -> Event t ()
   -> VtyWidget t m (ExecutionPort t ())
-mkRemoteExecutionPort tr wsa =
-  mkExecutionPort spacePointRepliesE $
-    \exeSendR fire -> forever $ do
-      catches (runSingleConnection tr wsa fire exeSendR)
-        [ Handler (\(ErrorCall e) ->
-                     fire . Left . EExec . Error $
-                       showT e)
-        , Handler (\(SomeException e) ->
-                     fire . Left . EExec . Error $
-                       "Uncaught SomeException: " <> showT e)
-        ]
+mkRemoteExecutionPort tr wsa setupE = mdo
+  ep <- mkExecutionPort
+          (SP @() @'[] @(CTagV Point (PipeSpace (SomePipe ()))) mempty capsT $
+           Pipe (mkNullaryPipeDesc (Name @Pipe "space") CPoint VPipeSpace) ())
+          (\popExe ->
+             selectEvents (selectExecutionReplies ep popExe) CPoint VPipeSpace
+             <&> fmap stripCapValue)
+          setupE $
+    \exeSendR fire -> forever
+      (catches (runSingleConnection tr wsa fire ep)
+               [ Handler (\(ErrorCall e) -> do
+                             let err = Error $ showT e
+                             traceM (show err)
+                             fire (unsafeCoerceUnique 1) . Left $ EExec err)
+               , Handler (\(SomeException e) -> do
+                             let err = Error $ "Uncaught SomeException: " <> showT e
+                             traceM (show err)
+                             fire (unsafeCoerceUnique 1) . Left $ EExec err)
+               ])
+  void $ makePostRemoteExecution ep CPoint VPipeSpace "space"
+  pure ep
  where
    runSingleConnection ::
           Tracer IO Text
        -> WSAddr
-       -> (PFallible SomeValue -> IO ())
-       -> OutChan (Execution t ())
+       -> (Unique -> PFallible SomeValue -> IO ())
+       -> ExecutionPort t ()
        -> IO ()
-   runSingleConnection tr WSAddr{..} fire exeSendR =
+   runSingleConnection tr WSAddr{..} fire ep = do
      WS.runClient wsaHost wsaPort wsaPath
-       \(channelFromWebsocket -> webSockChan) ->
+       \(channelFromWebsocket -> webSockChan) -> do
          void $ Wire.runClient (Tracer $ const $ pure ()) webSockChan $
-           client tr fire exeSendR
+           liftProtocolClient tr fire ep
 
-   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (PipeSpace (SomePipe ())))
+   spacePointRepliesE ::
+        Event t (PFallible SomeValue)
+     -> Event t (PFallible (PipeSpace (SomePipe ())))
    spacePointRepliesE evs =
      fmap (stripValue . cvValue) . unWrap <$> selectG (splitSVKByVTag VPipeSpace (pointRepliesE evs)) VPipeSpace
+
+   pointRepliesE :: Reflex t => Event t (PFallible SomeValue) -> Event t (Wrap PFallible SomeValueKinded Point)
+   pointRepliesE evs = selectG (splitSVByCTag CPoint evs) CPoint
+
+
+liftProtocolClient ::
+  forall rej m a t
+   . (rej ~ EPipe, m ~ IO, a ~ Wire.Reply)
+  => Tracer m Text
+  -> (Unique -> PFallible SomeValue -> IO ())
+  -> ExecutionPort t ()
+  -> m (Wire.ClientState rej m a)
+liftProtocolClient _tr fire ExecutionPort{..} = go
+ where
+   go :: m (Wire.ClientState rej m a)
+   go = do
+     exe <- Unagi.readChan epExecs
+     pure . Wire.ClientRequesting (unHandle $ eHandle exe) (eRequest exe) $
+       -- The client is currently assumptious.
+       -- Replies need not necessarily arrive in order of requests.
+       \repUnique reply -> do
+         epStreams <- IO.readIORef epStreamsR
+         maybe (traceM $ "No Execution for reply id " <> show repUnique)
+           (fireMatchingReplies fire repUnique reply)
+           (IMap.lookup (hashUnique repUnique) epStreams)
+         go
+   fireMatchingReplies ::
+        (Unique -> PFallible SomeValue -> IO ())
+     -> Unique
+     -> PFallible Wire.Reply
+     -> Execution t p
+     -> IO ()
+   fireMatchingReplies fire unique reply Execution{..} = case reply of
+     Right (Wire.ReplyValue rep) ->
+       case withExpectedSomeValue eResCTag eResVTag rep stripValue of
+         Right{} -> fire unique (Right rep)
+         Left (Error e) -> traceM $ unpack $
+           "Server response tags don not match Execution: " <> e
+     Left err -> fire unique (Left err)
 
 mkLocalExecutionPort ::
   forall t m
@@ -162,14 +186,20 @@ mkLocalExecutionPort ::
   => Tracer IO Text
   -> Event t ()
   -> VtyWidget t m (ExecutionPort t Dyn.Dynamic)
-mkLocalExecutionPort _tr =
-  mkExecutionPort spacePointRepliesE $
-    \exeSendR fire -> do
+mkLocalExecutionPort _tr initE = mdo
+  ep <- mkExecutionPort
+          localSpacePipe
+          -- (const never)
+          (\popExe ->
+             selectEvents (selectExecutionReplies ep popExe) CPoint VPipeSpaceDyn
+             <&> fmap stripCapValue)
+          initE $
+    \ExecutionPort{..} fire -> do
       threadDelay 1000000
-      fire =<< (left EExec <$> runSomePipe localSpacePipe)
       forever $ do
-        Execution{..} <- Unagi.readChan exeSendR
-        fire =<< (left EExec <$> runSomePipe ePipe)
+        Execution{..} <- Unagi.readChan epExecs
+        fire (unHandle eHandle) =<< (left EExec <$> runSomePipe ePipe)
+  pure ep
  where
    spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (PipeSpace (SomePipe Dyn.Dynamic)))
    spacePointRepliesE evs =
@@ -208,34 +238,9 @@ data WSAddr
   , wsaPath :: String
   }
 
-client :: forall rej m a t
-          . (rej ~ EPipe, m ~ IO, a ~ Wire.Reply)
-       => Tracer m Text
-       -> (PFallible SomeValue -> IO ())
-       -> OutChan (Execution t ())
-       -> m (Wire.ClientState rej m a)
-client tr fire reqsChan =
-  go
- where
-   go :: m (Wire.ClientState rej m a)
-   go = do
-     exe <- Unagi.readChan reqsChan
-     pure . Wire.ClientRequesting (eRequest exe)
-          . handleReply $ handleExecution fire exe
-
-   handleReply
-     :: (PFallible Wire.Reply -> IO ())
-     -> PFallible Wire.Reply
-     -> IO (Wire.ClientState rej IO Wire.Reply)
-   handleReply handle x =
-     either (traceWith tr') (const $ pure ()) x >> handle x >> go
-
-   tr' :: Tracer m EPipe
-   tr' = contramap (showError . unEPipe) tr
-
 data Acceptable
   = APipe  !MixedPipe
-  | AScope !(PointScope MixedPipe)
+  | AScope !(QName Scope)
 
 instance Show Acceptable where
   show x = T.unpack $ case x of
@@ -245,7 +250,7 @@ instance Show Acceptable where
 acceptablePresent :: Acceptable -> Text
 acceptablePresent = \case
   APipe  x -> showQName . somePipeQName $ x
-  AScope x -> showName . scopeName $ x
+  AScope x -> showQName x
 
 spaceInteraction ::
      forall    t m
@@ -254,21 +259,17 @@ spaceInteraction ::
   -> ExecutionPort t Dyn.Dynamic
   -> VtyWidget t m (Event t ())
 spaceInteraction epRemote epLocal = mdo
-  void $ makePostRemoteExecution epRemote "space" CPoint VPipeSpace
-
   initE <- getPostBuild
-  initExecutionE :: Event t (Execution t MixedPipeGuts) <-
-    fmap (fmapMaybe id) $
-    performEvent $
-      initE $>
-      makePostRemoteExecution epRemote
-        -- "ground" CSet VText
-        "Hackage.packages" CSet VNameHaskPackage
+  -- initExecutionE :: Event t (Execution t MixedPipeGuts) <-
+  --   performEvent $
+  --     initE $>
+  --     makePostRemoteExecution epRemote
+  --       -- "ground" CSet VText
+  --       "Hackage.pkgNames" CSet VNameHaskPackage
 
   -- server + local -> spaceD
   let (,) remoteSpaceErrsE remoteSpaceE = fanEither $ epSpacE epRemote
-      -- XXX: local space disabled
-      (,) localSpaceErrsE   localSpaceE = fanEither $ never --epSpacE epLocal
+      (,) localSpaceErrsE   localSpaceE = fanEither $ epSpacE epLocal
   remoteSpaceD :: Dynamic t (PipeSpace (SomePipe ())) <-
     holdDyn mempty remoteSpaceE
   localSpaceD :: Dynamic t (PipeSpace (SomePipe Dyn.Dynamic)) <-
@@ -285,12 +286,9 @@ spaceInteraction epRemote epLocal = mdo
                <*> $(dev "spcFRunnableD" 'fPreRunnableD)
 
   let compilePreRunnable ::
-        --    SomePipeSpace ()
-        -- -> SomePipeSpace Dyn.Dynamic
            SomePipeSpace MixedPipeGuts
         -> PFallible (PreRunnable MixedPipeGuts)
         -> PFallible (PreRunnable MixedPipeGuts, SeparatedPipe)
-      -- compilePreRunnable spcRem spcLoc fpr = do
       compilePreRunnable spcMix fpr = do
          pr@PreRunnable{..} <- fpr
          _pexp <- prPExpr
@@ -300,16 +298,16 @@ spaceInteraction epRemote epLocal = mdo
                  -> fmap Right <$> compile opsFull (join . fmap (either (const Nothing) Just) . fmap hoistMixedPipe . lookupSomePipe spcMix) prExpr
                  | otherwise ->
                    Left . ECompile . Error $ "Inconsistent pipe locality: " <> showT prExpr
-         traceM . mconcat $
-           [ "preRunnable: ", show pr, ", "
-           , "allLeft: ", show $ preRunnableAllLeft pr, ", "
-           , "has CGround: ", show $ somePipeHasCap CGround p, ", "
-           , "runnability issues: ", show $ checkPipeRunnability
-                                              (preRunnableAllLeft pr) p, ", "
-           ]
+         -- traceM . mconcat $
+         --   [ "preRunnable: ", show pr, ", "
+         --   , "allLeft: ", show $ preRunnableAllLeft pr, ", "
+         --   , "has CGround: ", show $ somePipeHasCap CGround p, ", "
+         --   , "runnability issues: ", show $ checkPipeRunnability
+         --                                      (preRunnableAllLeft pr) p, ", "
+         --   ]
          void $ maybeLeft (checkPipeRunnability
-                           $ (\x -> flip trace x $
-                               "preRunnableAllLeft: " <> show x <> " " <> show p)
+                           -- $ (\x -> flip trace x $
+                           --     "preRunnableAllLeft: " <> show x <> " " <> show p)
                            $ preRunnableAllLeft pr) p
          pure (pr, separateMixedPipe p)
 
@@ -337,8 +335,10 @@ spaceInteraction epRemote epLocal = mdo
       spcErrorsE =
         leftmost
         [ $(ev "spcErrorsE" 'spcRunnableFailE)
-        -- , trevs "remoteSpaceErrsE -> errorsE;" remoteSpaceErrsE
-        -- , trevs "localSpaceErrsE -> errorsE;" localSpaceErrsE
+        , attachPromptlyDyn spaceD remoteSpaceErrsE
+          -- & trevs "remoteSpaceErrsE -> errorsE;"
+        , attachPromptlyDyn spaceD localSpaceErrsE
+          -- & trevs "localSpaceErrsE -> errorsE;"
         ]
 
   executionE ::
@@ -350,7 +350,7 @@ spaceInteraction epRemote epLocal = mdo
            <&>) $
         liftIO .
         -- XXX: WTF?
-        (\(_spc, (PreRunnable{..}, p)) ->
+        (\(_spc, (PreRunnable{..}, p)) -> do
            maybe (error "postMixedPipeRequest returned Nothing")
              id <$>
              (postMixedPipeRequest epRemote epLocal prText prReq p)
@@ -362,7 +362,7 @@ spaceInteraction epRemote epLocal = mdo
 
   let allExecutionsE = leftmost
         [ executionE
-        , initExecutionE
+        -- , initExecutionE
         ]
 
   -- 0. UI provides syntactically valid requests, and also
@@ -560,21 +560,24 @@ spaceInteraction epRemote epLocal = mdo
    completion :: Maybe Char -> Char -> Acceptable -> Maybe Text
    completion leftC newC acc =
            (\x ->
-              -- trace
-              -- (mconcat
-              --  [ "completion: leftC=", catMaybes [leftC], ", "
-              --  , "newC=", [newC], ", "
-              --  , "acc=", show acc, ", "
-              --  , "res=", show x
-              --  ])
+              trace
+              (mconcat
+               [ "completion: leftC=", catMaybes [leftC], ", "
+               , "newC=", [newC], ", "
+               , "acc=", show acc, ", "
+               , "res=", show x
+               ])
               x
            ) $
-     let completable =
-           (leftC <&>
-            \x-> (Dom.Name.nameConstituent x || x == '.') &&
-                 not (isDigit x)) == Just True &&
-           (newC == ' ' ||
-            newC == '.')
+     let constituentLeftChar orMaybe =
+           leftC <&>
+           \x->
+             Dom.Name.nameConstituent x && not (isDigit x) || orMaybe x
+         completable =
+           case newC of
+           '.' -> constituentLeftChar (== '.')      == Just True
+           ' ' -> constituentLeftChar (const False) /= Just False
+           _ -> False
      in if not completable
         then Nothing
         else Just $
@@ -595,7 +598,7 @@ inputCompletionsForExprAndColumn spc (Column coln) ast (constr, _partialPipe) =
   -- only collecting the _accepted_ AST.
   --
   -- Important distinction.
-  <> (AScope <$> subScopes)
+  <> (AScope <$> subScNames)
  where
    -- 0. map char position to scope/pipe name
    astIndex = indexLocated ast
@@ -612,7 +615,6 @@ inputCompletionsForExprAndColumn spc (Column coln) ast (constr, _partialPipe) =
    -- 2. find scope's children
    subScNames = childPipeScopeQNamesAt (coerceQName scopeName) spc
      & Prelude.filter (T.isInfixOf rawName . showName . lastQName)
-   subScopes = catMaybes $ flip pipeScopeAt spc <$> subScNames
 
    -- 3. map char position to partial pipe in supplied expr
    -- indexPartPipe = indexLocated partialPipe
@@ -687,15 +689,15 @@ presentAcceptable ppcD focusB x = row (present x >> pure x)
          richText (richTextFocusConfigDef focusB)
            (ppcB <&> leftPad)
        fixed (unWidth . ppcName <$> ppcD) $
-         richText (richTextFocusConfig (foregro V.green) focusB)
+         richText (richTextFocusConfig (foregro V.yellow) focusB)
            (ppcB <&> \PipePresentCtx{..} ->
-             T.justifyRight (unWidth ppcName) ' ' (showName $ scopeName scope))
+             T.justifyRight (unWidth ppcName) ' ' (showQName scope))
        fixed (T.length . ppcSep <$> ppcD) $
          richText (richTextFocusConfigDef focusB)
            (ppcB <&> ppcSep)
-       fixed (unWidth . ppcSig <$> ppcD) $
-         richText (richTextFocusConfig (foregro V.blue) focusB)
-           (pure . pack . show $ scopeSize scope)
+       -- fixed (unWidth . ppcSig <$> ppcD) $
+       --   richText (richTextFocusConfig (foregro V.blue) focusB)
+       --     (pure . pack . show $ scopeSize scope)
    ppcB = current ppcD
    leftPad PipePresentCtx{..} =
      T.replicate (unWidth ppcReserved `div` 2) " "

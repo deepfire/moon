@@ -86,15 +86,22 @@ insertScopeAt name sc ns =
   ns { nsMap  = MMap.insert (coerceQName name) sc $ nsMap ns
      , nsTree = nsTree ns
                 `GA.overlay`
-                withQName name
-                (curry $ \case
-                    (_, Nothing)
-                      -> GA.vertex name
-                    (QName (Seq.null -> True), _)
-                      -> GA.edge mempty name
-                    (parent, _)
-                      -> GA.edge parent name)
+                withQName (trace ("inserting scope at _"<>unpack (showQName name)<>"_") name)
+                (curry (insertPath name))
      }
+ where
+   insertPath ::
+        QName Scope
+     -> (QName Scope, Maybe (Name Scope))
+     -> GA.AdjacencyMap (QName Scope)
+   insertPath name = \case
+     (_, Nothing)
+       -> GA.vertex name
+     (QName (Seq.null -> True), _)
+       -> GA.edge mempty name
+     (parent, _)
+       -> GA.edge parent name `GA.overlay`
+          withQName parent (curry $ insertPath parent)
 
 attachScopes
   :: forall c a
@@ -146,6 +153,7 @@ _failHasEntity _  _    x  Nothing = Just <$> x
 
 childScopeQNamesAt :: QName Scope -> Space c a -> [QName Scope]
 childScopeQNamesAt q ns =
+  trace ("subsc at "<>unpack (showQName q)<>": "<>show (Set'.toList (GA.postSet q (nsTree ns)))) $
   Set'.toList (GA.postSet q (nsTree ns))
 
 _checkBusy :: QName Scope -> Space c a -> Bool

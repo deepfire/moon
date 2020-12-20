@@ -19,6 +19,7 @@ import qualified Data.ByteString.Builder          as  BS
 import qualified Data.ByteString.Builder.Extra    as  BS
 import qualified Data.ByteString.Lazy             as LBS
 import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
+import           Data.IntUnique
 
 import qualified Codec.CBOR.Read                  as CBOR
 import qualified Codec.CBOR.Write                 as CBOR
@@ -49,10 +50,10 @@ instance Show (ServerHasAgency (st :: Piping rej)) where show TokBusy = "TokBusy
 --
 instance Protocol (Piping rej) where
   data Message (Piping rej) from to where
-    MsgRequest    :: StandardRequest -> Message (Piping rej) StIdle StBusy
-    MsgReply      :: Reply           -> Message (Piping rej) StBusy StIdle
-    MsgBadRequest ::       rej       -> Message (Piping rej) StBusy StIdle
-    MsgDone       ::                    Message (Piping rej) StIdle StDone
+    MsgRequest    :: Unique -> StandardRequest -> Message (Piping rej) StIdle StBusy
+    MsgReply      :: Unique -> Reply           -> Message (Piping rej) StBusy StIdle
+    MsgBadRequest :: Unique -> rej             -> Message (Piping rej) StBusy StIdle
+    MsgDone       ::                              Message (Piping rej) StIdle StDone
 
   data ClientHasAgency st where TokIdle :: ClientHasAgency StIdle
   data ServerHasAgency st where TokBusy :: ServerHasAgency StBusy
@@ -73,10 +74,10 @@ wireCodec =
               PeerHasAgency pr st
            -> Message (Piping rej) st st'
            -> Encoding
-    enc (ClientAgency TokIdle) (MsgRequest r)    = encodeListLen 2 <> encodeWord 0 <> encode r
-    enc (ServerAgency TokBusy) (MsgReply r)      = encodeListLen 2 <> encodeWord 1 <> encode r
-    enc (ServerAgency TokBusy) (MsgBadRequest t) = encodeListLen 2 <> encodeWord 2 <> encode t
-    enc (ClientAgency TokIdle)  MsgDone          = encodeListLen 1 <> encodeWord 3
+    enc (ClientAgency TokIdle) (MsgRequest u r)    = encodeListLen 3 <> encodeWord 0 <> encode u <> encode r
+    enc (ServerAgency TokBusy) (MsgReply u r)      = encodeListLen 3 <> encodeWord 1 <> encode u <> encode r
+    enc (ServerAgency TokBusy) (MsgBadRequest u t) = encodeListLen 3 <> encodeWord 2 <> encode u <> encode t
+    enc (ClientAgency TokIdle)  MsgDone            = encodeListLen 1 <> encodeWord 3
 
     dec :: forall (pr :: PeerRole) s (st :: (Piping rej)).
               PeerHasAgency pr st
@@ -85,9 +86,9 @@ wireCodec =
       len <- decodeListLen
       key <- decodeWord
       case (stok, len, key) of
-        (ClientAgency TokIdle, 2, 0) -> SomeMessage . MsgRequest    <$> decode
-        (ServerAgency TokBusy, 2, 1) -> SomeMessage . MsgReply      <$> decode
-        (ServerAgency TokBusy, 2, 2) -> SomeMessage . MsgBadRequest <$> decode
+        (ClientAgency TokIdle, 3, 0) -> fmap SomeMessage $ MsgRequest    <$> decode <*> decode
+        (ServerAgency TokBusy, 3, 1) -> fmap SomeMessage $ MsgReply      <$> decode <*> decode
+        (ServerAgency TokBusy, 3, 2) -> fmap SomeMessage $ MsgBadRequest <$> decode <*> decode
         (ClientAgency TokIdle, 1, 3) -> pure $ SomeMessage MsgDone
 
         (ClientAgency TokIdle, _, _) -> fail "codec.Idle: unexpected key"

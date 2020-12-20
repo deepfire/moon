@@ -15,10 +15,12 @@ library
 
   exposed-modules:
                        Data.Class
+                       Data.IntUnique
                        Data.Orphanage
                        Data.Parsing
                        Data.RTTI
                        Data.Shelf
+                       Data.TH
                        Data.TyDict
                        Data.Type.List
                        Data.TypeRep
@@ -86,6 +88,7 @@ library
                      , assoc
                      , binary
                      , bytestring
+                     , Cabal
                      , cborg
                      , containers
                      , deepseq

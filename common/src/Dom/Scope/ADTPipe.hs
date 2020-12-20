@@ -11,6 +11,7 @@ import Type.Reflection                  qualified as Refl
 import Type.Reflection
 
 import Basis
+import Data.TH
 
 import Dom.CTag
 import Dom.Cap
@@ -39,12 +40,12 @@ import GHC.Generics (Generic)
 --   , All2 (And Typeable (And ReifyVTag Typeable)) (Code u)
 --   )
 --   => Proxy u -> Scope Point (SomePipe Dynamic)
--- dataProjScope  p = dataProjScope' p $ dataProjPipes (T mempty) (Proxy @Typeable) p
+-- dataProjScope  p = dataProjScope' p $ dataProjPipeScope (T mempty) (Proxy @Typeable) p
 
 -- dataProjScopeG
 --   :: forall u. (GroundData u)
 --   => Proxy u -> Scope Point (SomePipe Dynamic)
--- dataProjScopeG p = dataProjScope' p $ dataProjPipes (SP mempty) (Proxy @Ground) p
+-- dataProjScopeG p = dataProjScope' p $ dataProjPipeScope (SP mempty) (Proxy @Ground) p
 
 --------------------------------------------------------------------------------
 -- * ADT field accessor pipes:
@@ -80,7 +81,7 @@ adtFieldGetterPipe caps (SOP.FieldInfo n) getter =
           CVPoint -- XXX: Kind should be be capable of being a non-Point!
           (pure . Right . getter)
 
-dataProjPipes ::
+dataProjPipeScope ::
   forall u
   . ( Typeable u
     , SOP.HasTypeData ReifyVTag u
@@ -91,13 +92,14 @@ dataProjPipes ::
     )
   => Proxy u
   -> Q Exp
-dataProjPipes (SOP.datatypeInfo ->
+dataProjPipeScope (SOP.datatypeInfo ->
                  (SOP.ADT _ _ (cinfos :: NP SOP.ConstructorInfo xss) _)) =
+  fmap (AppE (AppE (VarE $ mkName "dataProjScope") reifiedProxyE)) $
   fmap (AppE $ VarE $ mkName "Prelude.concat") $
   fmap (AppE
           (AppE
              (VarE $ mkName "liftAllFields")
-             (AppTypeE (ConE $ mkName "Proxy") (reifyTypeRep $ typeRep @u)))) $
+             reifiedProxyE)) $
   fmap reifyNP $ sequence $ SOP.hcollapse $
    SOP.hcliftA (Proxy @(All Typeable))
      (\(SOP.Record _ (finfos :: NP SOP.FieldInfo xs)) ->
@@ -108,11 +110,14 @@ dataProjPipes (SOP.datatypeInfo ->
           finfos)
      cinfos
  where
+   reifiedProxyE :: Exp
+   reifiedProxyE =
+     AppTypeE (ConE $ mkName "Proxy") (reifyTypeRep $ typeRep @u)
    mkFieldPipe :: TH.Type -> Q Exp
    mkFieldPipe ty = do
-     isShow      <- deepIsInstance nShow      ty
-     isGround    <- deepIsInstance nGround    ty
-     isSerialise <- deepIsInstance nSerialise ty
+     isShow      <- thNameIsInstanceDeep nShow      ty
+     isGround    <- thNameIsInstanceDeep nGround    ty
+     isSerialise <- thNameIsInstanceDeep nSerialise ty
      -- traceM $ "isSerialise " <> show ty <> ": " <> show isSerialise
      pure $ AppE (ConE nFieldFun)
                  (AppE (VarE nadtFieldGetterPipe)
@@ -133,13 +138,6 @@ dataProjPipes (SOP.datatypeInfo ->
      = mkName <$>
      ["Ground", "Serialise", "Show", "capsT", "capsTS", "capsTSG", "Nil", ":*"
      , "FieldFun", "adtFieldGetterPipe"]
-
-deepIsInstance :: TH.Name -> TH.Type -> Q Bool
-deepIsInstance n t = case t of
-  TH.ConT{}    -> isInstance n [t]
-  TH.AppT _f x -> (&&)
-                    <$> isInstance n [t]
-                    <*> deepIsInstance n x
 
 reifyTypeRep :: TypeRep a -> TH.Type
 reifyTypeRep = go

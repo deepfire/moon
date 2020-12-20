@@ -5,25 +5,27 @@ module Lift.Hackage
   )
 where
 
-import           Data.Default
-import qualified Data.Map                       as Map
-import           Data.Map                         (Map)
-import qualified Data.Set.Monad                 as Set
-import           Data.Set.Monad                   (Set)
-import           Data.Time
-import           Data.Text
-import qualified Generics.SOP as SOP
-import           GHC.Generics
+import Data.Default
+import Data.Map qualified                         as Map
+import Data.Map                                     (Map)
+import Data.Set.Monad qualified                   as Set
+import Data.Set.Monad                               (Set)
+import Data.Time
+import Data.Text
+import Data.Vector                                  (Vector)
+import Data.Vector qualified                      as Vec
+import Generics.SOP qualified                     as SOP
+import GHC.Generics
 
-import           Control.Concurrent.CachedIO
-import           Network.HTTP.Req
-import           System.Exit
-import           System.Process
+import Control.Concurrent.CachedIO
+import Network.HTTP.Req
+import System.Exit
+import System.Process
 import System.IO.Unsafe qualified                 as Unsafe
 
-import Distribution.Hackage.DB qualified        as Hackage
-import Distribution.Types.PackageName qualified as Cabal
-import Distribution.PackageDescription qualified as Cabal
+import Distribution.Hackage.DB qualified          as Hackage
+import Distribution.Types.PackageName qualified   as Cabal
+import Distribution.PackageDescription qualified  as Cabal
 import Distribution.PackageDescription.Parsec qualified as Cabal
 import Distribution.Types.GenericPackageDescription qualified as Cabal
 ---------------- Due to TH picking up TyCons:
@@ -87,46 +89,57 @@ import Lift.Orphanage()
 
 
 
+-- instance Serialise Distribution.Types.Version.Version
+-- instance Serialise Hackage.VersionData
+-- instance Serialise GenericPackageDescription
+-- instance Serialise Distribution.Types.Library.Library
+-- instance Serialise Distribution.ModuleName.ModuleName
+-- instance Serialise Distribution.Types.Dependency.Dependency
+-- instance Serialise Distribution.Types.VersionRange.Internal.VersionRange
+-- instance Serialise Distribution.Types.LibraryName.LibraryName
+-- instance Serialise Distribution.Types.UnqualComponentName.UnqualComponentName
+-- not exported: instance Serialise Distribution.ModuleName.ShortTextLst
+
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Hackage"
   & spsAttachScopes graft
       [ pipeScope "Hackage"
-        [ somePipe0 "packages" capsTSG         CVSet   hackagePackageNames
+        [ somePipe0 "pkgNames" capsTSG         CVSet   hackagePackageNames
+        , somePipe0 "pkgs"     capsTS          CVSet   hackagePackages
         , somePipe1 "cabal"    capsTS  CVPoint CVPoint getHackagePackageCabalDesc
-        ]
-      , emptyPipeScope "Cabal"
-        <> (dataProjScope   (Proxy @Cabal.GenericPackageDescription)
-            $(dataProjPipes (Proxy @Cabal.GenericPackageDescription)))
-        <> (dataProjScope   (Proxy @Cabal.PackageDescription)
-            $(dataProjPipes (Proxy @Cabal.PackageDescription)))
-        <> (dataProjScope   (Proxy @Cabal.SourceRepo)
-            $(dataProjPipes (Proxy @Cabal.SourceRepo)))
-        <> (dataProjScope   (Proxy @Cabal.Library)
-            $(dataProjPipes (Proxy @Cabal.Library)))
-        <> (dataProjScope   (Proxy @Cabal.Executable)
-            $(dataProjPipes (Proxy @Cabal.Executable)))
-        <> (dataProjScope   (Proxy @Cabal.BuildInfo)
-            $(dataProjPipes (Proxy @Cabal.BuildInfo)))
+        ] ]
+  & spsAttachScopes (graft <> "Cabal")
+      [ $(dataProjPipeScope (Proxy @Cabal.GenericPackageDescription))
+      , $(dataProjPipeScope (Proxy @Cabal.PackageDescription))
+      , $(dataProjPipeScope (Proxy @Cabal.SourceRepo))
+      , $(dataProjPipeScope (Proxy @Cabal.Library))
+      , $(dataProjPipeScope (Proxy @Cabal.Executable))
+      , $(dataProjPipeScope (Proxy @Cabal.BuildInfo))
       ]
 
 
+hackagePackageNames :: IO (Fallible (Vector (Name Package)))
+hackagePackageNames = hackageDB <&> fmap (Vec.map (Name . pack . Cabal.unPackageName) . Vec.fromList . Map.keys)
+
+hackagePackages :: IO (Fallible (Vector Hackage.PackageData))
+hackagePackages = hackageDB <&> fmap (Vec.fromList . Map.elems)
+
 -- * XXX:  danger lurked in shadows of lazy IO..
-hackagePackageNames :: IO (Fallible [Name Package])
+hackageDB :: IO (Fallible (Map Cabal.PackageName Hackage.PackageData))
 -- hackagePackageNames :: IO (Fallible (Set (Name Package)))
-hackagePackageNames =
-  fmap (fmap toList) . Unsafe.unsafePerformIO . Unsafe.unsafeInterleaveIO $
+hackageDB =
+  Unsafe.unsafePerformIO . Unsafe.unsafeInterleaveIO $
   setupHackageCache 3600
-{-# NOINLINE hackagePackageNames #-}
+{-# NOINLINE hackageDB #-}
 
 
-setupHackageCache :: NominalDiffTime -> IO (IO (Fallible (Set (Name Package))))
+setupHackageCache :: NominalDiffTime -> IO (IO (Fallible (Map Cabal.PackageName Hackage.PackageData)))
 setupHackageCache cacheTmo = cachedIO cacheTmo $ do
   code <- system "cabal new-update"
   case code of
     ExitSuccess -> do
       tarball <- Hackage.hackageTarball
-      Right . Set.fromList . (Name . pack . Cabal.unPackageName <$>) . Map.keys
-        <$> Hackage.readTarball Nothing tarball
+      Right <$> Hackage.readTarball Nothing tarball
     ExitFailure x ->
       fallM . pack $ "'cabal update' exit status: " <> show x
 
@@ -143,7 +156,7 @@ getHackagePackageCabalDesc pkg@(Name pn) = do
     resp -> fallM . pack $ "Hackage response code: "<>show resp
 
  -- data Library = Library
- -- { libName           :: Maybe UnqualComponentName
+ --  libName           :: Maybe UnqualComponentName
  -- , exposedModules    :: [ModuleName]
  -- , reexportedModules :: [ModuleReexport]
  -- , signatures        :: [ModuleName]   -- ^ What sigs need implementations?

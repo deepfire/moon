@@ -1,11 +1,16 @@
 module Dom.VTag (module Dom.VTag) where
 
+import Control.DeepSeq
+import Control.Monad                      (foldM)
 import Data.Functor                       ((<&>))
 import Data.List.Extra                    (unsnoc)
 import Data.Maybe                         (fromMaybe, isJust)
+import Data.TH
 import Data.Typeable                      (Proxy)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
+
+import Basis hiding (Type)
 
 
 --------------------------------------------------------------------------------
@@ -38,13 +43,14 @@ class ReifyVTag (a :: *) where
 --
 data TagDecl
   = TagDecl
-    { tdStem :: String
-    , tdTy   :: Maybe Type
+    { tdStem   :: String
+    , tdTy     :: Maybe Type
+    , tdGround :: Bool
     }
   deriving Show
 
 defineGroundTypes :: Q [Dec] -> Q [Dec]
-defineGroundTypes qDec = emit <$> qDec
+defineGroundTypes qDec = qDec >>= emit
  where
    [a, b, c, f, r, x] = mkName <$> ["a", "b", "c", "f", "r", "x"]
    refl            = mkName "Refl"
@@ -59,13 +65,53 @@ defineGroundTypes qDec = emit <$> qDec
    typeable        = mkName "Typeable"
    reifyvtag       = mkName "ReifyVTag"
    eRror           = mkName "error"
+   groundTable     = mkName "groundTable"
+   serialiseN      = mkName "Serialise"
+   capNs           = OccName <$> ["T", "TS", "TSG"]
 
    qualRef :: String -> String -> Name
    qualRef qual name = Name (OccName name) (NameQ $ ModName qual)
 
-   emit :: [Dec] -> [Dec]
-   emit [DataD [] dataNameRaw [PlainTV tyIxName] Nothing cons derivs] =
-     [ DataInstD [] {- no context -}
+   tyUncons :: Type -> (OccName -> Bool) -> (Type, Maybe Name)
+   tyUncons t@(AppT (thAppHead -> PromotedT n@(Name occ _)) xs) f' =
+     (\xx -> trace ("tyUncons " <> show t <> " -> " <> show (snd xx)) xx) $
+     if f' occ
+     then (thAppTailIf (const True) t, Just n)
+     else (t, Nothing)
+   tyUncons t _f =
+     (\xx -> trace ("tyUncons " <> show t <> " -> " <> show (snd xx)) xx) $
+     (t, Nothing)
+
+   splitTyDecl :: Type -> (Type, Bool)
+   splitTyDecl t = case tyUncons t (flip elem capNs) of
+                     (xs, Just (Name (OccName "TSG") _)) -> (xs, True)
+                     (xs, Just{})  -> (xs, False)
+                     (xs, Nothing) -> (xs, False)
+
+   tableEntry :: Type -> String -> Exp
+   tableEntry ty name =
+     AppE (AppE (VarE (qualRef "TyDict" "insert"))
+                (LitE (StringL name)))
+          (AppTypeE (ConE $ mkName "Proxy")
+                    ty)
+   tableStep :: TagDecl -> Exp -> Exp
+   tableStep TagDecl{tdTy = Just ty, ..} acc =
+     if tdGround
+     then AppE (tableEntry ty tdStem) acc
+     else trace ("Ground table:  skipping " <> show ty) acc
+   tableStep _ acc = acc -- skip the catch-all: no ground dict entry made
+
+   emit :: [Dec] -> Q [Dec]
+   emit [DataD [] dataNameRaw [PlainTV tyIxName] Nothing cons derivs] = do
+     (!decls) :: [TagDecl] <- mapM conDecl cons
+       -- TagDecl "Top" Nothing -- the catch-all for non-Ground types.
+       -- : -- we interpret the retTy of 'a' as a catch-all.
+
+     let declsNoTop = filter (isJust . tdTy) decls
+         declsGround = filter tdGround decls
+
+     pure $
+       [ DataInstD [] {- no context -}
                  Nothing {- no tyvar binds -}
                  (AppT (AppT (ConT dataName) (ConT unit)) (VarT tyIxName))
                  Nothing    -- no kind spec
@@ -85,258 +131,250 @@ defineGroundTypes qDec = emit <$> qDec
                        -- Here again, 'Nothing' for the type means catchall.
                            fromMaybe (VarT tyIxName) tdTy)))
          derivs     -- no derive clauses
-     -- instance Eq (VTag' () a) where
-     --   a == b = case (,) a b of
-     --              (,) VXxx VXxx -> True
-     --              _ -> False
-     , InstanceD Nothing []
-         (AppT (ConT $ mkName "Eq") (AppT (AppT (ConT vtag') (ConT unit))
-                                          (VarT a)))
-         [ FunD (mkName "==")
-             [ Clause [VarP a, VarP b]
-                 (NormalB $
-                    CaseE (AppE (AppE (ConE pair) (VarE a)) (VarE b))
-                          ((decls <&>
-                           \TagDecl{..} ->
-                             let tag' = mkName $ "V" <> tdStem
-                             in Match (ConP pair [ConP tag' [], ConP tag' []])
-                                      (NormalB . ConE $ mkName "True") [])
-                           <>
-                           [Match WildP
-                                  (NormalB . ConE $ mkName "False") []])) []
-             ]]
-     -- instance GEq (VTag' ()) where
-     --   geq a b = case (a,b) of
-     --     (,) VXxx VXxx -> Just Refl ...
-     --     _ -> Nothing
-     , InstanceD Nothing []
-         (AppT (ConT $ mkName "GEq") (AppT (ConT vtag') (ConT unit)))
-         [ FunD (mkName "geq")
-             [ Clause [VarP a, VarP b]
-                 (NormalB $
-                    CaseE (AppE (AppE (ConE pair) (VarE a)) (VarE b))
-                          ((declsNoTop <&>
-                           \TagDecl{..} ->
-                             let tag' = mkName $ "V" <> tdStem
-                             in Match (ConP pair [ConP tag' [], ConP tag' []])
-                                      (NormalB $
-                                         AppE (ConE just) (ConE refl)) [])
-                           <>
-                           [Match WildP
-                                  (NormalB $ ConE nothing) []])) []
-             ]]
-     -- instance GCompare CTag where
-     --   gcompare a b = case geq a b of
-     --     Just Refl -> GEQ
-     --     Nothing -> case orderCTag a `compare` orderCTag b of
-     --       LT -> GLT
-     --       GT -> GGT
-     --    where
-     --      orderCTag :: forall a. CTag a -> Int
-     --      orderCTag = \case
-     --        CPoint -> 0 ...
-     , let geq = mkName "GEQ"
-           glt = mkName "GLT"
-           ggt = mkName "GGT"
-           compar = mkName "compare"
-           orderVTag = mkName "orderVTag" in
-       InstanceD Nothing []
-         (AppT (ConT $ mkName "GCompare") (AppT (ConT vtag') (ConT unit)))
-         [ FunD (mkName "gcompare")
-             [ Clause [VarP a, VarP b]
-                 (NormalB $
-                    CaseE (AppE (AppE (VarE $ mkName "geq") (VarE a)) (VarE b))
-                          [ Match (ConP just [ConP refl []])
-                                  (NormalB $ ConE geq)
-                                  []
-                          , Match (ConP nothing [])
-                                  (NormalB $
-                                   CaseE (AppE (AppE (VarE compar)
-                                                  (AppE (VarE orderVTag) (VarE a)))
-                                               (AppE (VarE orderVTag) (VarE b)))
-                                         [ Match (ConP (mkName "LT") [])
-                                                 (NormalB $ ConE glt) []
-                                         , Match (ConP (mkName "GT") [])
-                                                 (NormalB $ ConE ggt) []
-                                         -- XXX: this is dangerous.
-                                         , Match (ConP (mkName "EQ") [])
-                                                 (NormalB $ ConE ggt) []
-                                         ]) []
-                          ])
-               [ SigD orderVTag $
-                 ForallT [PlainTV a] [] $
-                   funT [ AppT (ConT vtag) (VarT a)
-                        , ConT $ mkName "Int"]
-               , FunD orderVTag
-                   [ Clause
-                       []
-                       (NormalB . LamCaseE $
-                          zip decls [0..] <&>
+       -- instance Eq (VTag' () a) where
+       --   a == b = case (,) a b of
+       --              (,) VXxx VXxx -> True
+       --              _ -> False
+       , SigD groundTable
+                (AppT (ConT $ mkName "TyDicts") (ConT $ mkName "Ground"))
+       , ValD (VarP groundTable)
+              (NormalB $ foldr tableStep (VarE (qualRef "TyDict" "empty"))
+                               declsGround)
+              []
+       , InstanceD Nothing []
+           (AppT (ConT $ mkName "Eq") (AppT (AppT (ConT vtag') (ConT unit))
+                                            (VarT a)))
+           [ FunD (mkName "==")
+               [ Clause [VarP a, VarP b]
+                   (NormalB $
+                      CaseE (AppE (AppE (ConE pair) (VarE a)) (VarE b))
+                            ((decls <&>
+                             \TagDecl{..} ->
+                               let tag' = mkName $ "V" <> tdStem
+                               in Match (ConP pair [ConP tag' [], ConP tag' []])
+                                        (NormalB . ConE $ mkName "True") [])
+                             <>
+                             [Match WildP
+                                    (NormalB . ConE $ mkName "False") []])) []
+               ]]
+       -- instance GEq (VTag' ()) where
+       --   geq a b = case (a,b) of
+       --     (,) VXxx VXxx -> Just Refl ...
+       --     _ -> Nothing
+       , InstanceD Nothing []
+           (AppT (ConT $ mkName "GEq") (AppT (ConT vtag') (ConT unit)))
+           [ FunD (mkName "geq")
+               [ Clause [VarP a, VarP b]
+                   (NormalB $
+                      CaseE (AppE (AppE (ConE pair) (VarE a)) (VarE b))
+                            ((declsNoTop <&>
+                             \TagDecl{..} ->
+                               let tag' = mkName $ "V" <> tdStem
+                               in Match (ConP pair [ConP tag' [], ConP tag' []])
+                                        (NormalB $
+                                           AppE (ConE just) (ConE refl)) [])
+                             <>
+                             [Match WildP
+                                    (NormalB $ ConE nothing) []])) []
+               ]]
+       -- instance GCompare CTag where
+       --   gcompare a b = case geq a b of
+       --     Just Refl -> GEQ
+       --     Nothing -> case orderCTag a `compare` orderCTag b of
+       --       LT -> GLT
+       --       GT -> GGT
+       --    where
+       --      orderCTag :: forall a. CTag a -> Int
+       --      orderCTag = \case
+       --        CPoint -> 0 ...
+       , let geq = mkName "GEQ"
+             glt = mkName "GLT"
+             ggt = mkName "GGT"
+             compar = mkName "compare"
+             orderVTag = mkName "orderVTag" in
+         InstanceD Nothing []
+           (AppT (ConT $ mkName "GCompare") (AppT (ConT vtag') (ConT unit)))
+           [ FunD (mkName "gcompare")
+               [ Clause [VarP a, VarP b]
+                   (NormalB $
+                      CaseE (AppE (AppE (VarE $ mkName "geq") (VarE a)) (VarE b))
+                            [ Match (ConP just [ConP refl []])
+                                    (NormalB $ ConE geq)
+                                    []
+                            , Match (ConP nothing [])
+                                    (NormalB $
+                                     CaseE (AppE (AppE (VarE compar)
+                                                    (AppE (VarE orderVTag) (VarE a)))
+                                                 (AppE (VarE orderVTag) (VarE b)))
+                                           [ Match (ConP (mkName "LT") [])
+                                                   (NormalB $ ConE glt) []
+                                           , Match (ConP (mkName "GT") [])
+                                                   (NormalB $ ConE ggt) []
+                                           -- XXX: this is dangerous.
+                                           , Match (ConP (mkName "EQ") [])
+                                                   (NormalB $ ConE ggt) []
+                                           ]) []
+                            ])
+                 [ SigD orderVTag $
+                   ForallT [PlainTV a] [] $
+                     funT [ AppT (ConT vtag) (VarT a)
+                          , ConT $ mkName "Int"]
+                 , FunD orderVTag
+                     [ Clause
+                         []
+                         (NormalB . LamCaseE $
+                            zip decls [0..] <&>
+                            \(TagDecl{..}, n) ->
+                                Match (ConP (mkName $ "V" <> tdStem) [])
+                                      (NormalB . LitE $ IntegerL n) []) [] ]]]]
+       , InstanceD Nothing []
+           (AppT (ConT $ mkName "Show")
+                 (AppT (AppT (ConT vtag') (ConT unit)) (VarT a)))
+           [ FunD (mkName "show")
+               [ Clause []
+                   (NormalB . LamCaseE $
+                      decls <&>
+                      \TagDecl{..} ->
+                        let tag' = "V" <> tdStem
+                        in Match (ConP (mkName tag') [])
+                                 (NormalB . LitE $ StringL tag') []) []
+               ]]
+       -- instance Serialise SomeCTag where
+       --   encode = \(SomeCTag tag) -> case tag of
+       --     CPoint -> CBOR.encodeWord 1 ...
+       , InstanceD Nothing []
+           (AppT (ConT $ mkName "Serialise") (ConT $ mkName "SomeVTag"))
+           [ FunD (mkName "encode")
+               [ Clause []
+                 (NormalB
+                   (LamE [ConP (mkName "SomeVTag")
+                          [SigP (VarP tag)
+                                (AppT (ConT vtag) (VarT c))]] $
+                      CaseE (VarE tag) $
+                        zip decls [256..] <&>
                           \(TagDecl{..}, n) ->
                               Match (ConP (mkName $ "V" <> tdStem) [])
-                                    (NormalB . LitE $ IntegerL n) []) [] ]]]]
-     , InstanceD Nothing []
-         (AppT (ConT $ mkName "Show")
-               (AppT (AppT (ConT vtag') (ConT unit)) (VarT a)))
-         [ FunD (mkName "show")
-             [ Clause []
-                 (NormalB . LamCaseE $
-                    decls <&>
-                    \TagDecl{..} ->
-                      let tag' = "V" <> tdStem
-                      in Match (ConP (mkName tag') [])
-                               (NormalB . LitE $ StringL tag') []) []
-             ]]
-     -- instance Serialise SomeCTag where
-     --   encode = \(SomeCTag tag) -> case tag of
-     --     CPoint -> CBOR.encodeWord 1 ...
-     , InstanceD Nothing []
-         (AppT (ConT $ mkName "Serialise") (ConT $ mkName "SomeVTag"))
-         [ FunD (mkName "encode")
-             [ Clause []
-               (NormalB
-                 (LamE [ConP (mkName "SomeVTag")
-                        [SigP (VarP tag)
-                              (AppT (ConT vtag) (VarT c))]] $
-                    CaseE (VarE tag) $
-                      zip decls [256..] <&>
-                        \(TagDecl{..}, n) ->
-                            Match (ConP (mkName $ "V" <> tdStem) [])
+                                (NormalB $
+                                  let tagE = AppE (VarE $ mkName "encodeWord")
+                                                  (LitE $ IntegerL n)
+                                      prependTopRep x' =
+                                        InfixE (Just x')
+                                               (VarE $ mkName "<>")
+                                               (Just $ AppE
+                                                         (VarE $ mkName "encode")
+                                                         (AppTypeE
+                                                           (VarE $ mkName "typeRep")
+                                                           (VarT c)))
+                                  in if isJust tdTy
+                                     then tagE
+                                     else prependTopRep tagE)
+                              []
+                         )) []
+               ]
+       -- instance Serialise SomeCTag where
+       --   decode = do
+       --     tag <- CBOR.decodeWord
+       --     case tag of
+       --       1 -> pure $ SomeCTag CPoint ...
+       --       _ -> fail $ "invalid SomeCTag encoding: tag="<>show tag
+           , FunD
+               (mkName "decode")
+               [ Clause
+                 []
+                 (NormalB $ DoE
+                   [ BindS (VarP tag)
+                           (VarE $ mkName "decodeWord")
+                   , NoBindS $
+                       CaseE (VarE tag) $
+                         (zip decls [256..] <&>
+                           \(TagDecl{..}, n) ->
+                              Match (LitP $ IntegerL n)
                               (NormalB $
-                                let tagE = AppE (VarE $ mkName "encodeWord")
-                                                (LitE $ IntegerL n)
-                                    prependTopRep x' =
-                                      InfixE (Just x')
-                                             (VarE $ mkName "<>")
-                                             (Just $ AppE
-                                                       (VarE $ mkName "encode")
-                                                       (AppTypeE
-                                                         (VarE $ mkName "typeRep")
-                                                         (VarT c)))
-                                in if isJust tdTy
-                                   then tagE
-                                   else prependTopRep tagE)
-                            []
-                       )) []
-             ]
-     -- instance Serialise SomeCTag where
-     --   decode = do
-     --     tag <- CBOR.decodeWord
-     --     case tag of
-     --       1 -> pure $ SomeCTag CPoint ...
-     --       _ -> fail $ "invalid SomeCTag encoding: tag="<>show tag
-         , FunD
-             (mkName "decode")
-             [ Clause
-               []
-               (NormalB $ DoE
-                 [ BindS (VarP tag)
-                         (VarE $ mkName "decodeWord")
-                 , NoBindS $
-                     CaseE (VarE tag) $
-                       (zip decls [256..] <&>
-                         \(TagDecl{..}, n) ->
-                            Match (LitP $ IntegerL n)
-                            (NormalB $
-                               if isJust tdTy
-                               then AppE (VarE $ mkName "pure") $
-                                         AppE (ConE $ mkName "SomeVTag")
-                                              (ConE $ mkName $ "V" <> tdStem)
-                               else VarE (mkName "decodeVTop")) [])
-                       <>
-                       [Match (VarP a)
-                         (NormalB
-                           (AppE (VarE eRror)
-                             (InfixE
-                               (Just . LitE $ StringL "decode @VTag: ")
-                               (VarE $ mkName "<>")
-                               (Just $ AppE (VarE (mkName "show")) (VarE a))))) []]
-                 ]) []
-             ]
-         ]
+                                 if isJust tdTy
+                                 then AppE (VarE $ mkName "pure") $
+                                           AppE (ConE $ mkName "SomeVTag")
+                                                (ConE $ mkName $ "V" <> tdStem)
+                                 else VarE (mkName "decodeVTop")) [])
+                         <>
+                         [Match (VarP a)
+                           (NormalB
+                             (AppE (VarE eRror)
+                               (InfixE
+                                 (Just . LitE $ StringL "decode @VTag: ")
+                                 (VarE $ mkName "<>")
+                                 (Just $ AppE (VarE (mkName "show")) (VarE a))))) []]
+                   ]) []
+               ]
+           ]
 
-     , SigD (mkName "groundTable")
-         (AppT (ConT $ mkName "TyDicts") (ConT $ mkName "Ground"))
-     , let step :: TagDecl -> Exp -> Exp
-           step TagDecl{tdTy = Just ty, ..} acc =
-             AppE (AppE (AppE (VarE (qualRef "TyDict" "insert"))
-                              (LitE (StringL tdStem)))
-                        (AppTypeE (ConE $ mkName "Proxy")
-                                  ty))
-                  acc
-           step _ acc = acc    -- skip the catch-all: no ground dict entry made
-       in
-       ValD (VarP $ mkName "groundTable")
-            (NormalB $ foldr step (VarE (qualRef "TyDict" "empty")) decls) []
-
-     -- withVTag :: VTag a -> ((Typeable a, ReifyVTag a) => r) -> r
-     -- withVTag x f = case x of
-     --   VTop -> f
-     , SigD (mkName "withVTag") $
-         funT [ AppT (ConT vtag) (VarT a)
-              , ForallT []
-                  [ AppT (ConT typeable)  (VarT a)
-                  , AppT (ConT reifyvtag) (VarT a)] $
-                  VarT r
-              , VarT r ]
-     , FunD (mkName "withVTag") . (:[]) $
-         Clause
-           [VarP x, VarP f]
-           (NormalB $
-             CaseE (VarE x) $
-               decls <&>
-                \TagDecl{..} ->
-                   Match (ConP (mkName $ 'V':tdStem) [])
-                    (NormalB $ VarE f) []) []
-     -- mkSomeValue ::
-     --   (Typeable c, ReifyCTag c)
-     --   => CTag c -> VTag v -> Repr c v -> SomeValue
-     -- , SigD (mkName "mkSomeValue") $
-     --     ForallT [PlainTV c, PlainTV v]
-     --             [ AppT (ConT typeable) (VarT c)
-     --             , AppT (ConT reifyctag) (VarT c)] $
-     --       funT [ AppT (ConT ctag) (VarT c)
-     --            , AppT (ConT vtag) (VarT v)
-     --            , AppT (AppT (ConT repr) (VarT c)) (VarT v)
-     --            , ConT somevalue ]
-     -- , FunD (mkName "mkSomeValue") $
-     --     decls <&>
-     --       \TagDecl{..} ->
-     --          Clause
-     --            [VarP c, AsP v (RecP (mkName $ 'V':tdStem) [])]
-     --            (NormalB $
-     --               if isJust tdTy
-     --               then composeList [ AppE (ConE somevalue) (VarE c)
-     --                                , AppE (ConE somevaluekinded) (VarE v)
-     --                                , AppE (AppE (VarE mkvalue) (VarE v)) (VarE c)
-     --                                ]
-     --               else
-     --                 AppE (VarE eRror)
-     --                      (LitE (StringL "Cannot create SomeKindedValue from a VTop."))) []
-     ] ++
-     (decls <&>
-       \TagDecl{..} ->
-         InstanceD
-         (maybe (Just Overlappable)
-                 -- overlap for the catchall (supposed to be VTop)
-                (const $ Just Incoherent)
-                tdTy)
-         (maybe [AppT (ConT typeable) (VarT a)] -- Top requires Typeable.
-                (const []) tdTy)
-         (AppT (ConT reifyvtag)
-               (fromMaybe (VarT a) tdTy))
-         -- reifyVTag = const VSomething
-         [ FunD (mkName $ "reifyVTag")
-                [ Clause
-                  []
-                  (NormalB $
-                   AppE (VarE $ mkName "const")
-                   (ConE . mkName $ 'V':tdStem)) []]]
-     ) ++ []
-     -- (decls <&>
-     --   \TagDecl{..} ->
-     --     InstanceD
-     --     (maybe (Just Overlappable)
+       -- withVTag :: VTag a -> ((Typeable a, ReifyVTag a) => r) -> r
+       -- withVTag x f = case x of
+       --   VTop -> f
+       , SigD (mkName "withVTag") $
+           funT [ AppT (ConT vtag) (VarT a)
+                , ForallT []
+                    [ AppT (ConT typeable)  (VarT a)
+                    , AppT (ConT reifyvtag) (VarT a)] $
+                    VarT r
+                , VarT r ]
+       , FunD (mkName "withVTag") . (:[]) $
+           Clause
+             [VarP x, VarP f]
+             (NormalB $
+               CaseE (VarE x) $
+                 decls <&>
+                  \TagDecl{..} ->
+                     Match (ConP (mkName $ 'V':tdStem) [])
+                      (NormalB $ VarE f) []) []
+       -- mkSomeValue ::
+       --   (Typeable c, ReifyCTag c)
+       --   => CTag c -> VTag v -> Repr c v -> SomeValue
+       -- , SigD (mkName "mkSomeValue") $
+       --     ForallT [PlainTV c, PlainTV v]
+       --             [ AppT (ConT typeable) (VarT c)
+       --             , AppT (ConT reifyctag) (VarT c)] $
+       --       funT [ AppT (ConT ctag) (VarT c)
+       --            , AppT (ConT vtag) (VarT v)
+       --            , AppT (AppT (ConT repr) (VarT c)) (VarT v)
+       --            , ConT somevalue ]
+       -- , FunD (mkName "mkSomeValue") $
+       --     decls <&>
+       --       \TagDecl{..} ->
+       --          Clause
+       --            [VarP c, AsP v (RecP (mkName $ 'V':tdStem) [])]
+       --            (NormalB $
+       --               if isJust tdTy
+       --               then composeList [ AppE (ConE somevalue) (VarE c)
+       --                                , AppE (ConE somevaluekinded) (VarE v)
+       --                                , AppE (AppE (VarE mkvalue) (VarE v)) (VarE c)
+       --                                ]
+       --               else
+       --                 AppE (VarE eRror)
+       --                      (LitE (StringL "Cannot create SomeKindedValue from a VTop."))) []
+       ] ++
+       (decls <&>
+         \TagDecl{..} ->
+           InstanceD
+           (maybe (Just Overlappable)
+                   -- overlap for the catchall (supposed to be VTop)
+                  (const $ Just Incoherent)
+                  tdTy)
+           (maybe [AppT (ConT typeable) (VarT a)] -- Top requires Typeable.
+                  (const []) tdTy)
+           (AppT (ConT reifyvtag)
+                 (fromMaybe (VarT a) tdTy))
+           -- reifyVTag = const VSomething
+           [ FunD (mkName $ "reifyVTag")
+                  [ Clause
+                    []
+                    (NormalB $
+                     AppE (VarE $ mkName "const")
+                     (ConE . mkName $ 'V':tdStem)) []]]
+       ) ++ []
+       -- (decls <&>
+       --   \TagDecl{..} ->
+       --     InstanceD
+       --     (maybe (Just Overlappable)
      --             -- overlap for the catchall (supposed to be VTop)
      --            (const $ Just Incoherent)
      --            tdTy)
@@ -372,23 +410,21 @@ defineGroundTypes qDec = emit <$> qDec
       nameToDyn :: Name -> Name
       nameToDyn (Name (OccName n) _) = Name (OccName n) NameS
 
-      decls, declsNoTop :: [TagDecl]
-      decls =
-        -- TagDecl "Top" Nothing -- the catch-all for non-Ground types.
-        -- : -- we interpret the retTy of 'a' as a catch-all.
-        conDecl <$> cons
-      declsNoTop =
-        filter (isJust . tdTy) decls
-
-      conDecl :: Con -> TagDecl
+      conDecl :: Con -> Q TagDecl
       conDecl con =
         case con of
           GadtC _ns [] retTy ->
             case nameOf con of
-              ('V':stem, _name) ->
+              ('V':tdStem, _name) ->
                 case retTy of
-                  VarT _ -> TagDecl stem Nothing
-                  _      -> TagDecl stem (Just retTy)
+                  VarT _ -> pure $ TagDecl tdStem Nothing False
+                  ty -> do
+                    (,) tdTy tdGround <-
+                      case splitTyDecl ty of
+                        ret@(_, True) -> pure ret
+                        (ty', False) ->
+                          (ty',) <$> thNameIsInstanceSpine serialiseN ty'
+                    pure $ TagDecl{tdTy = Just tdTy, ..}
               (other, _) -> error $
                 "Ground tag constructor name doesn't start with V: " <> other
           GadtC{} -> error $
@@ -403,8 +439,8 @@ defineGroundTypes qDec = emit <$> qDec
         GadtC [name@(Name (OccName str) _)] _ _ -> (str, name)
         _                 -> error "Non-GADT constructor"
 
-   emit (x':xs) = x' : emit xs
-   emit []      = []
+   emit (x':xs) = (x' :) <$> emit xs
+   emit []      = pure []
 
 -- http://hackage.haskell.org/package/template-haskell/docs/Language-Haskell-TH-Lib.html
 -- https://ghc.gitlab.haskell.org/ghc/doc/libraries/template-haskell-2.17.0.0/Language-Haskell-TH-Syntax.html

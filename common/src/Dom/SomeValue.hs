@@ -6,6 +6,7 @@ import Basis
 
 import Data.Parsing
 import Data.Shelf
+import Data.Vector                      qualified as Vec
 
 import Dom.CTag
 import Dom.Cap
@@ -181,12 +182,12 @@ parseSomeValue extraParses =
          pure $ SV ctag $ SVK vtag capsTSG $ mkValue' a ctag v
          -- pure $ mkSomeValue ctag vtag v
        CList -> do
-         v :: [a] <- commaSep parser
+         v :: Vector a <- Vec.fromList <$> commaSep parser
          let vtag = reifyVTag $ Proxy @a
          pure $ SV ctag $ SVK vtag capsTSG $ mkValue' a ctag v
          -- pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) v
        CSet -> do
-         v :: [a] <- commaSep parser
+         v :: Vector a <- Vec.fromList <$> commaSep parser
          let vtag = reifyVTag $ Proxy @a
          pure $ SV ctag $ SVK vtag capsTSG $ mkValue' a ctag v
          -- pure $ mkSomeValue ctag (reifyVTag $ Proxy @a) (Set.fromList v)
@@ -218,7 +219,7 @@ instance Serialise SomeValue where
      encodeValue = \case
        VPoint x -> encode x
        VList  x -> encode x
-       VSet   x -> encode $ toList x
+       VSet   x -> encode x
        VTree  x -> encode x
        VDag   x -> encode x
        VGraph x -> encode x

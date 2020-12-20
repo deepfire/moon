@@ -26,6 +26,7 @@ where
 
 import qualified Data.ByteString.Lazy                as LBS
 import qualified Data.Text                           as T
+import           Data.IntUnique
 
 import           Codec.Serialise
 import           Control.Tracer
@@ -78,19 +79,19 @@ serverPeer server =
        -> Peer (Piping rej) AsServer StIdle m ()
     go Server{processRequest, processDone} =
       Await (ClientAgency TokIdle) $ \case
-        MsgRequest req ->
+        MsgRequest uniq req ->
           Effect $ do
           (mrej, k) <- processRequest req
           pure $ case mrej of
             Right rep ->
               Yield
                 (ServerAgency TokBusy)
-                (MsgReply rep)
+                (MsgReply uniq rep)
                 (go k)
             Left rej ->
               Yield
                 (ServerAgency TokBusy)
-                (MsgBadRequest rej)
+                (MsgBadRequest uniq rej)
                 (go k)
 
         MsgDone ->
@@ -99,8 +100,9 @@ serverPeer server =
 
 data ClientState rej m a where
      ClientRequesting
-       :: StandardRequest
-       -> (Either rej a -> m (ClientState rej m a))
+       :: Unique
+       -> StandardRequest
+       -> (Unique -> Either rej a -> m (ClientState rej m a))
        -> ClientState rej m a
 
      ClientDone
@@ -128,13 +130,15 @@ mkClientSTS firstStep =
  where
    go :: ClientState rej m a
       -> Peer (Piping rej) AsClient StIdle m a
-   go (ClientRequesting req csStep) =
-     Yield (ClientAgency TokIdle) (MsgRequest req) $
+   go (ClientRequesting reqUniq req csStep) =
+     Yield (ClientAgency TokIdle) (MsgRequest reqUniq req) $
        Await (ServerAgency TokBusy) $ \case
-         MsgReply rep ->
-           Effect (go <$> csStep (Right rep))
-         MsgBadRequest rej ->
-           Effect (go <$> csStep (Left  rej))
+         -- Note, that the reply does not necessarily correspond
+         -- to the request.
+         MsgReply replyUniq rep ->
+           Effect (go <$> csStep replyUniq (Right rep))
+         MsgBadRequest replyUniq rej ->
+           Effect (go <$> csStep replyUniq (Left  rej))
    go (ClientDone retVal) =
      Yield (ClientAgency TokIdle)
            MsgDone

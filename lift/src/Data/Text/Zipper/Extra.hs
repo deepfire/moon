@@ -72,20 +72,22 @@ complete constituency
          compChar
          mCompleteTo
          tz@(TextZipper _ b _ _) =
-  let lastW = lastWord b
+  let lastW = lastWord constituency b
       lastWcompletible = flip all lastW
         \x -> constituency x || x == '.'
   in
       (traceErr $ mconcat $
         [ "complete: "
-        , "lastW=", show lastW, ", "
+        , "b->lastW: ", show b, " -> ", show lastW, ", "
         , "completible=", show lastWcompletible, ", "
         , "mCompleteTo=", show mCompleteTo, ", "
         ]) $
     case (lastWcompletible, mCompleteTo) of
       (True, Just completeTo) ->
         let lastWisPrefix = lastW `isPrefixOf` completeTo
-            commons = commonPrefixes completeTo (takeEnd (lastWordLen b) b)
+            commons = commonPrefixes
+                        completeTo
+                        (takeEnd (lastWordLen constituency b) b)
         in
           (traceErr $ mconcat $
            [ "complete: "

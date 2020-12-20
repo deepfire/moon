@@ -18,7 +18,13 @@ import Dom.SomeType
 --
 newtype Struct =
   Struct (G.Graph SomeType)
-  deriving (Eq, Generic, Ord, Show)
+  deriving (Eq, Generic, Semigroup, Monoid, Ord, Show)
+
+instance Semigroup (G.Graph a) where
+  (<>) = G.overlay
+
+instance Monoid (G.Graph a) where
+  mempty = G.empty
 
 --------------------------------------------------------------------------------
 -- * Instances

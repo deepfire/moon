@@ -84,18 +84,25 @@ import Ground.Table
 --
 newtype GhcLibDir = GhcLibDir FilePath deriving Show
 
+-- What operations do we have:
+--  1. define a named scope, with individual pipes
+--  2. at graft point, attach list of ADT-named subscopes:  spsAttachScopes
+--  3. <> scopes
+--
+-- What is missing?  Subscope definitionss.
+
 pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Haskell"
   & spsAttachScopes graft
-      [ dataProjScope (Proxy @Loc)     $(dataProjPipes (Proxy @Loc))
-      -- *
-      , dataProjScope (Proxy @Index)   $(dataProjPipes (Proxy @Index))
-      , dataProjScope (Proxy @Repo)    $(dataProjPipes (Proxy @Repo))
-      , dataProjScope (Proxy @Package) $(dataProjPipes (Proxy @Package))
-      , dataProjScope (Proxy @Module)  $(dataProjPipes (Proxy @Module))
-      , dataProjScope (Proxy @Def)     $(dataProjPipes (Proxy @Def))
+      [ $(dataProjPipeScope (Proxy @Loc))
+      --
+      , $(dataProjPipeScope (Proxy @Index))
+      , $(dataProjPipeScope (Proxy @Repo))
+      , $(dataProjPipeScope (Proxy @Package))
+      , $(dataProjPipeScope (Proxy @Module))
+      , $(dataProjPipeScope (Proxy @Def))
       -- DefType aren't records, so not supported.
-      -- , dataProjScope (Proxy @DefType) $(dataProjPipes (Proxy @DefType))
+      -- , dataProjScope (Proxy @DefType) $(dataProjPipeScope (Proxy @DefType))
       ]
 
 fileToHsModule

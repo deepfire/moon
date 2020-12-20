@@ -30,6 +30,10 @@ cvValue :: CapValue c a -> Value c a
 cvValue = _cvValue
 {-# INLINE cvValue #-}
 
+stripCapValue :: CapValue c a -> Repr c a
+stripCapValue = stripValue . cvValue
+{-# INLINE stripCapValue #-}
+
 splitSVByCTag ::
   forall t c. (Reflex t)
   => CTag c

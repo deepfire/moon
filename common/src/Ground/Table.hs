@@ -7,7 +7,7 @@ module Ground.Table (module Ground.Table) where
 
 import Data.GADT.Compare
 import Data.SOP                         qualified as SOP
-import Generics.SOP.Some                qualified as SOP
+import Data.Dynamic                     qualified as Dyn
 
 import Text.Megaparsec.Parsers
 
@@ -19,6 +19,7 @@ import Dom.CTag
 import Dom.Cap
 import Dom.Expr
 import Dom.Ground
+import Dom.Ground.Cabal                 qualified as Cabal
 import Dom.Ground.Hask                  qualified as Hask
 import Dom.Located
 import Dom.Name
@@ -26,7 +27,6 @@ import Dom.Parse
 import Dom.Pipe
 import Dom.Pipe.SomePipe
 import Dom.Scope
-import Dom.Scope.ADTPipe
 import Dom.Sig
 import Dom.SomeType
 import Dom.SomeValue
@@ -37,6 +37,11 @@ import Dom.Tags
 import Dom.Value
 import Dom.VTag
 
+import Distribution.Utils.ShortText           (ShortText)
+import Distribution.Types.PackageName         (PackageName)
+
+instance Serialise Distribution.Utils.ShortText.ShortText
+instance Serialise PackageName
 
 
 -- * Tables
@@ -48,7 +53,8 @@ defineGroundTypes [d|
     VExpr            :: Expr (Located (QName Pipe))
     -- VGround          :: Dict Ground
     VPipe            :: SomePipe ()
-    VPipeSpace       :: PipeSpace (SomePipe ())
+    VPipeSpace       :: TSG PipeSpace (SomePipe ())
+    VPipeSpaceDyn    :: PipeSpace (SomePipe Dyn.Dynamic)
     VQNameScope      :: QName Scope
     VSig             :: ISig
     VSomeType        :: SomeType
@@ -87,6 +93,8 @@ defineGroundTypes [d|
     VHaskDef         :: Hask.Def
     VHaskDefType     :: Hask.DefType
 
+    -- VCabalPackageName :: PackageName
+
     -- Top, special processing.
     VTop             :: a
  |]
@@ -107,7 +115,7 @@ deriving instance Eq       (Tags t)
 -- xs :: [SomePipe Dynamic]
 -- xs = dataProjScope'
 --        (Proxy @Foo)
---        $(dataProjPipes (Proxy @Foo))
+--        $(dataProjPipeScope (Proxy @Foo))
 
 --------------------------------------------------------------------------------
 -- * Depends on Serialise SomeVTag, which comes from the ground table.

@@ -20,6 +20,11 @@ data Cap (c :: Type -> Constraint) where
   CShow     :: Cap Show
   CTypeable :: Cap Typeable
 
+data TCap
+  = TSG
+  | TS
+  | T
+
 instance GEq Cap where
   geq a b = case (a,b) of
     (,) CGround   CGround   -> Just Refl

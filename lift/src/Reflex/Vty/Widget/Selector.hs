@@ -62,7 +62,8 @@ selector ::
   => SelectorParams t m a
   -> VtyWidget t m (Selector t m a)
 selector SelectorParams{..} = mdo
-  lenD <- holdUniqDyn =<< holdDyn 0 ($(ev "lenD" 'spElemsE) <&> length)
+  lenD <- holdUniqDyn =<<
+    holdDyn 0 ($(ev "lenD" 'spElemsE) <&> Vec.length)
 
   -- this is highly suspect!
   selIndexD  :: Dynamic t Index <-
@@ -78,7 +79,8 @@ selector SelectorParams{..} = mdo
         [ $(ev' "maySelrSelectE" "selectionMenu") menuMaySelE
         -- The initial value:
         , $(ev "maySelrSelectE" 'spElemsE)
-          <&> fmap (Index 0,) . (Vec.!? 0)]
+          <&> fmap (Index 0,) . (Vec.!? 0)
+        ]
 
   -- This is used immediately above to update the input with menu choice.
   selrInputOfftD :: Dynamic t (Text, Column) <-
@@ -87,12 +89,13 @@ selector SelectorParams{..} = mdo
           [e|showQ . unpack . fst3|]) <&> rpop3
 
   -- widgets:  menu + incremental input
-  ((_, (menuMaySelE,  _menuPickE)
+  ((_, (menuMaySelE,  menuPickE)
         :: ( Event t (Maybe (Index, a))
            , Event t (Index, a))),
    (_, inputOfftErrE :: Event t (Text, Column, Maybe Text))) <-
     splitV (pure (\x->x-2)) (pure $ join (,) True)
-     (splitV (lenD <&> \x y -> y - x) (pure $ join (,) True)
+     (splitV (lenD <&> \nelts total ->
+                 total - (total `min` nelts)) (pure $ join (,) True)
        blank
        (fmap fanEither $
         selectionMenu
@@ -126,7 +129,7 @@ selector SelectorParams{..} = mdo
      completingInput
        spConstituency
        spCompletep
-       menuChoiceB
+       menuChoiceB -- to choiceD to facilitate Enter selection?
        "> "
        $(devl "inputOfftErrE" 'selInputGuideD
               [e|showQ . fst|])
@@ -145,12 +148,10 @@ selectionMenu presentMenuRow indexXsE = mdo
            Either (Int, Index) (Index, Vector (Int, a))
         -> (Int, Index, Vector (Int, a))
         -> (Int, Index, Vector (Int, a))
-      accumVportState (Left  (x, y)) u@(_, _, z) = (x, y, z)
-        & trace ("accumVportState: L "<>show (Vec.length <$> u)<>
-                 " -> " <> show (Vec.length <$> (x, y, z)))
-      accumVportState (Right (y, z)) u@(x, _, _) = (x, y, z)
-        & trace ("accumVportState: R "<>show (Vec.length <$> u)<>
-                 " -> " <> show (Vec.length <$> (x, y, z)))
+      accumVportState (Left  (x, y)) u@(_, _, z) =
+        (x `min` length z, y, z)
+      accumVportState (Right (y, z)) u@(x, _, _) =
+        (x `min` length z, y, z)
   vportStateD <- foldDyn accumVportState initial $
     leftmost [ Left <$> panE
              , Right <$> $(evl'' "staticDataWidget_postBuildE"
@@ -175,12 +176,12 @@ selectionMenu presentMenuRow indexXsE = mdo
      -> (Int, Index, Vector (Int, a))
      -> VtyWidget t m (Event t (Either (Int, Index) (These (Maybe a) a)))
    staticDataWidget _ (_, _, Vec.null -> True)
-     = pure never
+     -- = pure never
      -- If there's nothing to complete _to_, signal this:
-     -- = getPostBuild
-     --   <&> $(evl'' "menuMaySelE" "staticDataWidget_postBuildE"
-     --               [e|const "Nothing"|])
-     --       . ($> This Nothing)
+     = getPostBuild
+       <&> $(evl'' "menuMaySelE" "staticDataWidget_postBuildE"
+                   [e|const "Nothing"|])
+           . ($> Right (This Nothing))
    staticDataWidget (Height height) (vportPos, Index selIx, vec) = do
      -- Display elements as row widgets, packaged into 1-large layouts,
      let len     = Vec.length vec
@@ -189,22 +190,19 @@ selectionMenu presentMenuRow indexXsE = mdo
          sliceIx = selIx - vportPos
          initial = snd $ slice Vec.! sliceIx
 
-     let layout = trace ("traversing slice "<>show vportPos<>":"<>show visible<>":"<>show (vportPos + visible)<>"/"<>show len<>", height="<>show height) $
-                  flip traverse slice $
+     let layout = flip traverse slice $
                   \(i, x) ->
                     fixed 1 . fmap (fmap (i,)) . presentMenuRow $ x
 
      upDownNav :: Event t Int <- upDownNavigation
 
      focusIx <- foldDyn (+) selIx $(ev "focusIx" 'upDownNav)
-                  <&> fmap ((\ix->trace ("new focusIx: "<>show ix) ix) .
-                            (`mod` len))
+                  <&> fmap (`mod` len)
 
      let panE = fmapMaybe id $
                 updated focusIx <&> focusChangeNecessitatesPan
          focusChangeNecessitatesPan :: Int -> Maybe (Int, Index)
          focusChangeNecessitatesPan ix =
-           (\x->trace ("pan: "<>show ix<>" (of "<>show len<>", vport "<>show vportPos<>"-"<>show (vportPos + height)<>") -> "<>show x) x) $
            (,Index ix) <$>
            if | ix < vportPos
                 -> let wrap = ix == 0
@@ -219,12 +217,11 @@ selectionMenu presentMenuRow indexXsE = mdo
 
      let focusE :: Event t a = snd . (vec Vec.!) <$> updated focusIx
 
-     -- pickEs <- runLayout (pure Orientation_Column)
-     void $ runLayout (pure Orientation_Column)
+     pickEs <- runLayout (pure Orientation_Column)
                       sliceIx
                       $(ev "pickE" 'upDownNav)
                       layout
-     -- let pickE = snd <$> leftmost pickEs
+     let pickE = snd <$> leftmost (toList pickEs)
 
      nowE <- getPostBuild
      pure $
@@ -238,8 +235,7 @@ selectionMenu presentMenuRow indexXsE = mdo
               , $(ev "selectionMenu" 'focusE)
               ]
               <&> Just)
-             never
-         -- $(ev "selectionMenu" 'pickE)
+           $(ev "selectionMenu" 'pickE)
          ]
 
 completingInput ::

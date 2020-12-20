@@ -1,18 +1,21 @@
 {-# LANGUAGE UndecidableInstances       #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Dom.CTag (module Dom.CTag) where
 
-import qualified Algebra.Graph                    as G
-import qualified Codec.CBOR.Decoding              as CBOR (decodeWord)
-import qualified Codec.CBOR.Encoding              as CBOR (encodeWord)
-import           Codec.Serialise                    (Serialise(..))
-import           Control.DeepSeq                    (NFData(..))
-import           Data.GADT.Compare                  (GEq(..), GCompare(..), GOrdering(..))
-import qualified Data.Text                        as Text
-import           Data.Typeable                      (Proxy, Typeable, (:~:)(..))
-import qualified Generics.SOP                     as SOP
-import           GHC.Generics                       (Generic)
-import           GHC.TypeLits
-import qualified GHC.TypeLits                     as Ty
+import Algebra.Graph qualified          as G
+import Codec.CBOR.Decoding qualified    as CBOR (decodeWord)
+import Codec.CBOR.Encoding qualified    as CBOR (encodeWord)
+import Codec.Serialise                    (Serialise(..))
+import Control.DeepSeq                    (NFData(..))
+import Data.GADT.Compare                  (GEq(..), GCompare(..), GOrdering(..))
+import Data.Text qualified              as Text
+import Data.Typeable                      (Proxy, Typeable, (:~:)(..))
+import Data.Vector                        (Vector)
+import Data.Vector qualified            as Vec
+import Generics.SOP qualified           as SOP
+import GHC.Generics                       (Generic)
+import GHC.TypeLits
+import GHC.TypeLits qualified           as Ty
 
 import Data.Parsing
 import Dom.Some
@@ -181,8 +184,8 @@ instance Serialise SomeCTag where
 --
 type family Repr (k :: Con) (a :: *) :: * where
   Repr Point a =            a
-  Repr List  a =         [] a
-  Repr 'Set  a =         [] a
+  Repr List  a =     Vector a
+  Repr 'Set  a =     Vector a
   Repr Tree  a =    G.Graph a
   Repr Dag   a =    G.Graph a
   Repr Graph a =    G.Graph a
@@ -197,8 +200,8 @@ type family Repr (k :: Con) (a :: *) :: * where
 pureRepr :: forall c a. ReifyCTag c => a -> Repr c a
 pureRepr = case reifyCTag (SOP.Proxy @c) of
   CPoint -> id
-  CList  -> (:[])
-  CSet   -> (:[])
+  CList  -> Vec.singleton
+  CSet   -> Vec.singleton
   CTree  -> G.Vertex
   CDag   -> G.Vertex
   CGraph -> G.Vertex
@@ -207,8 +210,8 @@ pureRepr = case reifyCTag (SOP.Proxy @c) of
 pickRepr :: forall c a. ReifyCTag c => Repr c a -> a
 pickRepr = case reifyCTag (SOP.Proxy @c) of
   CPoint -> id
-  CList  -> head
-  CSet   -> head
+  CList  -> (Vec.! 0)
+  CSet   -> (Vec.! 0)
   CTree  -> \(G.Vertex x) -> x
   CDag   -> \(G.Vertex x) -> x
   CGraph -> \(G.Vertex x) -> x

@@ -1,25 +1,33 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Execution where
 
+import Control.Concurrent.Async qualified      as Async
+import Control.Concurrent.Chan.Unagi             (InChan, OutChan,
+                                                  newChan, writeChan)
 import Control.Monad.Trans.Maybe
 import Data.Dynamic qualified                  as Dyn
 import Data.Either qualified                   as E
+import Data.IntMap qualified                   as IMap
+import Data.IntMap                               (IntMap)
+import Data.IORef qualified                    as IO
+import Data.IORef.Extra qualified              as IO
 import Data.Semigroup qualified                as S
 import Data.Text qualified                     as T
 import Data.String
 import Data.Vector qualified                   as Vec
 
-import Reflex                            hiding (Request)
+import Reflex                             hiding (Request)
 import Reflex.Network
-import Reflex.Vty                        hiding (Request)
+import Reflex.Vty                         hiding (Request)
 
+import Data.IntUnique
 import Data.Shelf
 
 import Dom.CTag
 import Dom.Cap
 import Dom.Error
 import Dom.Expr
-import Dom.Ground
 import Dom.Located
 import Dom.Name
 import Dom.Pipe
@@ -27,8 +35,11 @@ import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
 import Dom.RequestReply
+import Dom.Sig
+import Dom.SomeType
 import Dom.SomeValue
 import Dom.Space.Pipe
+import Dom.Tags
 import Dom.Value
 import Dom.VTag
 
@@ -56,6 +67,69 @@ trevt :: forall t a.
 trevt = trevd (unpack . showTypeRepNoKind $ typeRep @a)
 
 
+data ExecutionPort t p =
+  ExecutionPort
+  { epPost     ::   Execution t p -> IO ()
+  , epExecs    ::   OutChan (Execution t p)
+  , epReplies  ::   EventSelectorInt t (PFallible SomeValue)
+  , epStreamsR ::   IO.IORef (IntMap (Execution t p))
+  , epSpacE    ::   Event t (PFallible (PipeSpace (SomePipe p)))
+  }
+
+mkExecutionPort ::
+  forall t m p
+  .  (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
+  => SomePipe p
+  -> (Execution t p
+      -> Event t (PFallible (PipeSpace (SomePipe p))))
+  -> Event t ()
+  -> (   ExecutionPort t p
+      -> (Unique -> PFallible SomeValue -> IO ())
+      -> IO ())
+  -> VtyWidget t m (ExecutionPort t p)
+mkExecutionPort populationP selectSpaceEvents setupE handler = mdo
+  (exeSendW, epExecs) :: (InChan (Execution t p), OutChan (Execution t p)) <-
+    liftIO newChan
+  epStreamsR <- liftIO $ IO.newIORef mempty
+  epRepliesE <- performEventAsync $
+    ffor setupE \_unit fire -> liftIO $
+      (Async.link =<<) . Async.async $
+        -- \exeSendR fire -> forever $ runSingleConnection tr wsa fire exeSendR
+        -- fanInt :: Event t (IntMap a) -> EventSelectorInt t a
+        -- selectInt :: Int -> Event t a
+        handler ep (\replyStreamId (reply :: PFallible SomeValue) -> do
+                       epStreams <- IO.readIORef epStreamsR
+                       maybe
+                         (traceM $ mconcat
+                          [ "Port error: no stream id ", show replyStreamId
+                          , ", known ids: ", show (IMap.keys epStreams)])
+                         (const $
+                          fire $ IMap.singleton (hashUnique replyStreamId) reply)
+                         (IMap.lookup (hashUnique replyStreamId) epStreams))
+  let epReplies = fanInt epRepliesE
+      ep = ExecutionPort
+           { epPost    = writeChan exeSendW
+           , epSpacE   = selectSpaceEvents popExe
+             -- (selectInt epReplies (hashUnique $ unHandle $ eHandle popExe))
+           , ..
+           }
+  popExe <- makePostPipeExecution ep populationP
+  pure ep
+
+selectExecutionReplies ::
+     ExecutionPort t p
+  -> Execution t p
+  -> Event t (PFallible SomeValue)
+selectExecutionReplies ep e =
+  selectInt (epReplies ep) (hashUnique $ unHandle $ eHandle e)
+
+portRegisterExecution :: MonadIO m => Execution t p -> ExecutionPort t p -> m ()
+portRegisterExecution e ep = liftIO $ do
+  traceM $ "New execution: " <> unpack (eText e) <> ", id " <> show (unHandle $ eHandle e)
+  IO.atomicModifyIORef'_ (epStreamsR ep)
+    (IMap.insert (hashUnique . unHandle $ eHandle e) e)
+
+
 type MixedPipeGuts = Either () Dyn.Dynamic
 type MixedPipe     = SomePipe MixedPipeGuts
 type MixedPartPipe = PartPipe MixedPipeGuts
@@ -72,25 +146,22 @@ data PreRunnable p
 preRunnableText :: PreRunnable p -> Text
 preRunnableText = prText
 
-data ExecutionPort t p =
-  ExecutionPort
-  { epPost    :: Execution t p -> IO ()
-  , epReplies :: Event t (PFallible SomeValue)
-  , epSpacE   :: Event t (PFallible (PipeSpace (SomePipe p)))
-  }
+data ExecHandle = ExecHandle { unHandle :: Unique }
+instance Show ExecHandle where
+  show (ExecHandle x) = show x
 
 data Execution t p =
   forall c a.
   (Typeable c, Typeable a) =>
   Execution
-  { eResCTag  :: !(CTag c)
-  , eResVTag  :: !(VTag a)
-  , _eText    :: !Text
-  , eRequest  :: !StandardRequest
-  , ePipe     :: !(SomePipe p)
-  -- TODO:  what does it mean for eText not to correspond to eExpr?
-  --        a need for a smart constructor?
-  , eReply    :: !(Event t (PFallible (CapValue c a)))
+  { eHandle   :: ExecHandle
+  , eResCTag  :: (CTag c)
+  , eResVTag  :: (VTag a)
+  , _eText    :: Text
+  -- TODO:  what does it mean for eText not to correspond to eRequest?
+  , eRequest  :: StandardRequest
+  , ePipe     :: (SomePipe p)
+  , eReply    :: (Event t (PFallible (CapValue c a)))
   }
 
 eText :: Execution t p -> Text
@@ -136,20 +207,31 @@ selectEvents evs ctag vtag =
             ctag)
           vtag
 
+makePostPipeExecution ::
+  (Reflex t, MonadIO m)
+  => ExecutionPort t p
+  -> SomePipe p
+  -> m (Execution t p)
+makePostPipeExecution ep p = do
+  e <- mkExecution ep
+         (showName $ somePipeName p)
+         (Run . fromString . unpack . showName $ somePipeName p)
+         p
+  liftIO $ epPost ep e
+  pure $ e
+
 makePostRemoteExecution :: forall t m c v.
-  (Reflex t, ReifyCTag c, MonadIO m, Typeable c, Typeable v)
+  ( Reflex t, ReifyCTag c, MonadIO m
+  , Typeable c, Typeable v, Typeable (Repr c v), HasCallStack)
   => ExecutionPort t ()
-  -> Text
   -> CTag c
   -> VTag v
-  -> m (Maybe (Execution t MixedPipeGuts))
-makePostRemoteExecution ep txt c v = runMaybeT $ do
-  let e = Execution @t @() c v txt (Run . fromString $ unpack txt)
-                    (SP @() @'[] @(CTagV c v) mempty capsT $
-                     Pipe undefined undefined)
-                    (selectEvents (epReplies ep) c v)
-  liftIO $ postExecution ep e
-  pure $ Left <$> e
+  -> Text
+  -> m (Execution t MixedPipeGuts)
+makePostRemoteExecution ep c v txt = do
+  fmap Left <$> makePostPipeExecution ep
+    (SP @() @'[] @(CTagV c v) mempty capsT $
+      Pipe (mkNullaryPipeDesc (Name @Pipe txt) c v) ())
 
 postMixedPipeRequest ::
      (Reflex t, MonadIO m)
@@ -162,21 +244,21 @@ postMixedPipeRequest ::
 postMixedPipeRequest epT epG txt req esp = runMaybeT $ do
   case esp of
     Left p -> do
-      let e = mkExecution epT txt req p
-      liftIO $ postExecution epT e
+      e <- mkExecution epT txt req p
+      liftIO $ epPost epT e
       pure $ Left <$> e
     Right p -> do
-      let e = mkExecution epG txt req p
-      liftIO $ postExecution epG e
+      e <- mkExecution epG txt req p
+      liftIO $ epPost epG e
       pure $ Right <$> e
 
 
-mkExecution :: forall t p. Reflex t
+mkExecution :: forall t p m. (MonadIO m, Reflex t)
   => ExecutionPort t p
   -> Text
   -> StandardRequest
   -> SomePipe p
-  -> Execution t p
+  -> m (Execution t p)
 mkExecution ep txt req sp@(SP _ _ (Pipe{pDesc} :: Pipe kas o p)) =
   case req of
     Run{} ->
@@ -189,24 +271,15 @@ mkExecution ep txt req sp@(SP _ _ (Pipe{pDesc} :: Pipe kas o p)) =
      => ExecutionPort t p
      -> CTag c
      -> VTag v
-     -> Execution t p
-   mkExecution' ep ctag vtag =
-     Execution ctag vtag txt req sp (selectEvents (epReplies ep) ctag vtag)
-
-postExecution :: ExecutionPort t p -> Execution t p -> IO ()
-postExecution = epPost
-
-handleExecution ::
-     (PFallible SomeValue -> IO ())
-  -> Execution t p
-  -> PFallible Wire.Reply
-  -> IO ()
-handleExecution doHandle Execution{..} (Right (Wire.ReplyValue rep)) =
-  case withExpectedSomeValue eResCTag eResVTag rep stripValue of
-    Right{} -> doHandle (Right rep)
-    Left (Error e) -> fail . unpack $
-      "Server response doesn't match Execution: " <> e
-handleExecution doHandle Execution{} (Left err) = doHandle (Left err)
+     -> m (Execution t p)
+   mkExecution' ep' ctag vtag = do
+     handle <- liftIO newUnique
+     let exe = Execution (ExecHandle handle)
+                         ctag vtag
+                         txt req sp
+                         (selectEvents (selectExecutionReplies ep' exe) ctag vtag)
+     portRegisterExecution exe ep'
+     pure exe
 
 presentExecution :: forall t m p
   . (Adjustable t m, MonadFix m, MonadHold t m, MonadNodeId m, PostBuild t m
@@ -225,13 +298,11 @@ presentExecution executionE =
           (pres (presentPoint "-- no data yet --"))
           (pres (presentList .
                  fmap ((Index 0, ) .
-                       Vec.fromList .
-                       fromMaybe ["no-Show"] .
+                       fromMaybe (Vec.singleton "no-Show") .
                        withCapValueShow (fmap showT))))
           (pres (presentList .
                  fmap ((Index 0, ) .
-                       Vec.fromList .
-                       fromMaybe ["no-Show"] .
+                       fromMaybe (Vec.singleton "no-Show") .
                        withCapValueShow (fmap showT))))
           (const $ text $ pure "trees not presentable yet")
           (const $ text $ pure "DAGs not presentable yet")
@@ -251,7 +322,12 @@ presentExecution executionE =
 
    -- | Present a list, with N-th element selected.
    presentList :: Event t (Index, Vector Text) -> VtyWidget t m ()
-   presentList presentListXsE = do
+   presentList presentListXsE = mdo
+     eltsD <- holdDyn mempty $ snd <$> presentListXsE
+     let subsetD = (\vec (userInput, _) ->
+                      Vec.filter (T.isInfixOf userInput) vec)
+                   <$> eltsD
+                   <*> selrInputOfftD
      Selector{..} <- selector
        SelectorParams
        { spCompletep    = \_ _ _ -> Nothing
@@ -259,18 +335,11 @@ presentExecution executionE =
        , spPresent      = \focusB x ->
                             richText (richTextFocusConfigDef focusB) (pure x)
                             >> pure x
-       , spElemsE       = snd <$> presentListXsE
+       , spElemsE       = updated subsetD
        , spInsertW      = pure ()
        , spConstituency = const True
        }
      pure ()
-     -- selectionMenu
-     --   (focusButton (buttonPresentText
-     --                  richTextFocusConfigDef
-     --                  id)
-     --    >>> fmap fbFocused)
-     --   ($(ev' "indexXsE" "executionReplyE") presentListXsE)
-     --   <&> pure ()
    presentPoint :: (MonadHold t m, Reflex t)
      => Text -> Event t (CapValue Point a) -> VtyWidget t m ()
    presentPoint defDesc e =

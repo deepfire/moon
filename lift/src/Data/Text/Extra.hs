@@ -27,14 +27,14 @@ seekTextRight test text start =
    limit = (< length text)
    from = start `max` 0
 
-lastWordLen :: Text -> Int
-lastWordLen x =
-  let firstAlnum    = seekTextLeft        isAlpha  x (length x - 1)
-      firstBoundary = seekTextLeft (not . isAlpha) x firstAlnum
+lastWordLen :: (Char -> Bool) -> Text -> Int
+lastWordLen constituency x =
+  let firstAlnum    = seekTextLeft        constituency  x (length x)
+      firstBoundary = seekTextLeft (not . constituency) x firstAlnum
   in if
     | null x                    -> 0
     | firstBoundary == firstAlnum -> length x
     | otherwise                   -> length x - 1 - firstBoundary
 
-lastWord :: Text -> Text
-lastWord x = takeEnd (lastWordLen x) x
+lastWord :: (Char -> Bool) -> Text -> Text
+lastWord constituency x = takeEnd (lastWordLen constituency x) x

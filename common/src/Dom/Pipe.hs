@@ -12,6 +12,7 @@ import Dom.Error
 import Dom.Name
 import Dom.Pipe.Constr
 import Dom.Sig
+import Dom.SomeType
 import Dom.Struct
 import Dom.Tags
 import Dom.VTag
@@ -27,8 +28,8 @@ import Dom.VTag
 --           - something else, perhaps simpler (like ()).
 data Pipe (as :: [*]) (o :: *) (p :: *) where
   Pipe :: PipeConstr as o =>
-    { pDesc :: Desc as o
-    , p     :: p
+    { pDesc :: !(Desc as o)
+    , p     :: !p
     } -> Pipe as o p
 
 -- | Everything there is to be said about a pipe,
@@ -160,6 +161,22 @@ pipeOutSomeCTagType PipeD{} =
   ( SomeCTag $ reifyCTag $ Proxy @co
   , someTypeRep $ Proxy @to)
 pipeOutSomeCTagType _ = error "pipeOutSomeCTagType: impossible"
+
+mkNullaryPipeDesc ::
+  forall c v.
+  (ReifyCTag c, ReifyVTag v, Typeable c, Typeable v, Typeable (Repr c v))
+  => Name Pipe
+  -> CTag c
+  -> VTag v
+  -> Desc '[] (CTagV c v)
+mkNullaryPipeDesc n c v =
+  Desc n
+       (Sig [] $ I $ tagsSomeType tags)
+       mempty
+       (someTypeRep $ Proxy @(IO (Fallible (Repr c v))))
+       Nil
+       tags
+ where tags = Tags c v
 
 --------------------------------------------------------------------------------
 -- * Desc utils
