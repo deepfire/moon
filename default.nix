@@ -57,6 +57,10 @@ in (import ./../reflex-platform {
     ### Externals
     parsers-megaparsec         = simp (unbreak "parsers-megaparsec");
     ghc-lib-parser             = self.callHackage "ghc-lib-parser" "8.10.2.20200916" {};
+    websockets = gh "deepfire" "websockets"
+                    "b977a2bd3edcef64f32826d341dd05709d212fdd"
+                    "0mfwgpbplyxq071kfkbhjj171h0wdxzdsvr093vi6jvwahc50nbs"
+                    "";
 
     ### Luna IDE
     frontend-common       = dontCheck (doJailbreak (self.callCabal2nix "frontend-common"           ./lib                           {}));

@@ -3,34 +3,42 @@
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors -Wno-name-shadowing #-}
 
 import Control.Concurrent                        (threadDelay)
-import Control.Concurrent.Async qualified      as Async
+import Control.Concurrent.Async      qualified as Async
 import Control.Concurrent.Chan.Unagi             (InChan, OutChan)
 import Control.Concurrent.Chan.Unagi qualified as Unagi
 import Control.Concurrent.STM                    (TVar)
-import Control.Concurrent.STM qualified        as STM
+import Control.Concurrent.STM        qualified as STM
 import Control.Exception                         (ErrorCall(..), Handler(..)
                                                  , SomeException (..)
                                                  , catches)
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.NodeId
+import Data.ByteString.Lazy                      (toStrict)
 import Data.Char                                 (isDigit)
-import Data.Dynamic qualified                  as Dyn
-import Data.IntMap qualified                   as IMap
-import Data.IORef qualified                    as IO
+import Data.Dynamic                  qualified as Dyn
+import Data.IntMap                   qualified as IMap
+import Data.IORef                    qualified as IO
 import Data.Monoid
 import Data.Semialign                            (align)
-import Data.Sequence qualified                 as Seq
+import Data.Sequence                 qualified as Seq
 import Data.IntUnique
-import Data.Vector qualified                   as Vec
+import Data.Vector                   qualified as Vec
+import Data.X509.CertificateStore    qualified as X509
 
 import Reflex                             hiding (Request)
 import Reflex.Network
 import Reflex.Vty                         hiding (Request)
-import Data.Text qualified                     as T
-import Graphics.Vty qualified                  as V
-import Network.WebSockets qualified            as WS
-import System.IO.Unsafe qualified              as Unsafe
+import Data.Text                     qualified as T
+import Graphics.Vty                  qualified as V
+import Network.Connection            qualified as Net
+import Network.WebSockets            qualified as WS
+import Network.WebSockets.Stream     qualified as WS
+import Network.Socket                qualified as Net
+import Network.TLS                   qualified as TLS
+import Network.TLS.SessionManager    qualified as SM
+import System.IO.Unsafe              qualified as Unsafe
+import Wuss                          qualified as WS
 
 import Reflex.Vty.Widget.Extra
 import Reflex.Vty.Widget.Selector
@@ -102,6 +110,7 @@ mkRemoteExecutionPort ::
   -> Event t ()
   -> VtyWidget t m (ExecutionPort t ())
 mkRemoteExecutionPort tr wsa setupE = mdo
+  sm <- liftIO $ SM.newSessionManager SM.defaultConfig
   ep <- mkExecutionPort
           (SP @() @'[] @(CTagV Point (PipeSpace (SomePipe ()))) mempty capsT $
            Pipe (mkNullaryPipeDesc (Name @Pipe "space") CPoint VPipeSpace) ())
@@ -110,7 +119,7 @@ mkRemoteExecutionPort tr wsa setupE = mdo
              <&> fmap stripCapValue)
           setupE $
     \exeSendR fire -> forever
-      (catches (runSingleConnection tr wsa fire ep)
+      (catches (runSingleConnection tr sm wsa fire ep)
                [ Handler (\(ErrorCall e) -> do
                              let err = Error $ showT e
                              traceM (show err)
@@ -125,12 +134,53 @@ mkRemoteExecutionPort tr wsa setupE = mdo
  where
    runSingleConnection ::
           Tracer IO Text
+       -> TLS.SessionManager
        -> WSAddr
        -> (Unique -> PFallible SomeValue -> IO ())
        -> ExecutionPort t ()
        -> IO ()
-   runSingleConnection tr WSAddr{..} fire ep = do
-     WS.runClient wsaHost wsaPort wsaPath
+   runSingleConnection tr sm WSAddr{..} fire ep = do
+     Just srvCA <- liftIO $ X509.readCertificateStore "server-certificate.pem"
+     cred <- TLS.credentialLoadX509 "server-certificate.pem" "server-key.pem" <&>
+       either (error . ("Failed to load credentials: " <>)) id
+     let tlsSettings =
+           Net.TLSSettings
+         -- This is the important setting.
+           (TLS.defaultParamsClient "127.0.0.1" "")
+           { TLS.clientUseServerNameIndication = False
+           , TLS.clientSupported =
+             def
+             { TLS.supportedCiphers  = liftCiphers
+             , TLS.supportedVersions = [TLS.TLS13]
+             }
+           , TLS.clientShared =
+             def
+             { TLS.sharedSessionManager = sm
+             , TLS.sharedCAStore = srvCA
+             -- Q: what's this for?
+             -- , TLS.sharedCredentials = TLS.Credentials [cred]
+             }
+           , TLS.clientHooks =
+             def
+             { TLS.onCertificateRequest =
+               \(_certTys, _mHashes, _dName) ->
+                 pure $ Just cred
+             }
+           }
+         connectionParams = Net.ConnectionParams
+           { connectionHostname  = wsaHost
+           , connectionPort      = toEnum wsaPort
+           , connectionUseSecure = Just tlsSettings
+           , connectionUseSocks  = Nothing
+           }
+     context <- Net.initConnectionContext
+     connection <- Net.connectTo context connectionParams
+     stream <- WS.makeStream
+       (fmap Just (Net.connectionGetChunk connection))
+       (maybe (return ()) (Net.connectionPut connection . toStrict))
+     let headers = []
+     WS.runClientWithStream stream wsaHost wsaPath WS.defaultConnectionOptions headers
+     -- WS.runSecureClient wsaHost (toEnum wsaPort) wsaPath
        \(channelFromWebsocket -> webSockChan) -> do
          void $ Wire.runClient (Tracer $ const $ pure ()) webSockChan $
            liftProtocolClient tr fire ep

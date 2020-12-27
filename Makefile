@@ -2,8 +2,14 @@ SHELL := bash
 
 all: cli lift
 
-.PHONY: lift cli cls clean
-lift:
+.PHONY: lift cli certs cls clean
+client-certs:
+	openssl req -x509 -newkey rsa:4096 -keyout 'client-key.pem' -out 'client-certificate.pem' -days 365 -nodes -subj '/CC=RU/LN=/ON=/OU=/CN=127.0.0.1/'
+	chmod go-rwx 'client-key.pem' 'client-certificate.pem'
+server-certs:
+	openssl req -x509 -newkey rsa:4096 -keyout 'server-key.pem' -out 'server-certificate.pem' -days 365 -nodes -subj '/CC=RU/LN=/ON=/OU=/CN=127.0.0.1/'
+	chmod go-rwx 'server-key.pem' 'server-certificate.pem'
+lift: server-certs
 	cd lift
 	bash -c "time cabal -j build all"
 	cabal exec   $@ daemon

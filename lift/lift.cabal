@@ -37,70 +37,69 @@ library
                        TopHandler
 
   build-depends:       common
-
+                     , Cabal
+                     , algebraic-graphs
+                     , async
                      , base
                      , binary
                      , bytestring
-                     , Cabal
+                     , cached-io
+                     , cborg
+                     , comonad
+                     , connection
                      , containers
+                     , contra-tracer
+                     , cryptonite
                      , data-default
                      , dependent-map
                      , dependent-sum
                      , extra
                      , filepath
                      , fingertree
+                     , free
                      , generic-monoid
-                     , megaparsec
-                     , optparse-applicative
-                     , parsers-megaparsec
-                     , quiet
-                     , req
-                     , safe
-                     , set-monad
-                     , semialign
-                     , stm
-                     , text
-                     , these
-                     , time
-                     , transformers
-                     , transformers-except
-                     , tuple
-                     -- , type-list
-                     , witherable
-                     , zippers
-
-                     , algebraic-graphs
-                     , cborg
                      , generics-sop
-                     , serialise
-
-                     , cached-io
                      , ghc
                      , ghc-boot
                      , ghc-prim
                      , hackage-db
-                     , process
-                     , shelly
-                     , template-haskell
-                     , websockets
-
-                     , contra-tracer
                      , io-sim-classes
-                     -- , iohk-monitoring -- either this, or reflex-platform
-                     , typed-protocols
-                     , typed-protocols-examples
-
+                     , megaparsec
+                     , network
+                     , optparse-applicative
+                     , parsers-megaparsec
+                     , process
+                     , quiet
                      , reflex
                      , reflex-vty
-
-                     , async
-                     , comonad
-                     , free
+                     , req
+                     , safe
+                     , semialign
+                     , serialise
+                     , set-monad
+                     , shelly
+                     , stm
+                     , streaming-commons
+                     , template-haskell
+                     , text
+                     , these
+                     , time
+                     , tls
+                     , tls-session-manager
+                     , transformers
+                     , transformers-except
+                     , tuple
+                     , typed-protocols
+                     , typed-protocols-examples
                      , unagi-chan
                      , vector
                      , vty
-
-                     -- , zeromq4-haskell
+                     , websockets
+                     , witherable
+                     , wuss
+                     , x509-store
+                     , x509-validation
+                     , zippers
 
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -164,9 +163,13 @@ executable lift
                      , base
                      , containers
                      , monoidal-containers
+                     , network
                      , parsec
                      , reflex-vty
+                     , tls
+                     , tls-session-manager
                      , unagi-chan
+                     , wuss
 
 executable xp
   default-language:    Haskell2010
@@ -239,6 +242,7 @@ executable cli
                      , async
                      , base
                      , bytestring
+                     , connection
                      , containers
                      , contra-tracer
                      , dependent-map
@@ -247,6 +251,7 @@ executable cli
                      , io-sim-classes
                      , megaparsec
                      , monoidal-containers
+                     , network
                      , optparse-applicative
                      , parsec
                      , parsers
@@ -260,6 +265,8 @@ executable cli
                      , shelly
                      , stm
                      , text
+                     , tls
+                     , tls-session-manager
                      , tuple
                      , typed-protocols
                      , typed-protocols-examples
@@ -267,6 +274,8 @@ executable cli
                      , vector
                      , vty
                      , websockets
+                     , wuss
+                     , x509-store
                      , zippers
 
   default-extensions:  AllowAmbiguousTypes

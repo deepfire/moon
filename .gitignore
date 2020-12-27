@@ -5,6 +5,7 @@
 *.js_hi
 *.js_o
 *.log
+*.pem
 *.pdf
 *.rej
 *.swp
