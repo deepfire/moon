@@ -32,6 +32,7 @@ library
 
                        Dom.CTag
                        Dom.Cap
+                       Dom.Cred
                        Dom.Error
                        Dom.Expr
                        Dom.Ground
@@ -73,6 +74,7 @@ library
 
                        Wire.Peer
                        Wire.Protocol
+                       Wire.WSS
 
                        Basis
 
@@ -84,13 +86,16 @@ library
                        -- Network.TypedProtocol.Pipelined
 
   build-depends:       base
+                     , Cabal
                      , algebraic-graphs
                      , assoc
                      , binary
                      , bytestring
-                     , Cabal
                      , cborg
+                     , connection
                      , containers
+                     , contra-tracer
+                     , data-default
                      , deepseq
                      , dependent-map
                      , dependent-sum
@@ -102,11 +107,13 @@ library
                      , generics-sop
                      , ghc-prim
                      , hashable
+                     , io-sim-classes
                      , megaparsec
-                     , parsers-megaparsec
                      , monoidal-containers
+                     , network
                      , optparse-applicative
                      , parsers
+                     , parsers-megaparsec
                      , quiet
                      , reflection
                      , serialise
@@ -117,21 +124,20 @@ library
                      , text
                      , text-builder
                      , these
+                     , time
+                     , tls
+                     , tls-session-manager
                      , transformers
                      , transformers-except
-                     , unordered-containers
-                     , vector
-                     -- , type-list
-                     , witherable
-                     -- , zippers
-
-                     , contra-tracer
-                     , io-sim-classes
                      , typed-protocols
                      , typed-protocols-examples
-                     -- , typed-protocols-cbor
-
-                     , time
+                     , unordered-containers
+                     , vector
+                     , websockets
+                     , witherable
+                     , x509
+                     , x509-store
+                     , x509-validation
 
   hs-source-dirs:      src
   default-language:    Haskell2010

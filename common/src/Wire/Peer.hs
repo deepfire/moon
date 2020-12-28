@@ -52,7 +52,7 @@ data Server rej m a =
 
 runServer :: forall rej m a
            . (Monad m, Serialise rej, Show rej, m ~ IO, a ~ Reply)
-          => Tracer m String
+          => Tracer m Text
           -> Server rej m a
           -> Net.Channel IO LBS.ByteString
           -> IO ()
@@ -64,9 +64,10 @@ runServer :: forall rej m a
 -- -> Channel m bytes
 -- -> Peer ps pr st m a
 -- -> m a Source #
-runServer tracer server channel = Net.runPeer (showTracing tracer) wireCodec channel peer
-  where
-    peer   = serverPeer $ pure server
+runServer tracer server channel =
+  Net.runPeer (showTracing (contramap T.pack tracer)) wireCodec channel peer
+ where
+   peer   = serverPeer $ pure server
 
 serverPeer :: forall rej m a
            . (m ~ IO, a ~ Reply)

@@ -49,6 +49,10 @@ import Unsafe.Coerce qualified                    as Unsafe
 
 import Network.TypedProtocol.Channel qualified    as Net
 
+import Reflex                                hiding (Request)
+import Reflex.Network
+
+
 import Generics.SOP.Some
 import Generics.SOP.Some qualified                as SOP
 
@@ -77,12 +81,14 @@ import Ground.Table
 
 import Wire.Peer
 import Wire.Protocol
+import Wire.WSS
 
 import Lift.Pipe
 
 import TopHandler
 
 
+import Dom.Cred
 import Dom.Space.Pipe
 
 import Network.TLS qualified as TLS
@@ -107,7 +113,10 @@ main = toplevelExceptionHandler $ do
   config' <- finalise config
 
   case commd of
-    Daemon -> wsServer config'
+    Daemon ->
+      let creds = CredFile "server-certificate.pem" "server-key.pem"
+          addr  = WSAddr "127.0.0.1" cfWSPortOut "/"
+      in runWssServer stderr creds addr (haskellServer config')
     Exec rq -> handleRequest config' rq >>= print
 
  where
@@ -166,121 +175,6 @@ finalise :: Config Final -> IO Env
 finalise envConfig@Config{} = do
   let envTracer = stdoutTracer
   pure Env{..}
-
-channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
-channelFromWebsocket conn =
-  Net.Channel
-  { recv = catch (Just <$> WS.receiveData conn)
-           (\(SomeException _x) -> pure Nothing)
-  , send = WS.sendBinaryData conn
-  }
-  where
-    tracer :: Show x => String -> x -> x
-    tracer desc x = trace (printf "%s:\n%s\n" desc (show x)) x
-
--- | The strongest ciphers supported.  For ciphers with PFS, AEAD and SHA2, we
--- list each AES128 variant after the corresponding AES256 and ChaCha20-Poly1305
--- variants.  For weaker constructs, we use just the AES256 form.
---
--- The CCM ciphers come just after the corresponding GCM ciphers despite their
--- relative performance cost.
-liftCiphers :: [TLS.Cipher]
-liftCiphers =
-  -- PFS + AEAD + SHA2 only
-  [ TLS.cipher_ECDHE_ECDSA_CHACHA20POLY1305_SHA256
-  , TLS.cipher_ECDHE_RSA_CHACHA20POLY1305_SHA256
-  , TLS.cipher_ECDHE_ECDSA_AES256GCM_SHA384,
-    TLS.cipher_ECDHE_ECDSA_AES256CCM_SHA256
-  , TLS.cipher_ECDHE_RSA_AES256GCM_SHA384
-  , TLS.cipher_DHE_RSA_CHACHA20POLY1305_SHA256
-  , TLS.cipher_DHE_RSA_AES256GCM_SHA384
-  , TLS.cipher_DHE_RSA_AES256CCM_SHA256
-  -- TLS13 (listed at the end but version is negotiated first)
-  , TLS.cipher_TLS13_CHACHA20POLY1305_SHA256
-  , TLS.cipher_TLS13_AES256GCM_SHA384
-  , TLS.cipher_TLS13_AES128GCM_SHA256
-  , TLS.cipher_TLS13_AES128CCM_SHA256
-  ]
-
-wsServer :: HasCallStack => Env -> IO ()
-wsServer env@Env{envConfig=Config{..},..} = forever $ do
-  Just srvCA <- liftIO $ X509.readCertificateStore "server-certificate.pem"
-  traceM $ "Started server on " <> show cfWSBindHost <> ":" <> show cfWSPortOut
-  flip catches
-   [ Handler $
-     \(SomeException (e :: a)) -> do
-       traceM $ Prelude.concat
-         [ "Uncaught WS.runServerWithOptions exception ("
-         , unpack $ showTypeRepNoKind $ typeRep @a, "): "
-         , show e
-         ]
-       pure ()] $
-   WS.runServerWithOptions
-    (WS.defaultServerOptions
-     { WS.serverHost              = cfWSBindHost
-     , WS.serverPort              = cfWSPortOut
-     , WS.serverConnectionOptions =
-       WS.defaultConnectionOptions
-       { WS.connectionTlsSettings =
-         Just WS.defaultTlsSettings
-         { WS.tlsAllowedVersions  = [TLS.TLS13]
-         , WS.certSettings        = WS.CertFromFile
-                                      "server-certificate.pem"
-                                      []
-                                      "server-key.pem"
-         , WS.tlsLogging          = def
-           -- { TLS.loggingPacketRecv = traceM, TLS.loggingPacketSent = traceM }
-         , WS.tlsWantClientCert   = True
-         , WS.tlsServerHooks      =
-           def
-           { TLS.onClientCertificate =
-             \certChain ->
-               X509.validateDefault srvCA def ("127.0.0.1", mempty)
-                 certChain <&>
-                 \case
-                   [] -> TLS.CertificateUsageAccept
-                   errs -> TLS.CertificateUsageReject .
-                           TLS.CertificateRejectOther $
-                           List.intercalate ", " (show <$> errs)
-           }
-         }
-       }
-     }) $
-    \pending -> do
-      let Just tlsCtx = WS.streamTlsContext $ WS.pendingStream pending
-      Just tlsCtxInfo <- TLS.contextGetInformation tlsCtx
-      traceM $ mconcat
-        [ "Accepted connection on ", show cfWSBindHost, ":", show cfWSPortOut, ", "
-        , show $ TLS.infoVersion tlsCtxInfo, ", "
-        , "cipher ", show $ TLS.infoCipher tlsCtxInfo, ", "
-        , "compression ", show $ TLS.infoCompression tlsCtxInfo
-        ]
-      conn <- WS.acceptRequest pending
-      WS.withPingThread conn cfWSPingTime (pure ()) $ do
-        let handleDisconnect :: WS.ConnectionException -> IO ()
-            handleDisconnect x = putStrLn $ "Web disconnected: " <> show x
-            tracer = stdoutTracer
-
-        void $ catches
-          (runServer tracer (haskellServer env) $ channelFromWebsocket conn)
-          [ Handler $
-            \(SomeException (e :: a)) -> do
-              traceM $ Prelude.concat
-                [ "Uncaught Wire.Peer.runServer exception ("
-                , unpack $ showTypeRepNoKind $ typeRep @a, "): "
-                , show e
-                ]
-              pure ()
-          , Handler $
-            \(e :: WS.ConnectionException) -> do
-              traceM $ Prelude.concat
-                [ "Disconnected: "
-                , show e
-                ]
-              handleDisconnect e
-              pure ()
-          ]
-        pure ()
 
 haskellServer
   :: forall m a

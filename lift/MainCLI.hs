@@ -48,6 +48,7 @@ import Debug.Reflex
 
 import Dom.CTag
 import Dom.Cap
+import Dom.Cred
 import Dom.Error
 import Dom.Expr
 import Dom.Located
@@ -71,6 +72,7 @@ import Ground.Table
 
 import qualified Wire.Peer                     as Wire
 import qualified Wire.Protocol                 as Wire
+import qualified Wire.WSS                      as Wire
 
 import Lift hiding (main)
 import Lift.Pipe
@@ -95,22 +97,22 @@ reflexVtyApp :: forall t m.
 reflexVtyApp = do
   setupE <- getPostBuild <&> trevs
     ("// " <> pave '-' <> " reflexVtyApp: reflexVtyApp started " <> pave '-')
-  r <- mkRemoteExecutionPort stderr hostAddr setupE
+  let creds = CredFile "server-certificate.pem" "server-key.pem"
+  r <- mkRemoteExecutionPort stderr creds hostAddr setupE
   l <- mkLocalExecutionPort stderr setupE
   spaceInteraction r l
  where
-   -- XXX:  yeah, deal with that
-   hostAddr = WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
+   hostAddr = Wire.WSAddr "127.0.0.1" (cfWSPortOut defaultConfig) "/"
 
 mkRemoteExecutionPort ::
   forall t m
   . (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
   => Tracer IO Text
-  -> WSAddr
+  -> CredSpec
+  -> Wire.WSAddr
   -> Event t ()
   -> VtyWidget t m (ExecutionPort t ())
-mkRemoteExecutionPort tr wsa setupE = mdo
-  sm <- liftIO $ SM.newSessionManager SM.defaultConfig
+mkRemoteExecutionPort tr cs wsa setupE = mdo
   ep <- mkExecutionPort
           (SP @() @'[] @(CTagV Point (PipeSpace (SomePipe ()))) mempty capsT $
            Pipe (mkNullaryPipeDesc (Name @Pipe "space") CPoint VPipeSpace) ())
@@ -119,7 +121,8 @@ mkRemoteExecutionPort tr wsa setupE = mdo
              <&> fmap stripCapValue)
           setupE $
     \exeSendR fire -> forever
-      (catches (runSingleConnection tr sm wsa fire ep)
+      (catches (Wire.runWssClient tr cs wsa $
+                 liftProtocolClient tr fire ep)
                [ Handler (\(ErrorCall e) -> do
                              let err = Error $ showT e
                              traceM (show err)
@@ -132,59 +135,6 @@ mkRemoteExecutionPort tr wsa setupE = mdo
   void $ makePostRemoteExecution ep CPoint VPipeSpace "space"
   pure ep
  where
-   runSingleConnection ::
-          Tracer IO Text
-       -> TLS.SessionManager
-       -> WSAddr
-       -> (Unique -> PFallible SomeValue -> IO ())
-       -> ExecutionPort t ()
-       -> IO ()
-   runSingleConnection tr sm WSAddr{..} fire ep = do
-     Just srvCA <- liftIO $ X509.readCertificateStore "server-certificate.pem"
-     cred <- TLS.credentialLoadX509 "server-certificate.pem" "server-key.pem" <&>
-       either (error . ("Failed to load credentials: " <>)) id
-     let tlsSettings =
-           Net.TLSSettings
-         -- This is the important setting.
-           (TLS.defaultParamsClient "127.0.0.1" "")
-           { TLS.clientUseServerNameIndication = False
-           , TLS.clientSupported =
-             def
-             { TLS.supportedCiphers  = liftCiphers
-             , TLS.supportedVersions = [TLS.TLS13]
-             }
-           , TLS.clientShared =
-             def
-             { TLS.sharedSessionManager = sm
-             , TLS.sharedCAStore = srvCA
-             -- Q: what's this for?
-             -- , TLS.sharedCredentials = TLS.Credentials [cred]
-             }
-           , TLS.clientHooks =
-             def
-             { TLS.onCertificateRequest =
-               \(_certTys, _mHashes, _dName) ->
-                 pure $ Just cred
-             }
-           }
-         connectionParams = Net.ConnectionParams
-           { connectionHostname  = wsaHost
-           , connectionPort      = toEnum wsaPort
-           , connectionUseSecure = Just tlsSettings
-           , connectionUseSocks  = Nothing
-           }
-     context <- Net.initConnectionContext
-     connection <- Net.connectTo context connectionParams
-     stream <- WS.makeStream
-       (fmap Just (Net.connectionGetChunk connection))
-       (maybe (return ()) (Net.connectionPut connection . toStrict))
-     let headers = []
-     WS.runClientWithStream stream wsaHost wsaPath WS.defaultConnectionOptions headers
-     -- WS.runSecureClient wsaHost (toEnum wsaPort) wsaPath
-       \(channelFromWebsocket -> webSockChan) -> do
-         void $ Wire.runClient (Tracer $ const $ pure ()) webSockChan $
-           liftProtocolClient tr fire ep
-
    spacePointRepliesE ::
         Event t (PFallible SomeValue)
      -> Event t (PFallible (PipeSpace (SomePipe ())))
@@ -280,13 +230,6 @@ initialPipeSpace
        --
         [ localSpacePipe
         ])
-
-data WSAddr
-  = WSAddr
-  { wsaHost :: String
-  , wsaPort :: Int
-  , wsaPath :: String
-  }
 
 data Acceptable
   = APipe  !MixedPipe
