@@ -14,6 +14,7 @@ import Control.Exception                         (ErrorCall(..), Handler(..)
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.NodeId
+import Control.Tracer
 import Data.ByteString.Lazy                      (toStrict)
 import Data.Char                                 (isDigit)
 import Data.Dynamic                  qualified as Dyn
@@ -70,6 +71,7 @@ import Dom.Value
 
 import Ground.Table
 
+import qualified Wire.MiniProtocols            as Wire
 import qualified Wire.Peer                     as Wire
 import qualified Wire.Protocol                 as Wire
 import qualified Wire.WSS                      as Wire
@@ -97,8 +99,17 @@ reflexVtyApp :: forall t m.
 reflexVtyApp = do
   setupE <- getPostBuild <&> trevs
     ("// " <> pave '-' <> " reflexVtyApp: reflexVtyApp started " <> pave '-')
-  let creds = CredFile "server-certificate.pem" "server-key.pem"
-  r <- mkRemoteExecutionPort stderr creds hostAddr setupE
+  let creds  = CredFile "server-certificate.pem" "server-key.pem"
+      showTr = showTracing (contramap pack stderr)
+      trs    =
+        Wire.WireTracers
+        { trMux         = showTr
+        , trMuxRequests = showTr
+        , trMuxReplies  = showTr
+        , trWss         = showTr
+        , trBearer      = nullTracer
+        }
+  r <- mkRemoteExecutionPort trs creds hostAddr setupE
   l <- mkLocalExecutionPort stderr setupE
   spaceInteraction r l
  where
@@ -107,12 +118,12 @@ reflexVtyApp = do
 mkRemoteExecutionPort ::
   forall t m
   . (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
-  => Tracer IO Text
+  => Wire.WireTracers IO
   -> CredSpec
   -> Wire.WSAddr
   -> Event t ()
   -> VtyWidget t m (ExecutionPort t ())
-mkRemoteExecutionPort tr cs wsa setupE = mdo
+mkRemoteExecutionPort trs cs wsa setupE = mdo
   ep <- mkExecutionPort
           (SP @() @'[] @(CTagV Point (PipeSpace (SomePipe ()))) mempty capsT $
            Pipe (mkNullaryPipeDesc (Name @Pipe "space") CPoint VPipeSpace) ())
@@ -120,63 +131,51 @@ mkRemoteExecutionPort tr cs wsa setupE = mdo
              selectEvents (selectExecutionReplies ep popExe) CPoint VPipeSpace
              <&> fmap stripCapValue)
           setupE $
-    \exeSendR fire -> forever
-      (catches (Wire.runWssClient tr cs wsa $
-                 liftProtocolClient tr fire ep)
-               [ Handler (\(ErrorCall e) -> do
-                             let err = Error $ showT e
-                             traceM (show err)
-                             fire (unsafeCoerceUnique 1) . Left $ EExec err)
-               , Handler (\(SomeException e) -> do
-                             let err = Error $ "Uncaught SomeException: " <> showT e
-                             traceM (show err)
-                             fire (unsafeCoerceUnique 1) . Left $ EExec err)
-               ])
+    \exeSendR fire -> do
+      forever $
+        catches
+          (Wire.runWssClient trs cs wsa (liftClients (Wire.trWss trs) fire ep))
+          [ Handler (\(ErrorCall e) -> do
+                        let err = Error $ showT e
+                        traceM (show err)
+                        fire (unsafeCoerceUnique 1) . Left $ EExec err)
+          , Handler (\(SomeException e) -> do
+                        let err = Error $ "Uncaught SomeException: " <> showT e
+                        traceM (show err)
+                        fire (unsafeCoerceUnique 1) . Left $ EExec err)
+          ]
   void $ makePostRemoteExecution ep CPoint VPipeSpace "space"
   pure ep
- where
-   spacePointRepliesE ::
-        Event t (PFallible SomeValue)
-     -> Event t (PFallible (PipeSpace (SomePipe ())))
-   spacePointRepliesE evs =
-     fmap (stripValue . cvValue) . unWrap <$> selectG (splitSVKByVTag VPipeSpace (pointRepliesE evs)) VPipeSpace
 
-   pointRepliesE :: Reflex t => Event t (PFallible SomeValue) -> Event t (Wrap PFallible SomeValueKinded Point)
-   pointRepliesE evs = selectG (splitSVByCTag CPoint evs) CPoint
-
-
-liftProtocolClient ::
+liftClients ::
   forall rej m a t
    . (rej ~ EPipe, m ~ IO, a ~ Wire.Reply)
   => Tracer m Text
   -> (Unique -> PFallible SomeValue -> IO ())
   -> ExecutionPort t ()
-  -> m (Wire.ClientState rej m a)
-liftProtocolClient _tr fire ExecutionPort{..} = go
+  -> m (Wire.RequestClient rej m (), Wire.RepliesClient rej m ())
+liftClients tr fire ExecutionPort{..} = do
+  pure $
+    (,)
+    (Wire.ClientRequesting (eRequest <$> Unagi.readChan epExecs))
+    (Wire.ClientReplyWait $
+      \(rid, rep) -> do
+        epStreams <- IO.readIORef epStreamsR
+        maybe
+          (traceWith tr $ "No Execution for rid "<>showT rid<>" of reply "<>showT rep)
+          (\exe -> fireMatchingReplies rid rep exe)
+          (IMap.lookup (hashUnique rid) epStreams))
  where
-   go :: m (Wire.ClientState rej m a)
-   go = do
-     exe <- Unagi.readChan epExecs
-     pure . Wire.ClientRequesting (unHandle $ eHandle exe) (eRequest exe) $
-       -- The client is currently assumptious.
-       -- Replies need not necessarily arrive in order of requests.
-       \repUnique reply -> do
-         epStreams <- IO.readIORef epStreamsR
-         maybe (traceM $ "No Execution for reply id " <> show repUnique)
-           (fireMatchingReplies fire repUnique reply)
-           (IMap.lookup (hashUnique repUnique) epStreams)
-         go
    fireMatchingReplies ::
-        (Unique -> PFallible SomeValue -> IO ())
-     -> Unique
+        Unique
      -> PFallible Wire.Reply
      -> Execution t p
      -> IO ()
-   fireMatchingReplies fire unique reply Execution{..} = case reply of
+   fireMatchingReplies unique reply Execution{..} = case reply of
      Right (Wire.ReplyValue rep) ->
        case withExpectedSomeValue eResCTag eResVTag rep stripValue of
          Right{} -> fire unique (Right rep)
-         Left (Error e) -> traceM $ unpack $
+         Left (Error e) -> traceWith tr $
            "Server response tags don not match Execution: " <> e
      Left err -> fire unique (Left err)
 
@@ -189,7 +188,6 @@ mkLocalExecutionPort ::
 mkLocalExecutionPort _tr initE = mdo
   ep <- mkExecutionPort
           localSpacePipe
-          -- (const never)
           (\popExe ->
              selectEvents (selectExecutionReplies ep popExe) CPoint VPipeSpaceDyn
              <&> fmap stripCapValue)
@@ -197,18 +195,9 @@ mkLocalExecutionPort _tr initE = mdo
     \ExecutionPort{..} fire -> do
       threadDelay 1000000
       forever $ do
-        Execution{..} <- Unagi.readChan epExecs
-        fire (unHandle eHandle) =<< (left EExec <$> runSomePipe ePipe)
+        e@Execution{..} <- Unagi.readChan epExecs
+        fire (eHandle e) =<< (left EExec <$> runSomePipe ePipe)
   pure ep
- where
-   spacePointRepliesE :: Event t (PFallible SomeValue) -> Event t (PFallible (PipeSpace (SomePipe Dyn.Dynamic)))
-   spacePointRepliesE evs =
-     join . fmap splitPipeSpaces <$> evs
-   splitPipeSpaces :: SomeValue -> PFallible (PipeSpace (SomePipe Dyn.Dynamic))
-   splitPipeSpaces sv =
-     case withExpectedSomeValue' CPoint (Proxy @(PipeSpace (SomePipe Dyn.Dynamic))) sv id of
-       Left  e -> Left $ EExec $ traceErr (unpack $ showError e) e
-       Right x -> Right $ stripValue x
 
 localPipeSpace :: TVar (SomePipeSpace Dyn.Dynamic)
 localPipeSpace = Unsafe.unsafePerformIO $ STM.newTVarIO Main.initialPipeSpace
@@ -404,14 +393,16 @@ spaceInteraction epRemote epLocal = mdo
        pure $
          (\(spc, constr) (prText, coln@(Column intColn)) ->
             parseGroundRequest (Just intColn) prText
-            >>= \prReq@(reqExpr -> prExpr) -> pure
+            >>= \prReq@(reqExpr . snd -> prExpr) -> pure
              let prPExpr = analyse (lookupSomePipe spc) prExpr
              in  ( PreRunnable{..}
                  , either (const []) id $
                    let r = case prPExpr of
                              Right pExp -> Right (constr, pExp)
                              Left u@EUnsat{} ->
-                               Right (Just $ tRep $ head $ epMiss u, undefined)
+                               Right (Just $ tRep $ head $ epMiss u,
+                                      -- XXX: ???
+                                      undefined)
                              Left e -> Left e
                    in r <&>
                       inputCompletionsForExprAndColumn spc coln prExpr))

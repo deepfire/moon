@@ -12,135 +12,142 @@
 {-# LANGUAGE UndecidableInstances       #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Wire.Peer
-  ( Server(..)
-  , runServer
-  , ClientState(..)
-  , runClient
-  , mkClientSTS
-  -- , runAsyncPeer
-  -- , mkAsyncSubmitPeer
-  -- , mkAsyncRequest
-  -- , resumeAsyncPeer
+  ( RequestServer(..)
+  , RequestClient(..)
+  , wireCodecRequests
+  , mkRequestServerSTS
+  , mkRequestClientSTS
+  , RepliesServer(..)
+  , RepliesClient(..)
+  , wireCodecReplies
+  , mkRepliesServerSTS
+  , mkRepliesClientSTS
   )
 where
 
-import qualified Data.ByteString.Lazy                as LBS
-import qualified Data.Text                           as T
-import           Data.IntUnique
+import Network.TypedProtocol.Codec
+import Network.TypedProtocol.Core                      (Peer(..))
+import Network.TypedProtocol.Core          qualified as Net
 
-import           Codec.Serialise
-import           Control.Tracer
-
-import           Network.TypedProtocol.Codec
-import qualified Network.TypedProtocol.Channel       as Net
-import           Network.TypedProtocol.Core            (Peer(..))
-import qualified Network.TypedProtocol.Core          as Net
-import qualified Network.TypedProtocol.Driver.Simple as Net
-
-import Basis (Text)
+import Basis
 import Dom.RequestReply
 import Wire.Protocol
 
 
-data Server rej m a =
-     Server
-     { processRequest :: StandardRequest
-                      -> m ( Either rej a
-                           , Server rej m a )
-     , processDone    :: ()
-     }
+data RequestClient rej m a where
+  ClientRequesting ::
+       m StandardRequest
+    -> RequestClient rej m a
 
-runServer :: forall rej m a
-           . (Monad m, Serialise rej, Show rej, m ~ IO, a ~ Reply)
-          => Tracer m Text
-          -> Server rej m a
-          -> Net.Channel IO LBS.ByteString
-          -> IO ()
--- runPeer
--- :: forall ps (st :: ps) pr failure bytes m a
--- . (MonadThrow m, Exception failure)
--- => Tracer m (TraceSendRecv ps)
--- -> Codec ps failure m bytes
--- -> Channel m bytes
--- -> Peer ps pr st m a
--- -> m a Source #
-runServer tracer server channel =
-  Net.runPeer (showTracing (contramap T.pack tracer)) wireCodec channel peer
- where
-   peer   = serverPeer $ pure server
+  NoMoreRequests ::
+       a
+    -> RequestClient rej m a
 
-serverPeer :: forall rej m a
-           . (m ~ IO, a ~ Reply)
-           => m (Server rej m a)
-           -> Peer (Piping rej) AsServer StIdle m ()
-serverPeer server =
-    Effect $ go <$> server
-  where
-    go :: Server rej m a
-       -> Peer (Piping rej) AsServer StIdle m ()
-    go Server{processRequest, processDone} =
-      Await (ClientAgency TokIdle) $ \case
-        MsgRequest uniq req ->
-          Effect $ do
-          (mrej, k) <- processRequest req
-          pure $ case mrej of
-            Right rep ->
-              Yield
-                (ServerAgency TokBusy)
-                (MsgReply uniq rep)
-                (go k)
-            Left rej ->
-              Yield
-                (ServerAgency TokBusy)
-                (MsgBadRequest uniq rej)
-                (go k)
+data RequestServer rej m a where
+  ServingRequest ::
+       (StandardRequest
+        -> m a)
+    -> RequestServer rej m a
 
-        MsgDone ->
-          Net.Done TokDone processDone
+data RepliesServer rej m a where
+  ServingReply ::
+       m StandardReply
+    -> RepliesServer rej m a
+
+data RepliesClient rej m a where
+  ClientReplyWait ::
+       (StandardReply
+        -> m a)
+    -> RepliesClient rej m a
+
+  NoMoreReplies ::
+       a
+    -> RepliesClient rej m a
 
 
-data ClientState rej m a where
-     ClientRequesting
-       :: Unique
-       -> StandardRequest
-       -> (Unique -> Either rej a -> m (ClientState rej m a))
-       -> ClientState rej m a
-
-     ClientDone
-       :: a
-       -> ClientState rej m a
-
-runClient :: forall rej m a
-           . (Monad m, Serialise rej, Show rej, a ~ Reply, m ~ IO)
-          => Tracer m Text
-          -> Net.Channel m LBS.ByteString
-          -> m (ClientState rej m a)
-          -> m a
-runClient tracer channel mkPeer =
-  Net.runPeer (showTracingT tracer) wireCodec channel $
-    mkClientSTS mkPeer
- where showTracingT :: forall a. Show a => Tracer IO Text -> Tracer IO a
-       showTracingT tr = Tracer $ traceWith tr . T.pack . show
-
-mkClientSTS :: forall rej m a
-           . (Monad m, a ~ Reply)
-           => m (ClientState rej m a)
-           -> Peer (Piping rej) AsClient StIdle m a
-mkClientSTS firstStep =
+mkRequestClientSTS :: forall rej m
+           . (Monad m)
+           => m (RequestClient rej m ())
+           -> Peer (Requests rej) AsClient RqIdle m ()
+mkRequestClientSTS firstStep =
   Effect $ go <$> firstStep
  where
-   go :: ClientState rej m a
-      -> Peer (Piping rej) AsClient StIdle m a
-   go (ClientRequesting reqUniq req csStep) =
-     Yield (ClientAgency TokIdle) (MsgRequest reqUniq req) $
-       Await (ServerAgency TokBusy) $ \case
-         -- Note, that the reply does not necessarily correspond
-         -- to the request.
-         MsgReply replyUniq rep ->
-           Effect (go <$> csStep replyUniq (Right rep))
-         MsgBadRequest replyUniq rej ->
-           Effect (go <$> csStep replyUniq (Left  rej))
-   go (ClientDone retVal) =
-     Yield (ClientAgency TokIdle)
-           MsgDone
-           (Net.Done TokDone retVal)
+   go :: RequestClient rej m a
+      -> Peer (Requests rej) AsClient RqIdle m a
+
+   go k@(ClientRequesting getNextReq) =
+     Effect $ do
+       req <- getNextReq
+       pure $
+         Yield (ClientAgency RqIdleT) (MsgReq req) $
+           Await (ServerAgency RqBusyT) $ \case
+             MsgReqOk -> go k
+
+   go (NoMoreRequests retVal) =
+     Yield (ClientAgency RqIdleT)
+           MsgReqDone
+           (Net.Done RqDoneT retVal)
+
+mkRequestServerSTS :: forall rej m a
+           . (Monad m)
+           => m (RequestServer rej m a)
+           -> Peer (Requests rej) AsServer RqIdle m ()
+mkRequestServerSTS server =
+    Effect $ go <$> server
+  where
+    go :: RequestServer rej m a
+       -> Peer (Requests rej) AsServer RqIdle m ()
+    go k@(ServingRequest submitRequest) =
+      Await (ClientAgency RqIdleT) $ \case
+
+        MsgReq req ->
+          Effect $ do
+            void $ submitRequest req -- The state is constant.
+            pure $ Yield (ServerAgency RqBusyT) MsgReqOk (go k)
+
+        MsgReqDone ->
+          Net.Done RqDoneT ()
+
+
+mkRepliesServerSTS :: forall rej m
+           . (Monad m)
+           => m (RepliesServer rej m StandardReply)
+           -> Peer (Replies rej) AsServer ReIdle m ()
+mkRepliesServerSTS server =
+    Effect $ go <$> server
+  where
+    go :: RepliesServer rej m a
+       -> Peer (Replies rej) AsServer ReIdle m ()
+
+    go k@(ServingReply getNextReply) =
+      Await (ClientAgency ReIdleT) $ \case
+
+        MsgReplyWait ->
+          Effect $ do
+            r <- getNextReply
+            pure $ Yield (ServerAgency ReBusyT) (MsgReply r) (go k)
+
+        MsgReplyDone ->
+          Net.Done ReDoneT ()
+
+mkRepliesClientSTS :: forall rej m a
+           . (Monad m)
+           => m (RepliesClient rej m a)
+           -> Peer (Replies rej) AsClient ReIdle m ()
+mkRepliesClientSTS firstStep =
+  Effect $ go <$> firstStep
+ where
+   go :: RepliesClient rej m a
+      -> Peer (Replies rej) AsClient ReIdle m ()
+   go k@(ClientReplyWait onReply) =
+
+     Yield (ClientAgency ReIdleT) MsgReplyWait $
+       Await (ServerAgency ReBusyT) $ \case
+         MsgReply rep ->
+           Effect $ do
+             void $ onReply rep
+             pure $ go k
+
+   go (NoMoreReplies _retVal) =
+     Yield (ClientAgency ReIdleT) MsgReplyDone $
+       Net.Done ReDoneT ()

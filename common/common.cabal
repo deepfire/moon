@@ -72,18 +72,13 @@ library
                        Ground.Expr
                        Ground.Table
 
+                       Wire.MiniProtocols
                        Wire.Peer
                        Wire.Protocol
                        Wire.WSS
+                       Wire.WSS.Bearer
 
                        Basis
-
-                       -- Network.TypedProtocol.Channel
-                       -- Network.TypedProtocol.Codec
-                       -- Network.TypedProtocol.Codec.Cbor
-                       -- Network.TypedProtocol.Core
-                       -- Network.TypedProtocol.Driver
-                       -- Network.TypedProtocol.Pipelined
 
   build-depends:       base
                      , Cabal
@@ -133,6 +128,7 @@ library
                      , transformers-except
                      , typed-protocols
                      , typed-protocols-examples
+                     , unagi-chan
                      , unordered-containers
                      , vector
                      , websockets

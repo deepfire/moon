@@ -7,6 +7,7 @@ import           Options.Applicative         hiding (Parser)
 
 import Basis
 import Data.Parsing
+import Data.IntUnique
 
 import Dom.Expr
 import Dom.Error
@@ -33,20 +34,23 @@ data Request n
   deriving (Generic)
   deriving (Show) via (Quiet (Request n))
 
-newtype Reply
+data Reply
   = ReplyValue SomeValue
 
-type StandardRequest = Request (Located (QName Pipe))
+type StandardRequest = (Unique, Request (Located (QName Pipe)))
+type StandardReply   = (Unique, Either EPipe Reply)
 
-instance Show Reply where show (ReplyValue n) = "ReplyValue " <> show n
+instance Show Reply where
+  show (ReplyValue n) = "ReplyValue " <> show n
 
 --------------------------------------------------------------------------------
 -- * Parsing
 --
 parseGroundRequest :: Maybe Int -> Text -> PFallible StandardRequest
 parseGroundRequest mTokenPos s =
-  left EParse $
-  parseExprWithToken parseQName' (parseRequest parseSomeValueLiteral)
+  EParse +++ (unsafeCoerceUnique 0,) $
+  parseExprWithToken parseQName'
+    (parseRequest parseSomeValueLiteral)
     (mTokenPos <|> Just (Text.length s - 1)) s
 
 parseRequest ::
@@ -112,12 +116,13 @@ instance (Serialise n, Typeable n) => Serialise (Request n) where
 
 instance Serialise Reply where
   encode x = case x of
-    ReplyValue v -> encodeListLen 2 <> encodeWord tagReply <> encode (v :: SomeValue)
+    ReplyValue v ->
+       encodeListLen 2 <> encodeWord tagReply <> encode v
   decode = do
     len <- decodeListLen
     tag <- decodeWord
     case (len, tag) of
-      (2, _tagSomeReply) -> ReplyValue <$> (decode :: Decoder s SomeValue)
+      (2, _tagSomeReply) -> ReplyValue <$> decode
       _ -> failLenTag len tag
 
 failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a

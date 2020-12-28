@@ -4,30 +4,33 @@ module Wire.Protocol
   ( Request(..)
   , Reply(..)
   , parseRequest
-  , Piping(..)
+  , Requests(..)
+  , Replies(..)
   , Protocol(..)
   , Message(..)
   , ClientHasAgency(..)
   , ServerHasAgency(..)
   , NobodyHasAgency(..)
-  , wireCodec
+  , wireCodecRequests
+  , wireCodecReplies
   )
 where
 
-import qualified Data.ByteString                  as  BS
-import qualified Data.ByteString.Builder          as  BS
-import qualified Data.ByteString.Builder.Extra    as  BS
-import qualified Data.ByteString.Lazy             as LBS
-import qualified Data.ByteString.Lazy.Internal    as LBS (smallChunkSize)
-import           Data.IntUnique
+import Data.ByteString                  qualified as  BS
+import Data.ByteString.Builder          qualified as  BS
+import Data.ByteString.Builder.Extra    qualified as  BS
+import Data.ByteString.Lazy             qualified as LBS
+import Data.ByteString.Lazy.Internal    qualified as LBS (smallChunkSize)
 
-import qualified Codec.CBOR.Read                  as CBOR
-import qualified Codec.CBOR.Write                 as CBOR
-import           Control.Monad.ST                   (ST, stToIO)
+import Codec.CBOR.Read                  qualified as CBOR
+import Codec.CBOR.Write                 qualified as CBOR
+import Control.Monad.ST                             (ST, stToIO)
 
-import qualified Network.TypedProtocol.Codec      as Codec
-import           Network.TypedProtocol.Codec hiding (encode, decode)
-import           Network.TypedProtocol.Core         (Protocol(..))
+import Ouroboros.Network.Util.ShowProxy qualified as ONet
+
+import Network.TypedProtocol.Codec      qualified as Codec
+import Network.TypedProtocol.Codec           hiding (encode, decode)
+import Network.TypedProtocol.Core                   (Protocol(..))
 
 import Basis
 import Dom.RequestReply
@@ -36,63 +39,120 @@ import Dom.RequestReply
 --------------------------------------------------------------------------------
 -- | Piping:  message state type
 --
-data Piping rej
-  = StIdle
-  | StBusy
-  | StDone
+data Requests rej
+  = RqIdle
+  | RqBusy
+  | RqDone
   deriving (Show)
 
-instance Show (ClientHasAgency (st :: Piping rej)) where show TokIdle = "TokIdle"
-instance Show (ServerHasAgency (st :: Piping rej)) where show TokBusy = "TokBusy"
+data Replies rej
+  = ReIdle
+  | ReBusy
+  | ReDone
+  deriving (Show)
+
+instance ONet.ShowProxy (Replies rej) where
+  showProxy _ = "Replies"
+
+instance ONet.ShowProxy (Requests rej) where
+  showProxy _ = "Requests"
+
+instance Show (ClientHasAgency (st :: Requests rej)) where show RqIdleT = "RqIdleT"
+instance Show (ServerHasAgency (st :: Requests rej)) where show RqBusyT = "RqBusyT"
+
+instance Show (ClientHasAgency (st :: Replies rej)) where show ReIdleT = "ReIdleT"
+instance Show (ServerHasAgency (st :: Replies rej)) where show ReBusyT = "ReBusyT"
 
 --------------------------------------------------------------------------------
--- | Protocol & codec
+-- | Protocols & codecs
 --
-instance Protocol (Piping rej) where
-  data Message (Piping rej) from to where
-    MsgRequest    :: Unique -> StandardRequest -> Message (Piping rej) StIdle StBusy
-    MsgReply      :: Unique -> Reply           -> Message (Piping rej) StBusy StIdle
-    MsgBadRequest :: Unique -> rej             -> Message (Piping rej) StBusy StIdle
-    MsgDone       ::                              Message (Piping rej) StIdle StDone
+-- Note -- as of now, the protocols are really, _really_ trivial.
+--
+instance Protocol (Requests rej) where
+  data Message (Requests rej) from to where
+    MsgReq     :: StandardRequest ->   Message (Requests rej) RqIdle RqBusy
+    MsgReqOk   ::                      Message (Requests rej) RqBusy RqIdle
+    MsgReqDone ::                      Message (Requests rej) RqIdle RqDone
 
-  data ClientHasAgency st where TokIdle :: ClientHasAgency StIdle
-  data ServerHasAgency st where TokBusy :: ServerHasAgency StBusy
-  data NobodyHasAgency st where TokDone :: NobodyHasAgency StDone
+  data ClientHasAgency st where RqIdleT :: ClientHasAgency RqIdle
+  data ServerHasAgency st where RqBusyT :: ServerHasAgency RqBusy
+  data NobodyHasAgency st where RqDoneT :: NobodyHasAgency RqDone
 
-  exclusionLemma_ClientAndServerHaveAgency TokIdle tok = case tok of {}
-  exclusionLemma_NobodyAndClientHaveAgency TokDone tok = case tok of {}
-  exclusionLemma_NobodyAndServerHaveAgency TokDone tok = case tok of {}
+  exclusionLemma_ClientAndServerHaveAgency RqIdleT tok = case tok of {}
+  exclusionLemma_NobodyAndClientHaveAgency RqDoneT tok = case tok of {}
+  exclusionLemma_NobodyAndServerHaveAgency RqDoneT tok = case tok of {}
 
-deriving instance Show rej => Show (Message (Piping rej) from to)
+deriving instance Show rej => Show (Message (Requests rej) from to)
 
-wireCodec :: forall m rej. (Monad m, Serialise rej, m ~ IO) =>
-  Codec (Piping rej) CBOR.DeserialiseFailure m LBS.ByteString
-wireCodec =
+instance Protocol (Replies rej) where
+  data Message (Replies rej) from to where
+    MsgReplyWait   ::                  Message (Replies rej) ReIdle ReBusy
+    MsgReply       :: StandardReply -> Message (Replies rej) ReBusy ReIdle
+    MsgReplyDone   ::                  Message (Replies rej) ReIdle ReDone
+
+  data ClientHasAgency st where ReIdleT :: ClientHasAgency ReIdle
+  data ServerHasAgency st where ReBusyT :: ServerHasAgency ReBusy
+  data NobodyHasAgency st where ReDoneT :: NobodyHasAgency ReDone
+
+  exclusionLemma_ClientAndServerHaveAgency ReIdleT tok = case tok of {}
+  exclusionLemma_NobodyAndClientHaveAgency ReDoneT tok = case tok of {}
+  exclusionLemma_NobodyAndServerHaveAgency ReDoneT tok = case tok of {}
+
+deriving instance Show rej => Show (Message (Replies rej) from to)
+
+wireCodecRequests :: forall m rej. (Monad m, Serialise rej, m ~ IO) =>
+  Codec (Requests rej) CBOR.DeserialiseFailure m LBS.ByteString
+wireCodecRequests =
     mkCodecCborLazyBS' enc dec
   where
     enc :: forall (pr :: PeerRole) st st'.
               PeerHasAgency pr st
-           -> Message (Piping rej) st st'
+           -> Message (Requests rej) st st'
            -> Encoding
-    enc (ClientAgency TokIdle) (MsgRequest u r)    = encodeListLen 3 <> encodeWord 0 <> encode u <> encode r
-    enc (ServerAgency TokBusy) (MsgReply u r)      = encodeListLen 3 <> encodeWord 1 <> encode u <> encode r
-    enc (ServerAgency TokBusy) (MsgBadRequest u t) = encodeListLen 3 <> encodeWord 2 <> encode u <> encode t
-    enc (ClientAgency TokIdle)  MsgDone            = encodeListLen 1 <> encodeWord 3
+    enc (ClientAgency RqIdleT) (MsgReq r)  = encodeListLen 2 <> encodeWord 0 <> encode r
+    enc (ServerAgency RqBusyT)  MsgReqOk   = encodeListLen 1 <> encodeWord 1
+    enc (ClientAgency RqIdleT)  MsgReqDone = encodeListLen 1 <> encodeWord 2
 
-    dec :: forall (pr :: PeerRole) s (st :: (Piping rej)).
+    dec :: forall (pr :: PeerRole) s (st :: (Requests rej)).
               PeerHasAgency pr st
            -> Decoder s (SomeMessage st)
     dec stok = do
       len <- decodeListLen
       key <- decodeWord
       case (stok, len, key) of
-        (ClientAgency TokIdle, 3, 0) -> fmap SomeMessage $ MsgRequest    <$> decode <*> decode
-        (ServerAgency TokBusy, 3, 1) -> fmap SomeMessage $ MsgReply      <$> decode <*> decode
-        (ServerAgency TokBusy, 3, 2) -> fmap SomeMessage $ MsgBadRequest <$> decode <*> decode
-        (ClientAgency TokIdle, 1, 3) -> pure $ SomeMessage MsgDone
+        (ClientAgency RqIdleT, 2, 0) -> fmap SomeMessage $ MsgReq <$> decode
+        (ServerAgency RqBusyT, 1, 1) -> pure $ SomeMessage MsgReqOk
+        (ClientAgency RqIdleT, 1, 2) -> pure $ SomeMessage MsgReqDone
 
-        (ClientAgency TokIdle, _, _) -> fail "codec.Idle: unexpected key"
-        (ServerAgency TokBusy, _, _) -> fail "codec.Busy: unexpected key"
+        (ClientAgency RqIdleT, _, _) -> fail "codec.Idle: unexpected key"
+        (ServerAgency RqBusyT, _, _) -> fail "codec.Busy: unexpected key"
+
+wireCodecReplies :: forall m rej. (Monad m, Serialise rej, m ~ IO) =>
+  Codec (Replies rej) CBOR.DeserialiseFailure m LBS.ByteString
+wireCodecReplies =
+    mkCodecCborLazyBS' enc dec
+  where
+    enc :: forall (pr :: PeerRole) st st'.
+              PeerHasAgency pr st
+           -> Message (Replies rej) st st'
+           -> Encoding
+    enc (ClientAgency ReIdleT)  MsgReplyWait = encodeListLen 1 <> encodeWord 0
+    enc (ServerAgency ReBusyT) (MsgReply r)  = encodeListLen 2 <> encodeWord 1 <> encode r
+    enc (ClientAgency ReIdleT)  MsgReplyDone = encodeListLen 1 <> encodeWord 2
+
+    dec :: forall (pr :: PeerRole) s (st :: (Replies rej)).
+              PeerHasAgency pr st
+           -> Decoder s (SomeMessage st)
+    dec stok = do
+      len <- decodeListLen
+      key <- decodeWord
+      case (stok, len, key) of
+        (ClientAgency ReIdleT, 1, 0) -> pure $ SomeMessage MsgReplyWait
+        (ServerAgency ReBusyT, 2, 1) -> fmap SomeMessage $ MsgReply <$> decode
+        (ClientAgency ReIdleT, 1, 2) -> pure $ SomeMessage MsgReplyDone
+
+        (ClientAgency ReIdleT, _, _) -> fail "codec.Idle: unexpected key"
+        (ServerAgency ReBusyT, _, _) -> fail "codec.Busy: unexpected key"
 
 -- * Ancillary
 --

@@ -35,17 +35,12 @@ import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
 import Dom.RequestReply
-import Dom.Sig
-import Dom.SomeType
 import Dom.SomeValue
 import Dom.Space.Pipe
-import Dom.Tags
 import Dom.Value
 import Dom.VTag
 
 import Ground.Table
-
-import qualified Wire.Protocol                 as Wire
 
 import Basis hiding (Dynamic)
 
@@ -80,29 +75,29 @@ mkExecutionPort ::
   forall t m p
   .  (ReflexVty t m, PerformEvent t m, TriggerEvent t m, MonadIO m, MonadIO (Performable m))
   => SomePipe p
-  -> (Execution t p
+  -> (   Execution t p
       -> Event t (PFallible (PipeSpace (SomePipe p))))
   -> Event t ()
   -> (   ExecutionPort t p
       -> (Unique -> PFallible SomeValue -> IO ())
       -> IO ())
   -> VtyWidget t m (ExecutionPort t p)
-mkExecutionPort populationP selectSpaceEvents setupE handler = mdo
+mkExecutionPort populationP selectSpaceEvents setupE portMain = mdo
   (exeSendW, epExecs) :: (InChan (Execution t p), OutChan (Execution t p)) <-
     liftIO newChan
   epStreamsR <- liftIO $ IO.newIORef mempty
   epRepliesE <- performEventAsync $
-    ffor setupE \_unit fire -> liftIO $
-      (Async.link =<<) . Async.async $
+    ffor setupE \_unit fire ->
+      liftIO . (Async.link =<<) . Async.async $
         -- \exeSendR fire -> forever $ runSingleConnection tr wsa fire exeSendR
         -- fanInt :: Event t (IntMap a) -> EventSelectorInt t a
         -- selectInt :: Int -> Event t a
-        handler ep (\replyStreamId (reply :: PFallible SomeValue) -> do
+        portMain ep (\replyStreamId (reply :: PFallible SomeValue) -> do
                        epStreams <- IO.readIORef epStreamsR
                        maybe
                          (traceM $ mconcat
-                          [ "Port error: no stream id ", show replyStreamId
-                          , ", known ids: ", show (IMap.keys epStreams)])
+                          [ "Port error: no stream id ", show replyStreamId, ", "
+                          , "known ids: ", show (IMap.keys epStreams)])
                          (const $
                           fire $ IMap.singleton (hashUnique replyStreamId) reply)
                          (IMap.lookup (hashUnique replyStreamId) epStreams))
@@ -121,13 +116,13 @@ selectExecutionReplies ::
   -> Execution t p
   -> Event t (PFallible SomeValue)
 selectExecutionReplies ep e =
-  selectInt (epReplies ep) (hashUnique $ unHandle $ eHandle e)
+  selectInt (epReplies ep) (hashUnique $ eHandle e)
 
 portRegisterExecution :: MonadIO m => Execution t p -> ExecutionPort t p -> m ()
 portRegisterExecution e ep = liftIO $ do
-  traceM $ "New execution: " <> unpack (eText e) <> ", id " <> show (unHandle $ eHandle e)
+  traceM $ "New execution: " <> unpack (eText e) <> ", id " <> show (eHandle e)
   IO.atomicModifyIORef'_ (epStreamsR ep)
-    (IMap.insert (hashUnique . unHandle $ eHandle e) e)
+    (IMap.insert (hashUnique $ eHandle e) e)
 
 
 type MixedPipeGuts = Either () Dyn.Dynamic
@@ -146,16 +141,11 @@ data PreRunnable p
 preRunnableText :: PreRunnable p -> Text
 preRunnableText = prText
 
-data ExecHandle = ExecHandle { unHandle :: Unique }
-instance Show ExecHandle where
-  show (ExecHandle x) = show x
-
 data Execution t p =
   forall c a.
   (Typeable c, Typeable a) =>
   Execution
-  { eHandle   :: ExecHandle
-  , eResCTag  :: (CTag c)
+  { eResCTag  :: (CTag c)
   , eResVTag  :: (VTag a)
   , _eText    :: Text
   -- TODO:  what does it mean for eText not to correspond to eRequest?
@@ -167,6 +157,10 @@ data Execution t p =
 eText :: Execution t p -> Text
 eText = _eText
 {-# INLINE eText #-}
+
+eHandle :: Execution t p -> Unique
+eHandle = fst . eRequest
+{-# INLINE eHandle #-}
 
 
 mixedPartPipeAll ::
@@ -213,9 +207,11 @@ makePostPipeExecution ::
   -> SomePipe p
   -> m (Execution t p)
 makePostPipeExecution ep p = do
+  let req = Run . fromString . unpack . showName $ somePipeName p
+  rid <- liftIO $ newUnique
   e <- mkExecution ep
          (showName $ somePipeName p)
-         (Run . fromString . unpack . showName $ somePipeName p)
+         (rid, req)
          p
   liftIO $ epPost ep e
   pure $ e
@@ -259,7 +255,7 @@ mkExecution :: forall t p m. (MonadIO m, Reflex t)
   -> StandardRequest
   -> SomePipe p
   -> m (Execution t p)
-mkExecution ep txt req sp@(SP _ _ (Pipe{pDesc} :: Pipe kas o p)) =
+mkExecution ep txt sreq@(_id, req) sp@(SP _ _ (Pipe{pDesc} :: Pipe kas o p)) =
   case req of
     Run{} ->
       mkExecution' ep (descOutCTag pDesc :: CTag (CTagVC o))
@@ -273,10 +269,8 @@ mkExecution ep txt req sp@(SP _ _ (Pipe{pDesc} :: Pipe kas o p)) =
      -> VTag v
      -> m (Execution t p)
    mkExecution' ep' ctag vtag = do
-     handle <- liftIO newUnique
-     let exe = Execution (ExecHandle handle)
-                         ctag vtag
-                         txt req sp
+     let exe = Execution ctag vtag
+                         txt sreq sp
                          (selectEvents (selectExecutionReplies ep' exe) ctag vtag)
      portRegisterExecution exe ep'
      pure exe

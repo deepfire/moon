@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Wire.WSS (module Wire.WSS) where
 
 import Control.Exception                          hiding (TypeError)
@@ -6,11 +8,12 @@ import Control.Tracer
 import Data.ByteString.Lazy                  qualified as LBS
 import Data.Default                                      (def)
 import Data.List                             qualified as List
-import Data.Text
 
 import Data.X509.Validation                  qualified as X509
 
-import Network.TypedProtocol.Channel         qualified as Net
+import Network.Mux                           qualified as Mux
+import Network.Mux.Compat                    qualified as Mux
+import Ouroboros.Network.Mux                 qualified as ONet
 
 import Network.WebSockets                    qualified as WS
 import Network.WebSockets.Connection         qualified as WS
@@ -28,41 +31,35 @@ import Dom.Cred
 import Dom.Pipe.EPipe
 import Dom.RequestReply
 
-import qualified Wire.Peer                     as Wire
+import Wire.MiniProtocols
+import Wire.Peer
+import Wire.WSS.Bearer
 
 
 data WSAddr
   = WSAddr
-  { wsaHost :: String
-  , wsaPort :: Int
-  , wsaPath :: String
+  { wsaHost :: !String
+  , wsaPort :: !Int
+  , wsaPath :: !String
   }
-
-channelFromWebsocket :: WS.Connection -> Net.Channel IO LBS.ByteString
-channelFromWebsocket conn =
-  Net.Channel
-  { recv = catch (Just <$> WS.receiveData conn)
-           (\(SomeException _x) -> pure Nothing)
-  , send = WS.sendBinaryData conn
-  }
-  where
-    _tracer :: Show x => String -> x -> x
-    _tracer desc x = trace (printf "%s:\n%s\n" desc (show x)) x
 
 runWssClient ::
-     Tracer IO Text
+  forall m rej a
+  . ( m   ~ IO
+    , rej ~ EPipe
+    , a   ~ StandardReply)
+  => WireTracers m
   -> CredSpec
   -> WSAddr
-  -> IO (Wire.ClientState EPipe IO Reply)
-  -> IO ()
-runWssClient tr cspec WSAddr{..} client = do
+  -> m (RequestClient rej m (), RepliesClient rej m ())
+  -> m ()
+runWssClient trs cspec WSAddr{..} mkClients = do
   Cred{cIdentity, cCred=TLS.Credentials (cred:_)} <-
     loadCred cspec
       <&> flip either id (error . ("Failed to load credentials: " <>))
   sm <- SM.newSessionManager SM.defaultConfig
   let tlsSettings =
         Net.TLSSettings
-      -- This is the important setting.
         (TLS.defaultParamsClient "127.0.0.1" "")
         { TLS.clientUseServerNameIndication = False
         , TLS.clientSupported =
@@ -74,7 +71,6 @@ runWssClient tr cspec WSAddr{..} client = do
           def
           { TLS.sharedSessionManager = sm
           , TLS.sharedCAStore = cIdentity
-          -- Q: what's this for?
           -- , TLS.sharedCredentials = TLS.Credentials [cred]
           }
         , TLS.clientHooks =
@@ -95,27 +91,56 @@ runWssClient tr cspec WSAddr{..} client = do
   stream <- WS.makeStream
     (fmap Just (Net.connectionGetChunk connection))
     (maybe (return ()) (Net.connectionPut connection . LBS.toStrict))
+
+  (,) requestInitiator repliesInitiator
+     <- mkClients <&>
+        ((mkPeerInitiator (trMuxRequests trs) wireCodecRequests
+          . mkRequestClientSTS . pure)
+         ***
+         (mkPeerInitiator (trMuxReplies  trs) wireCodecReplies
+          . mkRepliesClientSTS . pure))
   let headers = []
   WS.runClientWithStream stream wsaHost wsaPath WS.defaultConnectionOptions headers
-  -- WS.runSecureClient wsaHost (toEnum wsaPort) wsaPath
-    \(channelFromWebsocket -> webSockChan) -> do
-      void $ Wire.runClient tr webSockChan client
+    \conn ->
+      Mux.muxStart
+        (trMux trs)
+        (Mux.MuxApplication
+          [ Mux.MuxMiniProtocol
+            { Mux.miniProtocolNum    = Mux.MiniProtocolNum 0
+            , Mux.miniProtocolLimits =
+              Mux.MiniProtocolLimits
+              { maximumIngressQueue = 3000000
+              }
+            , Mux.miniProtocolRun    = toMuxRunMiniProtocol requestInitiator
+                  :: Mux.RunMiniProtocol 'ONet.InitiatorMode IO () Void
+            }
+          , Mux.MuxMiniProtocol
+            { Mux.miniProtocolNum    = Mux.MiniProtocolNum 1
+            , Mux.miniProtocolLimits =
+              Mux.MiniProtocolLimits
+              { maximumIngressQueue = 3000000
+              }
+            , Mux.miniProtocolRun    = toMuxRunMiniProtocol repliesInitiator
+                  :: Mux.RunMiniProtocol 'ONet.InitiatorMode IO () Void
+            }
+          ])
+        (wsConnectionAsMuxBearer (trBearer trs) conn)
 
 runWssServer ::
-     Tracer IO Text
+     WireTracers IO
   -> CredSpec
   -> WSAddr
-  -> Wire.Server EPipe IO Reply
+  -> IO (RequestServer EPipe IO (), RepliesServer EPipe IO StandardReply)
   -> IO ()
-runWssServer tr cspec WSAddr{..} server = do
+runWssServer trs cspec WSAddr{..} mkServers = do
   Cred{cIdentity} <- loadCred cspec <&> flip either id
     (error . ("Failed to load credentials: " <>))
 
-  traceWith tr $ "Starting server on " <> showT wsaHost <> ":" <> showT wsaPort
+  traceWith (trWss trs) $ "Starting server on " <> showT wsaHost <> ":" <> showT wsaPort
   flip catches
    [ Handler $
      \(SomeException (e :: a)) -> do
-       traceWith tr $ mconcat
+       traceWith (trWss trs) $ mconcat
          [ "Uncaught WS.runServerWithOptions exception ("
          , showT $ typeRep @a, "): "
          , showT e
@@ -152,7 +177,7 @@ runWssServer tr cspec WSAddr{..} server = do
     \pending -> do
       let Just tlsCtx = WS.streamTlsContext $ WS.pendingStream pending
       Just tlsCtxInfo <- TLS.contextGetInformation tlsCtx
-      traceWith tr $ mconcat
+      traceWith (trWss trs) $ mconcat
         [ "Accepted connection on ", showT wsaHost, ":", showT wsaPort, ", "
         , showT $ TLS.infoVersion tlsCtxInfo, ", "
         , "cipher ", showT $ TLS.infoCipher tlsCtxInfo, ", "
@@ -160,29 +185,46 @@ runWssServer tr cspec WSAddr{..} server = do
         ]
       conn <- WS.acceptRequest pending
       WS.withPingThread conn 60 (pure ()) $ do
-        let handleDisconnect :: WS.ConnectionException -> IO ()
-            handleDisconnect x = putStrLn $ "Web disconnected: " <> show x
+        (,) requestResponder repliesResponder
+           <- mkServers <&>
+              ((mkPeerResponder (trMuxRequests trs) wireCodecRequests
+                . mkRequestServerSTS . pure)
+               ***
+               (mkPeerResponder (trMuxReplies  trs) wireCodecReplies
+                . mkRepliesServerSTS . pure))
 
         void $ catches
-          (Wire.runServer tr server $ channelFromWebsocket conn)
+          (Mux.muxStart
+            (trMux trs)
+            (Mux.MuxApplication
+              [ Mux.MuxMiniProtocol
+                { Mux.miniProtocolNum    = Mux.MiniProtocolNum 0
+                , Mux.miniProtocolLimits =
+                  Mux.MiniProtocolLimits
+                  { maximumIngressQueue = 3000000
+                  }
+                , Mux.miniProtocolRun    = toMuxRunMiniProtocol requestResponder
+                }
+              , Mux.MuxMiniProtocol
+                { Mux.miniProtocolNum    = Mux.MiniProtocolNum 1
+                , Mux.miniProtocolLimits =
+                  Mux.MiniProtocolLimits
+                  { maximumIngressQueue = 3000000
+                  }
+                , Mux.miniProtocolRun    = toMuxRunMiniProtocol repliesResponder
+                }
+              ])
+            (wsConnectionAsMuxBearer (trBearer trs) conn))
           [ Handler $
             \(SomeException (e :: a)) -> do
-              traceM $ Prelude.concat
+              traceWith (trWss trs) $ mconcat
                 [ "Uncaught Wire.Peer.runServer exception ("
-                , unpack $ showTypeRepNoKind $ typeRep @a, "): "
-                , show e
-                ]
-              pure ()
+                , showTypeRepNoKind $ typeRep @a, "): ", showT e]
           , Handler $
             \(e :: WS.ConnectionException) -> do
-              traceM $ Prelude.concat
-                [ "Disconnected: "
-                , show e
-                ]
-              handleDisconnect e
-              pure ()
+              traceWith (trWss trs) $ mconcat
+                [ "Disconnected: ", showT e ]
           ]
-        pure ()
 
 -- | The strongest ciphers supported.  For ciphers with PFS, AEAD and SHA2, we
 -- list each AES128 variant after the corresponding AES256 and ChaCha20-Poly1305
