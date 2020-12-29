@@ -26,41 +26,66 @@ in (import ./../reflex-platform {
 
   overrides = self: old: with pkgs.haskell.lib;
     let inherit (pkgs.haskell.lib) overrideCabal;
-        simp = x: dontCheck (doJailbreak x);
-        l = repo: path: cabalExtras:
-          simp (self.callCabal2nixWithOptions repo path cabalExtras {});
+        unbreak = old: overrideCabal old (drv: { broken = false; });
+        fix = { check ? false
+              , jailbreak ? true
+              , broken ? false }:
+              x:
+                ( if check     then id else dontCheck)
+                ((if jailbreak then doJailbreak else id)
+                 (if broken    then unbreak x else x));
+        l = name: path: cabalExtras:
+          fix {}
+            (self.callCabal2nixWithOptions name path cabalExtras {});
         gh = owner: repo: rev: sha256: cabalExtras:
-          simp (self.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub {
-            inherit owner repo rev sha256;
-          }) cabalExtras {});
-      unbreak = name: (overrideCabal old.${name} (old: { broken = false; }));
-      df = gh "deepfire";
-      ds = gh "deepshared";
-      io = repo: rev: s: subdir:
-           gh "input-output-hk" repo rev s "--subpath ${subdir}";
-      io-on = x: l x (../ouroboros-network + "/${x}") "";
-      # io-on = x: dontCheck (io "ouroboros-network" "edfdf732f051ac513277a83065b928a5db8e652c" "sha256:1qssfmixm88khcxmsn6zdg1bczwjgn7av47g3gmi06f0xf18xm7b" x);
-      io-mf = io "iohk-monitoring-framework" "65834fcfde3d86461a8f8525b04e4bdf9cc06e41" "0vlxfbfa4skagngwirx5fnyhl8bycskgk0gnhaawrbi3w9qxbd1s";
-      sop = gh "well-typed" "generics-sop"       "770bf3fb50b2fa8ea5f33e3abcdc01a973ed3754" "sha256:0fn0555sc4lmd2rbddyypg90f4rwcprvvqg2rgd6ss59waflz61g";
+          fix {}
+            (self.callCabal2nixWithOptions repo (pkgs.fetchFromGitHub { inherit owner repo rev sha256;}) cabalExtras {});
+        sources = import ./nix/sources.nix {};
+        niv = repo: { pkg ? repo
+                    , subdir ? if pkg == repo then null else pkg
+                    , check ? false, jailbreak ? true, broken ? false }:
+          fix { inherit check jailbreak broken; }
+            (self.callCabal2nixWithOptions
+              pkg
+              (sources."${repo}").outPath
+              (if subdir == null
+               then ""
+               else "--subpath ${subdir}")
+              {});
   in {
     ### Locals
-    common                   = self.callCabal2nix "common" ./common {};
-    lift                     = self.callCabal2nix "lift"   ./lift   {};
+    common                      = self.callCabal2nix "common" ./common {};
+    lift                        = self.callCabal2nix "lift"   ./lift   {};
 
     ### IOHK
-    contra-tracer            = io-mf "contra-tracer";
-    io-sim                   = io-on "io-sim";
-    io-sim-classes           = io-on "io-sim-classes";
-    typed-protocols          = io-on "typed-protocols";
-    typed-protocols-examples = io-on "typed-protocols-examples";
+    cardano-prelude             = niv "cardano-prelude"
+                                      { subdir = "cardano-prelude"; };
+    contra-tracer               = niv "iohk-monitoring-framework"
+                                      { pkg = "contra-tracer"; };
+    io-sim                      = niv "ouroboros-network"
+                                      { pkg = "io-sim"; };
+    io-sim-classes              = niv "ouroboros-network"
+                                      { pkg = "io-sim-classes"; };
+    ouroboros-network-framework = niv "ouroboros-network"
+                                      { pkg = "ouroboros-network-framework"; };
+    ouroboros-network-testing   = niv "ouroboros-network"
+                                      { pkg = "ouroboros-network-testing"; };
+    network-mux                 = niv "ouroboros-network"
+                                      { pkg = "network-mux";
+                                        broken = true; };
+    nothunks                    = fix { broken = true; } old."nothunks";
+    canonical-json              = fix { broken = true; } old."canonical-json";
+    typed-protocols             = niv "ouroboros-network"
+                                      { pkg = "typed-protocols"; };
+    typed-protocols-examples    = niv "ouroboros-network"
+                                      { pkg = "typed-protocols-examples"; };
+    Win32-network               = niv "ouroboros-network"
+                                      { pkg = "Win32-network"; };
 
     ### Externals
-    parsers-megaparsec         = simp (unbreak "parsers-megaparsec");
-    ghc-lib-parser             = self.callHackage "ghc-lib-parser" "8.10.2.20200916" {};
-    websockets = gh "deepfire" "websockets"
-                    "b977a2bd3edcef64f32826d341dd05709d212fdd"
-                    "0mfwgpbplyxq071kfkbhjj171h0wdxzdsvr093vi6jvwahc50nbs"
-                    "";
+    parsers-megaparsec          = fix { broken = true; } old."parsers-megaparsec";
+    ghc-lib-parser              = self.callHackage "ghc-lib-parser" "8.10.2.20200916" {};
+    websockets                  = niv "websockets" {};
 
     ### Luna IDE
     frontend-common       = dontCheck (doJailbreak (self.callCabal2nix "frontend-common"           ./lib                           {}));

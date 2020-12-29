@@ -66,6 +66,7 @@ library
                      , io-sim-classes
                      , megaparsec
                      , network
+                     , network-mux
                      , optparse-applicative
                      , parsers-megaparsec
                      , process

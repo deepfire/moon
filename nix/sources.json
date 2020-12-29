@@ -1,0 +1,86 @@
+{
+    "cardano-prelude": {
+        "branch": "master",
+        "description": "A protolude-based custom prelude for the Cardano project",
+        "homepage": null,
+        "owner": "input-output-hk",
+        "repo": "cardano-prelude",
+        "rev": "196f1da881ee3ecc759607732fcd61815d397375",
+        "sha256": "0hi4wwj4a7gl2w4m3l0fynzjaap39wswx9hrjwkwvqrfrhsjh47h",
+        "type": "tarball",
+        "url": "https://github.com/input-output-hk/cardano-prelude/archive/196f1da881ee3ecc759607732fcd61815d397375.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "generics-sop": {
+        "branch": "master",
+        "description": "Generic Programming using True Sums of Products",
+        "homepage": "",
+        "owner": "well-typed",
+        "repo": "generics-sop",
+        "rev": "dcac01495c377bd29cf8f6dcf714f23a47edde9d",
+        "sha256": "1sa0z5hjf8ywnvcwgx1xhfrxqkyy52x7waipvk0yr2zpwrpb03km",
+        "type": "tarball",
+        "url": "https://github.com/well-typed/generics-sop/archive/dcac01495c377bd29cf8f6dcf714f23a47edde9d.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "iohk-monitoring-framework": {
+        "branch": "master",
+        "description": "This framework provides logging, benchmarking and monitoring.",
+        "homepage": null,
+        "owner": "input-output-hk",
+        "repo": "iohk-monitoring-framework",
+        "rev": "a89c38ed5825ba17ca79fddb85651007753d699d",
+        "sha256": "0i4p3jbr9pxhklgbky2g7rfqhccvkqzph0ak5x8bb6kwp7c7b8wf",
+        "type": "tarball",
+        "url": "https://github.com/input-output-hk/iohk-monitoring-framework/archive/a89c38ed5825ba17ca79fddb85651007753d699d.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "niv": {
+        "branch": "master",
+        "description": "Easy dependency management for Nix projects",
+        "homepage": "https://github.com/nmattia/niv",
+        "owner": "nmattia",
+        "repo": "niv",
+        "rev": "ba57d5a29b4e0f2085917010380ef3ddc3cf380f",
+        "sha256": "1kpsvc53x821cmjg1khvp1nz7906gczq8mp83664cr15h94sh8i4",
+        "type": "tarball",
+        "url": "https://github.com/nmattia/niv/archive/ba57d5a29b4e0f2085917010380ef3ddc3cf380f.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "nixpkgs": {
+        "branch": "release-20.03",
+        "description": "Nix Packages collection",
+        "homepage": "",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "929768261a3ede470eafb58d5b819e1a848aa8bf",
+        "sha256": "0zi54vbfi6i6i5hdd4v0l144y1c8rg6hq6818jjbbcnm182ygyfa",
+        "type": "tarball",
+        "url": "https://github.com/NixOS/nixpkgs/archive/929768261a3ede470eafb58d5b819e1a848aa8bf.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "ouroboros-network": {
+        "branch": "master",
+        "description": "An implementation of the Ouroboros family of consensus algorithms, with its networking support",
+        "homepage": "",
+        "owner": "input-output-hk",
+        "repo": "ouroboros-network",
+        "rev": "ba0e467547da296f936ac285dae6df13b0cdb129",
+        "sha256": "0aw05k5m2m35jbcn8rc1zp0lg31mpnay25wi4vn4qnsvdr30a1gv",
+        "type": "tarball",
+        "url": "https://github.com/input-output-hk/ouroboros-network/archive/ba0e467547da296f936ac285dae6df13b0cdb129.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "websockets": {
+        "branch": "wss",
+        "description": "A Haskell library for creating WebSocket-capable servers",
+        "homepage": "http://jaspervdj.be/websockets",
+        "owner": "deepfire",
+        "repo": "websockets",
+        "rev": "34b70c37da72a7e08ed82dd9a776349378243fc2",
+        "sha256": "08nn591r9izxs33n38krxhq1j43vb5p9sdsh8mghx8cbykql2cvp",
+        "type": "tarball",
+        "url": "https://github.com/deepfire/websockets/archive/34b70c37da72a7e08ed82dd9a776349378243fc2.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    }
+}

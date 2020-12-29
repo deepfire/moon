@@ -111,7 +111,9 @@ library
                      , megaparsec
                      , monoidal-containers
                      , network
+                     , network-mux
                      , optparse-applicative
+                     , ouroboros-network-framework
                      , parsers
                      , parsers-megaparsec
                      , quiet
