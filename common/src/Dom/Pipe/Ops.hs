@@ -15,6 +15,7 @@ import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Constr
+import Dom.Pipe.IOA
 import Dom.Pipe.Ops.Apply
 import Dom.Pipe.Ops.Compose
 import Dom.Pipe.Ops.Traverse

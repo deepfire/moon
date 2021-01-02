@@ -80,12 +80,9 @@ instance Show (SomePipe p) where
 -- * Running
 --
 runSomePipe :: HasCallStack => SomePipe Dynamic -> Result SomeValue
-runSomePipe SP{spPipe=Pipe{pDesc=pd@Desc{pdOut=Tags{tCTag, tVTag}} :: Desc as o
+runSomePipe SP{spPipe=Pipe{pDesc=Desc{pdOut=Tags{tCTag, tVTag}} :: Desc as o
                         ,p}, ..} =
-  case Dynamic.fromDynamic p :: Maybe (IOA '[] o) of
-    Nothing -> fallM $ "GPipe isn't a runnable Ground IOA: " <> showDesc pd
-    Just (IOA io _as _o) ->
-      (SV tCTag . SVK tVTag spCaps . mkValue tCTag tVTag <$>) <$> io
+  fmap (SV tCTag . SVK tVTag spCaps) <$> runIOADynamic p tCTag tVTag
 
 newtype Magic c r = Magic (forall a. c a => Proxy a -> r)
 reifyConstr' :: forall r b c. Proxy c -> b -> (forall a. c a => Proxy a -> r) -> r

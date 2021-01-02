@@ -123,70 +123,10 @@ doApply pf
         v
   = case spineConstraint of
       (Dict :: Dict Typeable ass) ->
-        let desc'   = Desc name sig struct (SomeTypeRep rep) ass o
-            name    = Name $ "("<>rn<>" val)"
-            sig     = Sig (tail ras) ro
-            struct  = Struct rg -- XXX ???
-            rep     = typeRep :: TypeRep (IOA ass o)
-        in Pipe desc' <$> pf desc v f
-
-appDyn ::
-     forall as ass (o :: *) a
-   . ( PipeConstr as o
-     , as ~ (a:ass)
-     )
-  => Desc as o -> Value (CTagVC a) (CTagVV a) -> Dynamic
-  -> Fallible Dynamic
-appDyn
-  Desc {pdArgs = Tags _ _ SOP.:* _}
-  v ioaDyn = case spineConstraint of
-      (Dict :: Dict Typeable ass) ->
-        Dynamic typeRep <$> case fromDynamic ioaDyn of
-          Just (ioa :: IOA as o) -> Right $ applyIOA ioa v
-          Nothing -> fallS $ printf
-            "appDyn: invariant failure: as %s, o %s, dyn %s"
-            (show $ typeRep @as) (show $ typeRep @o) (show $ dynRep ioaDyn)
-
-applyIOA ::
-     forall as ass o c v
-  .  ( PipeConstr as o
-     , as ~ (CTagV c v : ass)
-     )
-  => IOA as  o
-  -> Value c v
-  -> IOA ass o
-applyIOA
-  (IOA (f :: PipeFunTy (CTagV c v:ass) o)
-    _as o
-  ) v = case spineConstraint of
-          (Dict :: Dict Typeable as) ->
-            IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
-             (Proxy @ass) (Proxy @o)
-
--- | 'applyPipeFun': approximate 'apply':
--- ($) :: (a -> b) -> a -> b
-applyPipeFun' ::
-     forall (as :: [*]) (o :: *) (c :: Con) (a :: *)
-  .  PipeFunTy (CTagV c a:as) o
-  -> Proxy as
-  -> Proxy o
-  -> Value c a
-  -> PipeFunTy as o
-applyPipeFun' f _ _ = \case
-  VPoint x -> f x
-  VList  x -> f x
-  VSet   x -> f x
-  VTree  x -> f x
-  VDag   x -> f x
-  VGraph x -> f x
-
-_applyPipeFun ::
-     (Repr c a -> r) -> Value c a
-  -> r
-_applyPipeFun f = \case
-  VPoint x -> f x
-  VList  x -> f x
-  VSet   x -> f x
-  VTree  x -> f x
-  VDag   x -> f x
-  VGraph x -> f x
+        Pipe (Desc (Name $ "("<>rn<>" val)")
+                   (Sig (tail ras) ro)
+                   (Struct rg)
+                   (SomeTypeRep (typeRep :: TypeRep (IOA ass o)))
+                   ass
+                   o)
+        <$> pf desc v f
