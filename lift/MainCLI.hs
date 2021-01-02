@@ -3,8 +3,6 @@
 {-# OPTIONS_GHC -Wall -Wno-unticked-promoted-constructors -Wno-name-shadowing #-}
 
 import Control.Concurrent                        (threadDelay)
-import Control.Concurrent.Async      qualified as Async
-import Control.Concurrent.Chan.Unagi             (InChan, OutChan)
 import Control.Concurrent.Chan.Unagi qualified as Unagi
 import Control.Concurrent.STM                    (TVar)
 import Control.Concurrent.STM        qualified as STM
@@ -15,7 +13,6 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.NodeId
 import Control.Tracer
-import Data.ByteString.Lazy                      (toStrict)
 import Data.Char                                 (isDigit)
 import Data.Dynamic                  qualified as Dyn
 import Data.IntMap                   qualified as IMap
@@ -25,21 +22,13 @@ import Data.Semialign                            (align)
 import Data.Sequence                 qualified as Seq
 import Data.IntUnique
 import Data.Vector                   qualified as Vec
-import Data.X509.CertificateStore    qualified as X509
 
 import Reflex                             hiding (Request)
 import Reflex.Network
 import Reflex.Vty                         hiding (Request)
 import Data.Text                     qualified as T
 import Graphics.Vty                  qualified as V
-import Network.Connection            qualified as Net
-import Network.WebSockets            qualified as WS
-import Network.WebSockets.Stream     qualified as WS
-import Network.Socket                qualified as Net
-import Network.TLS                   qualified as TLS
-import Network.TLS.SessionManager    qualified as SM
 import System.IO.Unsafe              qualified as Unsafe
-import Wuss                          qualified as WS
 
 import Reflex.Vty.Widget.Extra
 import Reflex.Vty.Widget.Selector
@@ -131,7 +120,7 @@ mkRemoteExecutionPort trs cs wsa setupE = mdo
              selectEvents (selectExecutionReplies ep popExe) CPoint VPipeSpace
              <&> fmap stripCapValue)
           setupE $
-    \exeSendR fire -> do
+    \_exeSendR fire -> do
       forever $
         catches
           (Wire.runWssClient trs cs wsa (liftClients (Wire.trWss trs) fire ep))
@@ -241,7 +230,7 @@ spaceInteraction ::
   -> ExecutionPort t Dyn.Dynamic
   -> VtyWidget t m (Event t ())
 spaceInteraction epRemote epLocal = mdo
-  initE <- getPostBuild
+  -- initE <- getPostBuild
   -- initExecutionE :: Event t (Execution t MixedPipeGuts) <-
   --   performEvent $
   --     initE $>

@@ -31,12 +31,12 @@ import Dom.Value
 data Ops p where
   Ops ::
     { app
-      :: forall cas cas' o ca
-      . ( PipeConstr cas  o
-        , PipeConstr cas' o
-        , cas ~ (ca : cas')
+      :: forall as as' o a
+      . ( PipeConstr as  o
+        , PipeConstr as' o
+        , as ~ (a : as')
         )
-      => Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p
+      => Desc as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p
     , comp
       :: forall vas vo fas fass ras fo
       . ( PipeConstr vas vo

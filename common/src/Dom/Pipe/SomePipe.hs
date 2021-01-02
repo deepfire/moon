@@ -1,24 +1,16 @@
 module Dom.Pipe.SomePipe (module Dom.Pipe.SomePipe) where
 
 import Data.Dynamic                     qualified as Dynamic
-import Data.Reflection
-import Data.Void
 import Generics.SOP                     qualified as SOP
-import Text.Read                                    (ReadPrec)
 import Unsafe.Coerce                    qualified as Unsafe
 
 import Basis
-
--- import Data.Class
-import Data.Orphanage
-import Data.Parsing
 
 import Dom.CTag
 import Dom.Cap
 import Dom.Error
 import Dom.Ground
 import Dom.Name
-import Dom.Parse
 import Dom.Pipe
 import Dom.Pipe.Constr
 import Dom.Pipe.IOA
@@ -46,7 +38,7 @@ data SomePipe (p :: *)
     }
 
 pattern SPipeD :: Name Pipe -> ISig -> Struct -> SomeTypeRep -> SomePipe p
-pattern SPipeD name sig str rep <- SP _ caps (PipeD name sig str rep _ _ _)
+pattern SPipeD name sig str rep <- SP _ _caps (PipeD name sig str rep _ _ _)
 
 --------------------------------------------------------------------------------
 -- * Instances
@@ -124,13 +116,13 @@ recoverPipe qn name sig struct rep (out:args) =
    go :: [(SomeCTag, SomeVTag, SomeTypeRep, SomeTypeRep)]
       -> SomePipe () -> SomePipe ()
    go [] sp = sp
-   go (x:xs) (SP n caps (Pipe (Desc{..} :: Desc cas o) _)) =
+   go (x:xs) (SP n caps (Pipe (Desc{..} :: Desc as o) _)) =
      withRecoveredTags x $
-       \(tip :: Tags ca)
-        (_ :: Proxy (CTagVC ca)) (_ :: Proxy (CTagVV ca))
+       \(tip :: Tags a)
+        (_ :: Proxy (CTagVC a)) (_ :: Proxy (CTagVV a))
        -> go xs $ SP n caps $ Pipe
           (Desc pdName pdSig pdStruct pdRep (tip :* pdArgs) pdOut
-           :: Desc (ca:cas) o) ()
+           :: Desc (a:as) o) ()
 
    withRecoveredTags ::
      forall b
@@ -260,21 +252,21 @@ somePipeArity sp = withSomePipe sp $
   \p -> length (SOP.hcollapse . SOP.hmap (K . const ()) . pdArgs $ pDesc p)
 
 somePipeArityCase
-  :: forall (p :: *) (a :: *)
+  :: forall (p :: *) (r :: *)
   .  SomePipe p
   -- Zero.
-  -> (forall o (cas :: [*])
-      . (PipeConstr cas o, cas ~ '[])
-      => Pipe cas o p -> a)
+  -> (forall o (as :: [*])
+      . (PipeConstr as o, as ~ '[])
+      => Pipe as o p -> r)
   -- One.
-  -> (forall o (cas :: [*]) (ca :: *)
-      . (PipeConstr cas o, cas ~ (ca:'[]),  PipeConstr '[] o)
-      => Pipe cas o p -> a)
+  -> (forall o (as :: [*]) (a :: *)
+      . (PipeConstr as o, as ~ (a:'[]),  PipeConstr '[] o)
+      => Pipe as o p -> r)
   -- Infinity.
-  -> (forall o (cas :: [*]) (ca :: *) (cas' :: [*])
-      . (PipeConstr cas o, cas ~ (ca:cas'), PipeConstr cas' o)
-      => Pipe cas o p -> a)
-  -> a
+  -> (forall o (as :: [*]) (a :: *) (as' :: [*])
+      . (PipeConstr as o, as ~ (a:as'), PipeConstr as' o)
+      => Pipe as o p -> r)
+  -> r
 somePipeArityCase (SP _ _ p@(Pipe Desc {pdArgs =      Nil} _)) z _ _ = z p
 somePipeArityCase (SP _ _ p@(Pipe Desc {pdArgs = _ :* Nil} _)) _ s _ = s p
 somePipeArityCase (SP _ _ p@(Pipe Desc {pdArgs = _ :* _}   _)) _ _ n = n p

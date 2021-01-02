@@ -5,7 +5,6 @@ import Data.Dynamic                                 (toDyn)
 
 import Dom.CTag
 import Dom.Cap
-import Dom.Ground
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.IOA

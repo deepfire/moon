@@ -48,15 +48,15 @@ demoApply = case apply appDyn pipe val of
 --------------------------------------------------------------------------------
 -- * Conceptually:
 --
--- apply ~:: Pipe (ca:cas) o -> Value ca -> Pipe cas o
+-- apply ~:: Pipe (a:as) o -> Value a -> Pipe as o
 --
 apply ::
-     (forall cas cas' o ca
-      . ( PipeConstr cas  o
-        , PipeConstr cas' o
-        , cas ~ (ca : cas')
+     (forall as as' o a
+      . ( PipeConstr as  o
+        , PipeConstr as' o
+        , as ~ (a : as')
         )
-      => Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
+      => Desc as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p)
   -> SomePipe p
   -> SomeValue
   -> PFallible (SomePipe p)
@@ -70,14 +70,14 @@ apply pf sp x = somePipeUncons sp
                   <> ".")
 
 apply' ::
-    forall ca (cas :: [*]) (cas' :: [*]) o p
-  . ( PipeConstr cas o
-    , cas ~ (ca:cas')
+    forall a (as :: [*]) (as' :: [*]) o p
+  . ( PipeConstr as o
+    , as ~ (a:as')
     )
-  => (Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> p -> Fallible p)
-  -> Pipe cas o p
+  => (Desc as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p)
+  -> Pipe as o p
   -> SomeValue
-  -> Fallible (Pipe cas' o p)
+  -> Fallible (Pipe as' o p)
 apply' pf
   f@P{pPipeRep=ioa@IOATyCons{tagARep=tA, aRep=a}}
   (SV _ (SVK _ vcaps (v :: Value cv v) :: SomeValueKinded cv)) =
@@ -93,11 +93,11 @@ apply' pf
       -> fallDesc "Apply: Con mismatch"   $ show2  "v" (typeRep @v)   "a"  a
 
     | Just HRefl <- typeRep @cv `eqTypeRep` tA
-    , Just HRefl <- typeRep @cv `eqTypeRep` typeRep @(CTagVC ca)
+    , Just HRefl <- typeRep @cv `eqTypeRep` typeRep @(CTagVC a)
     , Just HRefl <- typeRep @v  `eqTypeRep`  a
-    , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(CTagVV ca)
+    , Just HRefl <- typeRep @v  `eqTypeRep` typeRep @(CTagVV a)
       -> case spineConstraint of
-        (Dict :: Dict Typeable cas') -> doApply pf f v
+        (Dict :: Dict Typeable as') -> doApply pf f v
     | otherwise
       -> Left "Apply: matched, but checks failed."
   where
@@ -111,68 +111,67 @@ apply' _ _ _ =
 -- | 'doApply': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 doApply ::
-     forall cas o c a p ca cass
-   . ( PipeConstr cas o
-     , cas ~ (ca : cass))
-  => (Desc cas o -> Value c a -> p -> Fallible p)
-  -> Pipe  cas o p
-  -> Value   c a
-  -> Fallible (Pipe (Tail cas) o p)
+     forall as o c v p a ass
+   . ( PipeConstr as o
+     , as ~ (a : ass))
+  => (Desc as o -> Value c v -> p -> Fallible p)
+  -> Pipe  as o p
+  -> Value c v
+  -> Fallible (Pipe (Tail as) o p)
 doApply pf
-        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (_ca SOP.:* cass) o) f)
+        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (_a SOP.:* ass) o) f)
         v
   = case spineConstraint of
-      (Dict :: Dict Typeable cass) ->
-        -- trace ("doApply: g=" <> (show $ typeRep @g)) $
-        let desc'   = Desc name sig struct (SomeTypeRep rep) cass o
-            name    = Name $ "app-"<>rn
+      (Dict :: Dict Typeable ass) ->
+        let desc'   = Desc name sig struct (SomeTypeRep rep) ass o
+            name    = Name $ "("<>rn<>" val)"
             sig     = Sig (tail ras) ro
             struct  = Struct rg -- XXX ???
-            rep     = typeRep :: TypeRep (IOA cass o)
+            rep     = typeRep :: TypeRep (IOA ass o)
         in Pipe desc' <$> pf desc v f
 
 appDyn ::
-     forall cas cass (o :: *) ca
-   . ( PipeConstr cas o
-     , cas ~ (ca:cass)
+     forall as ass (o :: *) a
+   . ( PipeConstr as o
+     , as ~ (a:ass)
      )
-  => Desc cas o -> Value (CTagVC ca) (CTagVV ca) -> Dynamic
+  => Desc as o -> Value (CTagVC a) (CTagVV a) -> Dynamic
   -> Fallible Dynamic
 appDyn
   Desc {pdArgs = Tags _ _ SOP.:* _}
   v ioaDyn = case spineConstraint of
-      (Dict :: Dict Typeable cass) ->
+      (Dict :: Dict Typeable ass) ->
         Dynamic typeRep <$> case fromDynamic ioaDyn of
-          Just (ioa :: IOA cas o) -> Right $ applyIOA ioa v
+          Just (ioa :: IOA as o) -> Right $ applyIOA ioa v
           Nothing -> fallS $ printf
             "appDyn: invariant failure: as %s, o %s, dyn %s"
-            (show $ typeRep @cas) (show $ typeRep @o) (show $ dynRep ioaDyn)
+            (show $ typeRep @as) (show $ typeRep @o) (show $ dynRep ioaDyn)
 
 applyIOA ::
-     forall cas cass o c a
-  .  ( PipeConstr cas o
-     , cas ~ (CTagV c a : cass)
+     forall as ass o c v
+  .  ( PipeConstr as o
+     , as ~ (CTagV c v : ass)
      )
-  => IOA cas  o
-  -> Value c a
-  -> IOA cass o
+  => IOA as  o
+  -> Value c v
+  -> IOA ass o
 applyIOA
-  (IOA (f :: PipeFunTy (CTagV c a:ass) o)
+  (IOA (f :: PipeFunTy (CTagV c v:ass) o)
     _as o
   ) v = case spineConstraint of
-          (Dict :: Dict Typeable cas) ->
+          (Dict :: Dict Typeable as) ->
             IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
              (Proxy @ass) (Proxy @o)
 
 -- | 'applyPipeFun': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 applyPipeFun' ::
-     forall (cas :: [*]) (o :: *) (c :: Con) (a :: *)
-  .  PipeFunTy (CTagV c a:cas) o
-  -> Proxy cas
+     forall (as :: [*]) (o :: *) (c :: Con) (a :: *)
+  .  PipeFunTy (CTagV c a:as) o
+  -> Proxy as
   -> Proxy o
   -> Value c a
-  -> PipeFunTy cas o
+  -> PipeFunTy as o
 applyPipeFun' f _ _ = \case
   VPoint x -> f x
   VList  x -> f x

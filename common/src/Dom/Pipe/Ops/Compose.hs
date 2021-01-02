@@ -60,10 +60,10 @@ compose ::
 compose pf f v =
   somePipeUncons f
   (const $ EComp "Cannot compose value and a saturated pipe.") $
-  \(f' :: Pipe (ca : cas) fo p) ->
+  \(f' :: Pipe (a : as) fo p) ->
     withSomePipe v $
     \(v' :: Pipe _vas vo p) ->
-      case typeRep @ca  `eqTypeRep` typeRep @vo of
+      case typeRep @a  `eqTypeRep` typeRep @vo of
         Just HRefl -> left EComp $ compose'' pf f' v'
         _ -> error "compose"
 
@@ -146,7 +146,7 @@ doBind pf
   = Pipe desc <$> pf dv v df f
  where
    desc    = Desc name sig struct (SomeTypeRep rep) fass fo
-   name    = Name $ fn<>">>="<>vn
+   name    = Name $ "("<>fn<>") >>= ("<>vn<>")"
    sig     = Sig (I <$> tail sfas) (I sfo)
    struct  = Struct $ G.overlay fg vg
    rep     = case spineConstraint of

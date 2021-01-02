@@ -4,7 +4,6 @@ import           Type.Reflection
                    ( pattern App
                    , pattern Con
                    , TyCon
-                   , eqTypeRep
                    , someTypeRepTyCon
                    , splitApps
                    , typeRepTyCon
@@ -103,9 +102,9 @@ ioaTyInvalidity (IOATyNil con lcon ocon _ko _o)
 ioaTyInvalidity _     = Just "no match with an IOA"
 
 ioaTyConsInvalidity :: SomeTypeRep -> Maybe Text
-ioaTyConsInvalidity IOATyCons{ioaCon=ioa, listCon=list, typeACon=tyA, typeOCon=tyO}
+ioaTyConsInvalidity IOATyCons{ioaCon=ioa, listCon=lst, typeACon=tyA, typeOCon=tyO}
   |   ioa /= ioaTyCon  = Just "not an IOA"
-  |  list /= consTyCon = Just "arglist type not a nonempty list"
+  |   lst /= consTyCon = Just "arglist type not a nonempty list"
   | tyA   /= typeTyCon = Just "first arg not a Type"
   | tyO   /= typeTyCon = Just "output not a Type"
   | otherwise = Nothing

@@ -8,22 +8,6 @@ parseSomePipe lookupPipe =
       Left  e -> error (unpack e)
       Right x -> x
 
-someEmptyPipe :: Name Pipe -> p -> SomePipe p
-someEmptyPipe = G .: emptyPipe
-
-emptyDesc :: Name Pipe -> Desc Ground '[] ()
-emptyDesc name = Desc
-  { pdName   = name
-  , pdSig    = Gen unitType unitType
-  , pdStruct = Struct G.empty
-  , pdRep    = SomeTypeRep (typeRep @(IOA Ground '[Type Point ()] (Type Point ())))
-  , pdArgs   = Nil
-  , pdOut    = Proxy @()
-  }
-
-emptyPipe :: Name Pipe -> p -> Pipe Ground '[Type Point ()] (Type Point ()) p
-emptyPipe = Pipe . emptyDesc
-
 withSomePipe' ::
      forall (p :: *)
   .  SomePipe p

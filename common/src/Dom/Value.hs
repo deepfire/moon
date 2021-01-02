@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Dom.Value (module Dom.Value) where
 
 import           Data.Typeable                      (Proxy, Typeable)
@@ -27,11 +28,11 @@ instance (Show a) => Show (Value c a) where
   show (VGraph x) = "VGraph " <> show x
 
 instance Functor (Value c) where
-  fmap f (VPoint x) = VPoint $ f x
-  fmap f (VList x) = VList $ f <$> x
-  fmap f (VSet x) = VSet $ f <$> x
-  fmap f (VTree x) = VTree $ f <$> x
-  fmap f (VDag x) = VDag $ f <$> x
+  fmap f (VPoint x) = VPoint $ f     x
+  fmap f (VList x)  = VList  $ f <$> x
+  fmap f (VSet x)   = VSet   $ f <$> x
+  fmap f (VTree x)  = VTree  $ f <$> x
+  fmap f (VDag x)   = VDag   $ f <$> x
   fmap f (VGraph x) = VGraph $ f <$> x
 
 mkValue :: CTag k -> VTag a -> Repr k a -> Value k a

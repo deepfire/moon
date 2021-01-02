@@ -1,12 +1,6 @@
 module Dom.VTag (module Dom.VTag) where
 
-import Control.DeepSeq
-import Control.Monad                      (foldM)
-import Data.Functor                       ((<&>))
-import Data.List.Extra                    (unsnoc)
-import Data.Maybe                         (fromMaybe, isJust)
 import Data.TH
-import Data.Typeable                      (Proxy)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
 
@@ -73,7 +67,7 @@ defineGroundTypes qDec = qDec >>= emit
    qualRef qual name = Name (OccName name) (NameQ $ ModName qual)
 
    tyUncons :: Type -> (OccName -> Bool) -> (Type, Maybe Name)
-   tyUncons t@(AppT (thAppHead -> PromotedT n@(Name occ _)) xs) f' =
+   tyUncons t@(AppT (thAppHead -> PromotedT n@(Name occ _)) _xs) f' =
      (\xx -> trace ("tyUncons " <> show t <> " -> " <> show (snd xx)) xx) $
      if f' occ
      then (thAppTailIf (const True) t, Just n)

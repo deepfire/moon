@@ -20,7 +20,6 @@ import Dom.VTag
 
 --------------------------------------------------------------------------------
 -- | Pipe: component of a computation.  Characterised by:
---   c  -- either 'Ground' (wire-transportable) or 'Top' (not so)
 --   as -- a type-level list of its argument specs, (TypePair (Type c a))
 --   o  -- output type, a single 'TypeSpec' type.
 --   p  -- pipe's representation:
@@ -34,13 +33,13 @@ data Pipe (as :: [*]) (o :: *) (p :: *) where
 
 -- | Everything there is to be said about a pipe,
 --   except for its representation.
-data Desc (cas :: [*]) (o :: *) =
+data Desc (as :: [*]) (o :: *) =
   Desc
   { pdName   :: !(Name Pipe)
   , pdSig    :: !ISig
   , pdStruct :: !Struct
   , pdRep    :: !SomeTypeRep           -- ^ Full type of the pipe.
-  , pdArgs   :: !(NP Tags cas)
+  , pdArgs   :: !(NP Tags as)
   , pdOut    :: !(Tags o)
   }
   deriving (Generic)
@@ -52,14 +51,14 @@ type Result a = IO (Fallible a)
 -- * Destructuring
 --
 pattern PipeD :: ( ArgConstr o
-                 , All Typeable cas
-                 , All IsCTagV (cas :: [*])
+                 , All Typeable as
+                 , All IsCTagV (as :: [*])
                  )
               => Name Pipe -> ISig -> Struct -> SomeTypeRep
-              -> NP Tags cas
+              -> NP Tags as
               -> Tags o
               -> p
-              -> Pipe cas o p
+              -> Pipe as o p
 -- TODO:  get rid of this, the added benefit is too small.
 pattern PipeD name sig str rep args out p
               <- Pipe (Desc name sig str rep args out) p
@@ -181,10 +180,10 @@ mkNullaryPipeDesc n c v =
 --------------------------------------------------------------------------------
 -- * Desc utils
 --
-descOutCTag :: Desc cas (CTagV to o) -> CTag to
+descOutCTag :: Desc as (CTagV to o) -> CTag to
 descOutCTag = tCTag . pdOut
 
-descOutVTag :: Desc cas (CTagV to o) -> VTag o
+descOutVTag :: Desc as (CTagV to o) -> VTag o
 descOutVTag = tVTag . pdOut
 
 showDesc, showDescP :: Desc as o -> Text
