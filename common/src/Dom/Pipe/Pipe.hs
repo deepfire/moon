@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Dom.Pipe.Pipe (module Dom.Pipe.Pipe) where
 
 import Algebra.Graph                    qualified as G
@@ -30,7 +31,7 @@ import Basis
 --   and so on.
 pipe0 ::
   forall ioa c0 t0.
-  ( ioa ~ IOA '[] (CTagV c0 t0)
+  ( ioa ~ IOA Now '[] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0)
   => Name Pipe
   -> CTagV c0 t0
@@ -46,7 +47,7 @@ pipe0 n (typesTags -> ts0) mf =
 
 pipe1 ::
   forall ioa c1 t1 c0 t0.
-  ( ioa ~ IOA '[CTagV c1 t1] (CTagV c0 t0)
+  ( ioa ~ IOA Now '[CTagV c1 t1] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1)
   => Name Pipe
@@ -63,7 +64,7 @@ pipe1 n (typesTags -> ts1) (typesTags -> ts0) mf =
 
 pipe2 ::
   forall ioa c2 t2 c1 t1 c0 t0.
-  ( ioa ~ IOA '[CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
+  ( ioa ~ IOA Now '[CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2)
@@ -80,7 +81,7 @@ pipe2 n (typesTags -> ts2) (typesTags -> ts1) (typesTags -> ts0) mf =
 
 pipe3 ::
   forall ioa c3 t3 c2 t2 c1 t1 c0 t0.
-  ( ioa ~ IOA '[CTagV c3 t3, CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
+  ( ioa ~ IOA Now '[CTagV c3 t3, CTagV c2 t2, CTagV c1 t1] (CTagV c0 t0)
   , ReifyCTag c0, ReifyVTag t0, Typeable c0, Typeable t0
   , ReifyCTag c1, ReifyVTag t1, Typeable c1, Typeable t1
   , ReifyCTag c2, ReifyVTag t2, Typeable c2, Typeable t2

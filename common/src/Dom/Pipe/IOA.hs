@@ -1,7 +1,9 @@
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Dom.Pipe.IOA (module Dom.Pipe.IOA) where
 
 import Data.Dynamic                     qualified as Dynamic
 import Data.SOP                         qualified as SOP
+import GHC.Generics                                 (Generic)
 import Type.Reflection
          ( pattern App
          , pattern Con
@@ -31,16 +33,30 @@ import Dom.VTag
 --------------------------------------------------------------------------------
 -- * Guts of the pipe guts.
 --
-type family PipeFunTy (as :: [*]) (o :: *) :: * where
-  PipeFunTy '[]    o = Result (ReprOf o)
-  PipeFunTy (x:xs) o = ReprOf x -> PipeFunTy xs o
+data Liveness
+  = Now
+  | Live
+  deriving (Generic, Eq, Ord)
 
-data IOA (as :: [*]) (o :: *) where
+data LTag (l :: Liveness) where
+  LNow  :: LTag Now
+  LLive :: LTag Live
+
+type family PipeFunTy (l :: Liveness) (as :: [*]) (o :: *) :: * where
+  PipeFunTy Now '[]    o = Result (ReprOf o)
+  PipeFunTy Now (x:xs) o = ReprOf x -> PipeFunTy Now xs o
+
+data IOA (l :: Liveness) (as :: [*]) (o :: *) where
   IOA :: PipeConstr as o
-      => PipeFunTy as o
+      => PipeFunTy Now as o
       -> Proxy as
       -> Proxy o
-      -> IOA as o
+      -> IOA Now as o
+  IOE :: PipeConstr as o
+      => PipeFunTy Live as o
+      -> Proxy as
+      -> Proxy o
+      -> IOA Live as o
 
 --------------------------------------------------------------------------------
 -- * Implementation of the high-level ops
@@ -61,8 +77,8 @@ appDyn Desc {pdArgs = Tags _ _ SOP.:* _} v ioaDyn =
           Nothing -> fallS $ printf
             "appDyn: invariant failure: as %s, o %s, dyn %s"
             (show $ typeRep @as) (show $ typeRep @o) (show $ dynRep ioaDyn)
-          Just (IOA (f :: PipeFunTy (CTagV c v:ass) o) _as o :: IOA as o) ->
-            Right $ IOA (applyPipeFun' f (Proxy @ass) o v :: PipeFunTy ass o)
+          Just (IOA (f :: PipeFunTy Now (CTagV c v:ass) o) _as o :: IOA Now as o) ->
+            Right $ IOA (applyPipeFun' LNow f (Proxy @ass) o v :: PipeFunTy Now ass o)
                         (Proxy @ass) (Proxy @o)
 
 travDyn ::
@@ -86,8 +102,8 @@ travDyn _df f dt t = Dynamic typeRep <$>
     (Nothing, _) -> fallS $ printf
       "travDyn: invariant failure: fas %s, fo %s, dyn %s"
       (show $ typeRep @fas) (show $ typeRep @fo) (show $ dynRep t)
-    ( Just (IOA f' _   _fo :: IOA     fas fo)
-     ,Just (IOA t' tas _to :: IOA tas to))
+    ( Just (IOA f' _   _fo :: IOA Now     fas fo)
+     ,Just (IOA t' tas _to :: IOA Now tas to))
       -> Right $ IOA (traversePipes0 (descOutCTag dt) (descOutVTag dt)
                                      (Proxy @b) f' t')
                      tas (Proxy @ro)
@@ -108,8 +124,8 @@ compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
      Dict :: Dict Typeable fas) ->
       case ( Dynamic.fromDynamic vIOADyn
            , Dynamic.fromDynamic fIOADyn) of
-        ( Just (IOA v' _asv _vo :: IOA vas vo)
-         ,Just (IOA f' _asf  fo :: IOA fas fo)) ->
+        ( Just (IOA v' _asv _vo :: IOA Now vas vo)
+         ,Just (IOA f' _asf  fo :: IOA Now fas fo)) ->
           -- NOTE:  not having implemented the general case,
           --        we essentially had two options here:
           --  1. pass type-level proof of the limited-case arguments top-down
@@ -119,7 +135,7 @@ compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
             (Nil, _ :* Nil) -> Right $ Dynamic typeRep
               -- just a monadic value:
               (IOA (bindPipes0 v' f') (Proxy @ras) fo
-                   :: IOA ras fo)
+                   :: IOA Now ras fo)
             -- XXX: tough..
             -- (_ :: TypePair va) :* Nil -> Right $ Dynamic typeRep
             --   (IOA (bindPipes1 v' f')
@@ -234,13 +250,14 @@ traversePipes1 _ _ cb _ _ f t = \ra -> do
 -- | 'applyPipeFun': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 applyPipeFun' ::
-  forall (as :: [*]) (o :: *) (c :: Con) (a :: *)
-  .  PipeFunTy (CTagV c a:as) o
+  forall (l :: Liveness) (as :: [*]) (o :: *) (c :: Con) (a :: *)
+  .  LTag  l
+  -> PipeFunTy l (CTagV c a:as) o
   -> Proxy as
   -> Proxy o
   -> Value c a
-  -> PipeFunTy as o
-applyPipeFun' f _ _ = \case
+  -> PipeFunTy l as o
+applyPipeFun' LNow f _ _ = \case
   VPoint x -> f x
   VList  x -> f x
   VSet   x -> f x
@@ -269,7 +286,7 @@ runIOADynamic ::
   -> CTag c -> VTag v
   -> Result (Value c v)
 runIOADynamic dyn c v =
-  case Dynamic.fromDynamic dyn :: Maybe (IOA '[] o) of
+  case Dynamic.fromDynamic dyn :: Maybe (IOA Now '[] o) of
     Nothing -> fallM $ "Not a runnable Ground IOA: " <>
                         showSomeTypeRepNoKind (dynRep dyn)
     Just ioa ->
@@ -277,7 +294,7 @@ runIOADynamic dyn c v =
 
 runIOA ::
   (ReprOf o ~ Repr c v, HasCallStack)
-  => IOA '[] o
+  => IOA l '[] o
   -> CTag c -> VTag v
   -> Result (Value c v)
 runIOA (IOA io _as _o) c v =

@@ -3,7 +3,6 @@
 module Dom.Pipe.Ops.Traverse (module Dom.Pipe.Ops.Traverse) where
 
 import Algebra.Graph                    qualified as G
-import Data.Dynamic                                 (fromDynamic)
 import Data.SOP                         qualified as SOP
 import Data.Vector                      qualified as Vec
 import           Type.Reflection
@@ -24,7 +23,6 @@ import Dom.Sig
 import Dom.SomeType
 import Dom.Struct
 import Dom.Tags
-import Dom.VTag
 
 import Ground.Table() -- for demo only
 
@@ -109,5 +107,5 @@ doTraverse pf
         name    = Name $ "("<>fn<>")-<trav>-("<>tn<>")"
         sig     = Sig [] (I $ someTypeFromConType tosty fosty)
         struct  = Struct (fg `G.overlay` tg) -- XXX: structure!
-        rep     = typeRep :: TypeRep (IOA ras ro)
+        rep     = typeRep :: TypeRep (IOA Now ras ro)
 doTraverse _ _ _ = Left "Intraversible 3"

@@ -126,7 +126,7 @@ doApply pf
         Pipe (Desc (Name $ "("<>rn<>" val)")
                    (Sig (tail ras) ro)
                    (Struct rg)
-                   (SomeTypeRep (typeRep :: TypeRep (IOA ass o)))
+                   (SomeTypeRep (typeRep :: TypeRep (IOA Now ass o)))
                    ass
                    o)
         <$> pf desc v f

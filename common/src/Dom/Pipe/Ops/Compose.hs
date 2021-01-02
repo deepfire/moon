@@ -1,8 +1,8 @@
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Dom.Pipe.Ops.Compose (module Dom.Pipe.Ops.Compose) where
 
 import qualified Algebra.Graph                    as G
-import           Data.Dynamic                       (fromDynamic)
 import qualified Data.SOP                         as SOP
 import           Type.Reflection
 
@@ -151,5 +151,5 @@ doBind pf
    struct  = Struct $ G.overlay fg vg
    rep     = case spineConstraint of
                (Dict :: Dict Typeable fass) ->
-                 typeRep :: TypeRep (IOA fass fo)
+                 typeRep :: TypeRep (IOA Now fass fo)
 doBind _ _ _ = error "doBind"

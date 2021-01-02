@@ -87,7 +87,7 @@ mkExecutionPort populationP selectSpaceEvents setupE portMain = mdo
     liftIO newChan
   epStreamsR <- liftIO $ IO.newIORef mempty
   epRepliesE <- performEventAsync $
-    ffor setupE \_unit fire ->
+    ffor setupE \_unit (fire :: _) ->
       liftIO . (Async.link =<<) . Async.async $
         -- \exeSendR fire -> forever $ runSingleConnection tr wsa fire exeSendR
         -- fanInt :: Event t (IntMap a) -> EventSelectorInt t a
