@@ -24,16 +24,18 @@ library
 
                        Execution
 
+                       Lift.Haskell
+                       Lift.Hackage
+                       Lift.Orphanage
                        Lift.Pipe
+                       Lift.Server
 
                        Reflex.SomeValue
+                       Reflex.Lift.Host
                        Reflex.Vty.Widget.Extra
                        Reflex.Vty.Widget.Selector
                        Reflex.Vty.Widget.Input.RichText
   other-modules:
-                       Lift.Haskell
-                       Lift.Hackage
-                       Lift.Orphanage
                        TopHandler
 
   build-depends:       common
@@ -65,12 +67,15 @@ library
                      , hackage-db
                      , io-sim-classes
                      , megaparsec
+                     , mtl
                      , network
                      , network-mux
                      , optparse-applicative
                      , parsers-megaparsec
+                     , primitive
                      , process
                      , quiet
+                     , ref-tf
                      , reflex
                      , reflex-vty
                      , req

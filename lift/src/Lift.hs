@@ -79,6 +79,9 @@ import Dom.SomeValue
 import Dom.Space.SomePipe
 import Dom.Value
 
+import Dom.Cred
+import Dom.Space.Pipe
+
 import Ground.Expr
 import Ground.Table
 
@@ -88,33 +91,38 @@ import Wire.Protocol
 import Wire.WSS
 
 import Lift.Pipe
+import Lift.Server
 
 import TopHandler
 
-
-import Dom.Cred
-import Dom.Space.Pipe
+import Reflex.Lift.Host
 
 import Network.TLS qualified as TLS
 import Network.TLS.Extra.Cipher qualified as TLS
 
+import Debug.Reflex
+
 
 -- * Actually do things.
 --
-main :: IO ()
-main = toplevelExceptionHandler $ do
-  sealGround
-  commd <- execParser opts
-  let preConfig@Config{..} = defaultConfig
-
+deriveConfig :: Config Initial -> IO Env
+deriveConfig preConfig@Config{..} = do
   libDir <- case cfGhcLibDir of
     Just x  -> pure x
     Nothing -> (FileName <$>) <$> shelly $ run "ghc" ["--print-libdir"]
 
-  let config :: Config Final = preConfig
-        { cfGhcLibDir  = libDir }
+  let envTracer = stdoutTracer
+      envConfig = preConfig { cfGhcLibDir  = libDir }
 
-  env <- finalise config
+  pure Env{..}
+
+main :: IO ()
+main = toplevelExceptionHandler $ do
+  commd <- execParser opts
+
+  env@Env{envConfig=Config{..}} <- deriveConfig defaultConfig
+
+  sealGround
 
   case commd of
     Daemon -> do
@@ -145,14 +153,8 @@ main = toplevelExceptionHandler $ do
      (repsW, repsR) :: (InChan   StandardReply,
                         OutChan  StandardReply)   <- newChan
 
-     Conc.async $ forever $ do
-       traceM $ mconcat [ "Waiting for request.." ]
-       req@(rid, _) <- readChan reqsR
-       traceM $ mconcat [ "Handling ", show req ]
-       rep <- handleRequest env req
-       traceM $ mconcat [ "Processed ", show req, " to: ", show rep]
-       writeChan repsW (rid, rep)
-       traceM $ mconcat [ "Queued ", show req, " to: ", show rep]
+     void $ Conc.async $
+       runLiftServer reqsR (liftServer env repsW)
 
      pure $
        (,)
@@ -173,86 +175,3 @@ main = toplevelExceptionHandler $ do
 data Cmd
   = Daemon
   | Exec (Request (Located (QName Pipe)))
-
-
-data ConfigPhase
-  = Initial
-  | Final
-
-data Config a =
-  Config
-  { cfWSBindHost :: String
-  , cfWSPortIn   :: Int
-  , cfWSPortOut  :: Int
-  , cfWSPingTime :: Int
-  , cfGhcLibDir  :: CFGhcLibDir a
-  , cfGitRoot    :: FileName
-  , cfHackageTmo :: NominalDiffTime
-  }
-type family CFGhcLibDir (a :: ConfigPhase) where
-  CFGhcLibDir Initial  = Maybe FileName
-  CFGhcLibDir Final    = FileName
-
-defaultConfig :: Config Initial
-defaultConfig = Config
-  { cfWSBindHost = "127.0.0.1"
-  , cfWSPortIn   = 29670
-  , cfWSPortOut  = 29671
-  , cfWSPingTime = 30
-  , cfGhcLibDir  = Nothing
-  , cfGitRoot    = "."
-  , cfHackageTmo = 3600
-  }
-
-data Env =
-  Env
-  { envConfig      :: !(Config Final)
-  , envTracer      :: !(Tracer IO String)
-  }
-
-finalise :: Config Final -> IO Env
-finalise envConfig@Config{} = do
-  let envTracer = stdoutTracer
-  pure Env{..}
-
-handleRequest :: Env -> StandardRequest -> IO (Either EPipe Reply)
-handleRequest Env{} req = runExceptT $ case snd req of
-  Run      expr -> runRun      expr
-  Let name expr -> runLet name expr
-
-runRun :: HasCallStack => Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
-runRun expr = do
-  spc <- liftIO $ atomically getState
-
-  runnable <- newExceptT . pure $
-    compile opsFull (lookupSomePipe spc) expr
-
-  result <- ReplyValue <$> newPipeExceptErr EExec (runSomePipe runnable)
-
-  pure result
-
-runLet :: QName Pipe -> Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
-runLet name expr = do
-    liftIO $ putStrLn $ unpack $ mconcat
-      ["let ", showQName name, " = ", pack $ show (locVal <$> expr) ]
-
-    spc <- liftIO $ atomically getState
-
-    void . newPipeExceptErr EName . pure $
-      maybeLeft (lookupSomePipe spc
-                 >>> ($> Error ("Already exists: " <> showQName name)))
-                name
-
-    pipe <- newExceptT . pure $
-      compile opsFull (lookupSomePipe spc) expr
-
-    void . newExceptT . fmap (left (EName . Error)) . liftIO . atomically $
-      addPipe name pipe
-
-    liftIO $
-      putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
-
-    liftIO $ ReplyValue
-      . SV CPoint . SVK VPipeSpace capsTSG
-      . mkValue CPoint VPipeSpace <$>
-      getThePipeSpace
