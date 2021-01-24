@@ -11,6 +11,7 @@ import Basis
 import Dom.CTag
 import Dom.Cap
 import Dom.Error
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
@@ -21,6 +22,7 @@ import Dom.Pipe.SomePipe
 import Dom.Sig
 import Dom.Struct
 
+import Dom.Result
 import Ground.Table() -- for demo only
 
 
@@ -30,16 +32,18 @@ import Ground.Table() -- for demo only
 demoCompose :: IO ()
 demoCompose = case compose compDyn pipe val of
   Left e -> putStrLn $ show e
-  Right p -> runSomePipe p >>= \case
-    Left e -> putStrLn . unpack $ "runtime error: " <> showError e
-    Right _ -> pure ()
+  Right p -> runSomePipe p & \case
+    SR LNow ioa ->
+      ioa >>= \case
+        Left e -> putStrLn . unpack $ "runtime error: " <> showError e
+        Right _r -> pure ()
  where
    pipe :: SomePipe Dynamic
-   pipe = somePipe1 "demo pipe" capsT CVPoint CVPoint
+   pipe = somePipe1 "demo pipe" LNow capsT CVPoint CVPoint
      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
    val :: SomePipe Dynamic
-   val = somePipe0 "demo value" capsT CVPoint
+   val = somePipe0 "demo value" LNow capsT CVPoint
      (pure $ Right ("compose!" :: String))
 
 --------------------------------------------------------------------------------
@@ -48,42 +52,43 @@ demoCompose = case compose compDyn pipe val of
 -- compose ~:: (b -> c) -> (a -> b) -> a -> c
 --
 compose ::
-     (forall vas vo fas fass fo
-      . ( PipeConstr vas vo
-        , PipeConstr fas fo
+     (forall l vas vo fas fass fo
+      . ( PipeConstr l vas vo
+        , PipeConstr l fas fo
         , fas ~ (vo:fass)
         )
-      => (Desc vas vo -> p -> Desc fas fo -> p -> Fallible p))
+      => (Desc l vas vo -> p -> Desc l fas fo -> p -> Fallible p))
   -> SomePipe p
   -> SomePipe p
   -> PFallible (SomePipe p)
 compose pf f v =
   somePipeUncons f
   (const $ EComp "Cannot compose value and a saturated pipe.") $
-  \(f' :: Pipe (a : as) fo p) ->
+  \(f' :: Pipe l1 (a : as) fo p) ->
     withSomePipe v $
-    \(v' :: Pipe _vas vo p) ->
-      case typeRep @a  `eqTypeRep` typeRep @vo of
-        Just HRefl -> left EComp $ compose'' pf f' v'
-        _ -> error "compose"
+    \(v' :: Pipe l2 _vas vo p) ->
+      case (typeRep @a  `eqTypeRep` typeRep @vo,
+            typeRep @l1 `eqTypeRep` typeRep @l2) of
+        (Nothing, _) -> Left $ EComp "Compose: v out != f arg"
+        (Just HRefl, Just HRefl) -> left EComp $ compose'' pf f' v'
 
 compose'' ::
-    forall vas vo fas fass ras fo p
-  . ( PipeConstr vas vo
-    , PipeConstr fas fo
+    forall l vas vo fas fass ras fo p
+  . ( PipeConstr l vas vo
+    , PipeConstr l fas fo
     , fas ~ (vo:fass)
     , ras ~ fass
     )
   => (forall vas' vo' fas' fass' ras' fo'
-       . ( PipeConstr vas' vo'
-         , PipeConstr fas' fo'
+       . ( PipeConstr l vas' vo'
+         , PipeConstr l fas' fo'
          , fas' ~ (vo':fass')
          , ras' ~ fass'
          )
-      => Desc vas' vo' -> p -> Desc fas' fo' -> p -> Fallible p)
-  -> Pipe fas fo p
-  -> Pipe vas vo p
-  -> Fallible (Pipe ras fo p)
+      => Desc l vas' vo' -> p -> Desc l fas' fo' -> p -> Fallible p)
+  -> Pipe l fas fo p
+  -> Pipe l vas vo p
+  -> Fallible (Pipe l ras fo p)
 compose'' pf
   -- | Just HRefl <- typeRep @ct2 `eqTypeRep` typeRep @cf1
   -- , Just HRefl <- typeRep @tt2 `eqTypeRep` typeRep @tf1
@@ -97,16 +102,16 @@ compose'' pf
 -- ..and convert to
 -- (=<<) :: (a -> m b) -> m a -> m b
 compose' ::
-     forall vas vo fas fass ras fo p
-   . ( PipeConstr vas vo
-     , PipeConstr fas fo
+     forall l vas vo fas fass ras fo p
+   . ( PipeConstr l vas vo
+     , PipeConstr l fas fo
      , fas ~ (vo:fass)
      , ras ~ fass
      )
-  => (Desc vas vo -> p -> Desc fas fo -> p -> Fallible p)
-  -> Pipe fas fo p
-  -> Pipe vas vo p
-  -> Fallible (Pipe ras fo p)
+  => (Desc l vas vo -> p -> Desc l fas fo -> p -> Fallible p)
+  -> Pipe l fas fo p
+  -> Pipe l vas vo p
+  -> Fallible (Pipe l ras fo p)
 compose' composeF
   pF@P{pPipeRep=frep}
   pV@P{pPipeRep=vrep}
@@ -125,27 +130,27 @@ compose' _ f v
 -- ..with the difference that we should handle a FLink on the left as well,
 -- ..but not just yet.
 doBind ::
-     forall vr fr fas fass ras fo vas vo p
-   . ( PipeConstr vas vo, vr ~ ReprOf vo
-     , PipeConstr fas fo, fr ~ ReprOf fo
+     forall l vr fr fas fass ras fo vas vo p
+   . ( PipeConstr l vas vo, vr ~ ReprOf vo
+     , PipeConstr l fas fo, fr ~ ReprOf fo
      -- this is hard-coded to a 0-ary function being applied to a 1-ary one
      , fas ~ (vo:fass)
      , ras ~ fass
      )
-  => (Desc vas vo     -> p ->
-      Desc     fas fo -> p ->
+  => (Desc l vas vo     -> p ->
+      Desc l    fas fo -> p ->
       Fallible p)
-  -> Pipe        fas fo p
-  -> Pipe vas vo        p
-  -> Fallible (Pipe fass fo p)
+  -> Pipe l        fas fo p
+  -> Pipe l vas vo        p
+  -> Fallible (Pipe l fass fo p)
 doBind pf
-  P{ pDesc_=df, pName=Name fn, pArgStys=sfas, pOutSty=sfo, pStruct=Struct fg
+  P{ pDesc_=df@Desc{pdLTag=LNow}, pName=Name fn, pArgStys=sfas, pOutSty=sfo, pStruct=Struct fg
    , pArgs=(_fa SOP.:* fass), pOut=fo, pPipe=f}
-  P{ pDesc_=dv, pName=Name vn, pStruct=Struct vg
+  P{ pDesc_=dv@Desc{pdLTag=LNow}, pName=Name vn, pStruct=Struct vg
    , pOut=_vo, pPipe=v}
   = Pipe desc <$> pf dv v df f
  where
-   desc    = Desc name sig struct (SomeTypeRep rep) fass fo
+   desc    = Desc name sig struct (SomeTypeRep rep) LNow fass fo
    name    = Name $ "("<>fn<>") >>= ("<>vn<>")"
    sig     = Sig (I <$> tail sfas) (I sfo)
    struct  = Struct $ G.overlay fg vg

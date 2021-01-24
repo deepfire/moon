@@ -34,14 +34,8 @@ data Request n
   deriving (Generic)
   deriving (Show) via (Quiet (Request n))
 
-data Reply
-  = ReplyValue SomeValue
-
 type StandardRequest = (Unique, Request (Located (QName Pipe)))
-type StandardReply   = (Unique, Either EPipe Reply)
-
-instance Show Reply where
-  show (ReplyValue n) = "ReplyValue " <> show n
+type StandardReply   = (Unique, Either EPipe SomeValue)
 
 --------------------------------------------------------------------------------
 -- * Parsing
@@ -112,17 +106,6 @@ instance (Serialise n, Typeable n) => Serialise (Request n) where
     case (len, tag) of
       (2, 31) -> Run <$> decode
       (3, 32) -> Let <$> decode <*> decode
-      _ -> failLenTag len tag
-
-instance Serialise Reply where
-  encode x = case x of
-    ReplyValue v ->
-       encodeListLen 2 <> encodeWord tagReply <> encode v
-  decode = do
-    len <- decodeListLen
-    tag <- decodeWord
-    case (len, tag) of
-      (2, _tagSomeReply) -> ReplyValue <$> decode
       _ -> failLenTag len tag
 
 failLenTag :: forall s a. Typeable a => Int -> Word -> Decoder s a

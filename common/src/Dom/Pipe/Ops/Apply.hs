@@ -1,7 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Dom.Pipe.Ops.Apply (module Dom.Pipe.Ops.Apply) where
 
-import           Data.Dynamic                       (fromDynamic)
 import qualified Data.SOP                         as SOP
 import           Type.Reflection
 
@@ -12,6 +11,7 @@ import Data.Shelf
 import Dom.CTag
 import Dom.Cap
 import Dom.Error
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
@@ -22,9 +22,9 @@ import Dom.Pipe.SomePipe
 import Dom.Sig
 import Dom.SomeValue
 import Dom.Struct
-import Dom.Tags
 import Dom.Value
 
+import Dom.Result
 import Ground.Table -- for demo only
 
 
@@ -34,12 +34,14 @@ import Ground.Table -- for demo only
 demoApply :: IO ()
 demoApply = case apply appDyn pipe val of
   Left e -> putStrLn $ show e
-  Right p -> runSomePipe p >>= \case
-    Left e -> putStrLn . unpack $ "runtime error: " <> showError e
-    Right _ -> pure ()
+  Right p -> runSomePipe p & \case
+    SR LNow ioa ->
+      ioa >>= \case
+        Left e -> putStrLn . unpack $ "runtime error: " <> showError e
+        Right _r -> pure ()
  where
    pipe :: SomePipe Dynamic
-   pipe = somePipe1 "demo pipe" capsT CVPoint CVPoint
+   pipe = somePipe1 "demo pipe" LNow capsT CVPoint CVPoint
      ((>> pure (Right ())) . putStrLn . (<> " (c)(r)(tm)"))
 
    val :: SomeValue
@@ -51,12 +53,12 @@ demoApply = case apply appDyn pipe val of
 -- apply ~:: Pipe (a:as) o -> Value a -> Pipe as o
 --
 apply ::
-     (forall as as' o a
-      . ( PipeConstr as  o
-        , PipeConstr as' o
+     (forall l as as' o a
+      . ( PipeConstr l as  o
+        , PipeConstr l as' o
         , as ~ (a : as')
         )
-      => Desc as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p)
+      => Desc l as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p)
   -> SomePipe p
   -> SomeValue
   -> PFallible (SomePipe p)
@@ -70,14 +72,14 @@ apply pf sp x = somePipeUncons sp
                   <> ".")
 
 apply' ::
-    forall a (as :: [*]) (as' :: [*]) o p
-  . ( PipeConstr as o
+    forall l a (as :: [*]) (as' :: [*]) o p
+  . ( PipeConstr l as o
     , as ~ (a:as')
     )
-  => (Desc as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p)
-  -> Pipe as o p
+  => (Desc l as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p)
+  -> Pipe l as o p
   -> SomeValue
-  -> Fallible (Pipe as' o p)
+  -> Fallible (Pipe l as' o p)
 apply' pf
   f@P{pPipeRep=ioa@IOATyCons{tagARep=tA, aRep=a}}
   (SV _ (SVK _ vcaps (v :: Value cv v) :: SomeValueKinded cv)) =
@@ -101,7 +103,7 @@ apply' pf
     | otherwise
       -> Left "Apply: matched, but checks failed."
   where
-    show2 :: Text -> TypeRep l -> Text -> TypeRep r -> Text
+    show2 :: Text -> TypeRep cvl -> Text -> TypeRep cvr -> Text
     show2 ln l rn r = ln<>"="<>pack (show l)<>", "<>rn<>"="<>pack (show r)
 apply' _ P{pPipeRep=r} _ =
   fallDesc "Apply: typerep match fell through" $ pack (show r)
@@ -111,15 +113,15 @@ apply' _ _ _ =
 -- | 'doApply': approximate 'apply':
 -- ($) :: (a -> b) -> a -> b
 doApply ::
-     forall as o c v p a ass
-   . ( PipeConstr as o
+     forall l as o c v p a ass
+   . ( PipeConstr l as o
      , as ~ (a : ass))
-  => (Desc as o -> Value c v -> p -> Fallible p)
-  -> Pipe  as o p
+  => (Desc l as o -> Value c v -> p -> Fallible p)
+  -> Pipe l as o p
   -> Value c v
-  -> Fallible (Pipe (Tail as) o p)
+  -> Fallible (Pipe l (Tail as) o p)
 doApply pf
-        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ (_a SOP.:* ass) o) f)
+        (Pipe desc@(Desc (Name rn) (Sig ras ro) (Struct rg) _ l (_a SOP.:* ass) o) f)
         v
   = case spineConstraint of
       (Dict :: Dict Typeable ass) ->
@@ -127,6 +129,7 @@ doApply pf
                    (Sig (tail ras) ro)
                    (Struct rg)
                    (SomeTypeRep (typeRep :: TypeRep (IOA Now ass o)))
+                   l
                    ass
                    o)
         <$> pf desc v f

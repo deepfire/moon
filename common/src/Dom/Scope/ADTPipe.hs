@@ -15,6 +15,7 @@ import Data.TH
 
 import Dom.CTag
 import Dom.Cap
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe.Pipe
 import Dom.Pipe.SomePipe
@@ -77,6 +78,7 @@ adtFieldGetterPipe
 adtFieldGetterPipe caps (SOP.FieldInfo n) getter =
   SP mempty caps $
     pipe1 (Name $ pack n)
+          LNow
           CVPoint
           CVPoint -- XXX: Kind should be be capable of being a non-Point!
           (pure . Right . getter)

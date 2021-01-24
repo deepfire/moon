@@ -5,6 +5,8 @@
 
 module Ground.Table (module Ground.Table) where
 
+import Codec.CBOR.Decoding qualified    as CBOR
+
 import Data.GADT.Compare
 import Data.SOP                         qualified as SOP
 import Data.Dynamic                     qualified as Dyn
@@ -22,10 +24,12 @@ import Dom.Ground
 import Dom.Ground.Cabal                 qualified as Cabal
 import Dom.Ground.Hask                  qualified as Hask
 import Dom.Located
+import Dom.LTag
 import Dom.Name
 import Dom.Parse
 import Dom.Pipe
 import Dom.Pipe.SomePipe
+import Dom.Reflex
 import Dom.Scope
 import Dom.Sig
 import Dom.SomeType
@@ -123,7 +127,7 @@ deriving instance Eq       (Tags t)
 instance Serialise (SomePipe ()) where
   encode p =
     withSomePipe p $
-     \(Pipe (Desc name sig struct rep args out :: Desc args out) _) ->
+     \(Pipe (Desc name sig struct rep ltag args out :: Desc l args out) _) ->
       let nArgs = fromIntegral . SOP.lengthSList $ Proxy @args
       in encodeListLen (5 + (1 + nArgs) * 4)
          <> encode (somePipeQName p)
@@ -131,13 +135,14 @@ instance Serialise (SomePipe ()) where
          <> encode sig
          <> encode struct
          <> encode rep
+         <> encode (SomeLTag ltag)
          -- NOTE: out first, then args:
          <> mconcat (encodeTagss $ out :* args)
    where
      encodeTagss :: All Top xs => NP Tags xs -> [Encoding]
      encodeTagss = SOP.hcollapse . SOP.hliftA
-       (\(Tags (t :: CTag c) (v :: VTag a))
-         -> SOP.K $ withVTag v (   encode (SomeCTag t)
+       (\(Tags (c :: CTag c) (v :: VTag a))
+         -> SOP.K $ withVTag v (   encode (SomeCTag c)
                                 <> encode (SomeVTag v)
                                 <> encode (typeRep @c)
                                 <> encode (typeRep @a)))
@@ -153,6 +158,7 @@ instance Serialise (SomePipe ()) where
       <*> (decode :: Decoder s ISig)
       <*> (decode :: Decoder s Struct)
       <*> (decode :: Decoder s SomeTypeRep)
+      <*> (decode :: Decoder s SomeLTag)
       -- NOTE: out first, then args:
       <*> (forM [0..(arityPlusOne - 1)] $ const $
             (,,,) <$> decode <*> decode <*> decode <*> decode

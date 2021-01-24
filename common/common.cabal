@@ -24,6 +24,7 @@ library
                        Data.TyDict
                        Data.Type.List
                        Data.TypeRep
+                       Debug.ImportHidden
                        Debug.TraceErr
 
                        Generics.SOP.Mapping
@@ -38,6 +39,7 @@ library
                        Dom.Ground
                        Dom.Ground.Hask
                        Dom.Located
+                       Dom.LTag
                        Dom.Name
                        Dom.Parse
                        Dom.Parsers
@@ -51,8 +53,10 @@ library
                        Dom.Pipe.Pipe
                        Dom.Pipe.IOA
                        Dom.Pipe.SomePipe
+                       Dom.Reflex
                        Dom.Representable
                        Dom.RequestReply
+                       Dom.Result
                        Dom.Scope
                        Dom.Scope.ADTPipe
                        Dom.Scope.SomePipe
@@ -100,6 +104,7 @@ library
                      , fingertree
                      , generic-monoid
                      , generics-sop
+                     , ghc
                      , ghc-prim
                      , hashable
                      , io-sim-classes
@@ -111,7 +116,9 @@ library
                      , ouroboros-network-framework
                      , parsers
                      , parsers-megaparsec
+                     , primitive
                      , quiet
+                     , ref-tf
                      , reflection
                      , reflex
                      , serialise

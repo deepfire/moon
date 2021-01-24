@@ -2,7 +2,6 @@
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Wire.Protocol
   ( Request(..)
-  , Reply(..)
   , parseRequest
   , Requests(..)
   , Replies(..)

@@ -1,9 +1,10 @@
+{-# LANGUAGE TypeInType                 #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Dom.Pipe.IOA (module Dom.Pipe.IOA) where
 
 import Data.Dynamic                     qualified as Dynamic
 import Data.SOP                         qualified as SOP
-import GHC.Generics                                 (Generic)
 import Type.Reflection
          ( pattern App
          , pattern Con
@@ -19,9 +20,11 @@ import Basis
 
 import Dom.CTag
 import Dom.Error
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.Constr
+import Dom.Result
 import Dom.Sig
 import Dom.SomeType
 import Dom.Struct
@@ -33,41 +36,60 @@ import Dom.VTag
 --------------------------------------------------------------------------------
 -- * Guts of the pipe guts.
 --
-data Liveness
-  = Now
-  | Live
-  deriving (Generic, Eq, Ord)
-
-data LTag (l :: Liveness) where
-  LNow  :: LTag Now
-  LLive :: LTag Live
-
 type family PipeFunTy (l :: Liveness) (as :: [*]) (o :: *) :: * where
-  PipeFunTy Now '[]    o = Result (ReprOf o)
-  PipeFunTy Now (x:xs) o = ReprOf x -> PipeFunTy Now xs o
+  PipeFunTy l '[]    o = Result l (ReprOf o)
+  PipeFunTy l (x:xs) o = ReprOf x -> PipeFunTy l xs o
 
 data IOA (l :: Liveness) (as :: [*]) (o :: *) where
-  IOA :: PipeConstr as o
+  IOA :: PipeConstr Now as o
       => PipeFunTy Now as o
       -> Proxy as
       -> Proxy o
       -> IOA Now as o
-  IOE :: PipeConstr as o
-      => PipeFunTy Live as o
+  IOE :: PipeConstr (Live t m) as o
+      => PipeFunTy (Live t m) as o
       -> Proxy as
       -> Proxy o
-      -> IOA Live as o
+      -> IOA (Live t m) as o
+
+--------------------------------------------------------------------------------
+-- * Running pipes
+--
+runIOADynamic ::
+  forall (l :: Liveness) c v o
+  . (o ~ CTagV c v
+    , Typeable c, Typeable v
+    , LiveConstr l)
+  => Dynamic.Dynamic
+  -> LTag l -> CTag c -> VTag v
+  -> Result l (Value c v)
+runIOADynamic dyn LNow c v =
+  case Dynamic.fromDynamic dyn :: Maybe (IOA Now '[] o) of
+    Nothing -> fallM $ "Not a runnable Now IOA: " <>
+               showSomeTypeRepNoKind (dynRep dyn)
+    Just (IOA ioa _as _o) ->
+      (mkValue c v <$>) <$> ioa
+runIOADynamic dyn l@LLive{} c v =
+  case l of
+    (LLive trt trm :: LTag (Live t m)) ->
+      case withTypeable trt $
+           Dynamic.fromDynamic dyn :: Maybe (IOA (Live t m) '[] o) of
+        Nothing -> pure never
+                   -- fallM $ "Not a runnable Live IOE: " <>
+                   --          showSomeTypeRepNoKind (dynRep dyn)
+        Just (IOE ioa _as _o) ->
+          fmap (mkValue c v <$>) <$> ioa
 
 --------------------------------------------------------------------------------
 -- * Implementation of the high-level ops
 --
 appDyn ::
-     forall as ass (o :: *) a c v
-   . ( PipeConstr as o
+     forall l as ass (o :: *) a c v
+   . ( PipeConstr l as o
      , as ~ (a:ass)
      , a ~ CTagV c v
      )
-  => Desc as o -> Value (CTagVC a) (CTagVV a) -> Dynamic.Dynamic
+  => Desc l as o -> Value (CTagVC a) (CTagVV a) -> Dynamic.Dynamic
   -> Fallible Dynamic.Dynamic
 appDyn Desc {pdArgs = Tags _ _ SOP.:* _} v ioaDyn =
   case spineConstraint of
@@ -82,17 +104,17 @@ appDyn Desc {pdArgs = Tags _ _ SOP.:* _} v ioaDyn =
                         (Proxy @ass) (Proxy @o)
 
 travDyn ::
-     forall tas to tt a b fas fo ro
-   . ( PipeConstr fas fo
-     , PipeConstr tas to
+     forall l tas to tt a b fas fo ro
+   . ( PipeConstr l fas fo
+     , PipeConstr l tas to
      , fas ~ (CTagV Point a ': '[])
      , tas ~ '[]
      , fo  ~ CTagV Point b
      , to  ~ CTagV tt    a
      , ro  ~ CTagV tt    b
      )
-  => Desc     fas fo -> Dynamic.Dynamic
-  -> Desc tas to     -> Dynamic.Dynamic
+  => Desc l     fas fo -> Dynamic.Dynamic
+  -> Desc l tas to     -> Dynamic.Dynamic
   -> Fallible Dynamic.Dynamic
 travDyn _df f dt t = Dynamic typeRep <$>
   case (Dynamic.fromDynamic f, Dynamic.fromDynamic t) of
@@ -104,19 +126,19 @@ travDyn _df f dt t = Dynamic typeRep <$>
       (show $ typeRep @fas) (show $ typeRep @fo) (show $ dynRep t)
     ( Just (IOA f' _   _fo :: IOA Now     fas fo)
      ,Just (IOA t' tas _to :: IOA Now tas to))
-      -> Right $ IOA (traversePipes0 (descOutCTag dt) (descOutVTag dt)
+      -> Right $ IOA (traversePipes0 LNow (descOutCTag dt) (descOutVTag dt)
                                      (Proxy @b) f' t')
                      tas (Proxy @ro)
 
 compDyn ::
-     forall vas vo fas fass ras fo
-   . ( PipeConstr vas vo
-     , PipeConstr fas fo
+     forall l vas vo fas fass ras fo
+   . ( PipeConstr l vas vo
+     , PipeConstr l fas fo
      , fas ~ (vo:fass)
      , ras ~ fass
      )
-  => Desc vas vo     -> Dynamic.Dynamic
-  -> Desc     fas fo -> Dynamic.Dynamic
+  => Desc l vas vo     -> Dynamic.Dynamic
+  -> Desc l     fas fo -> Dynamic.Dynamic
   -> Fallible Dynamic.Dynamic
 compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
   case (spineConstraint, spineConstraint) of
@@ -158,9 +180,9 @@ compDyn Desc{pdArgs=pdArgsV} vIOADyn Desc{pdArgs=pdArgsF} fIOADyn =
 -- | 'bindPipes*': approximate 'bind':
 -- (>>=) :: forall a b. m a -> (a -> m b) -> m b
 bindPipes0 ::
-     Result b
-  -> (b -> Result c)
-  -> Result c
+     Result Now b
+  -> (b -> Result Now c)
+  -> Result Now c
 bindPipes0 v f = do
   -- fmap join . join $ traverse f <$> v
   r <- v
@@ -168,16 +190,16 @@ bindPipes0 v f = do
     Left e  -> pure $ Left e
     Right x -> f x
 
-_bindPipes1 ::
-     (a -> Result b)
-  -> (b -> Result c)
-  -> (a -> Result c)
-_bindPipes1 v f ra = do
-  -- fmap join . join $ traverse f <$> v ra
-  r <- v ra
-  case r of
-    Left e  -> pure $ Left e
-    Right x -> f x
+-- _bindPipes1 ::
+--      (a -> Result t l b)
+--   -> (b -> Result t l c)
+--   -> (a -> Result t l c)
+-- _bindPipes1 v f ra = do
+--   -- fmap join . join $ traverse f <$> v ra
+--   r <- v ra
+--   case r of
+--     Left e  -> pure $ Left e
+--     Right x -> f x
 
 -- XXX: where is the best place for this check now?
 -- doTraverse l _ _ r _ _
@@ -205,15 +227,15 @@ _bindPipes1 v f ra = do
 -- traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
 -- a ~= arg, r ~= res
 traversePipes0 ::
-    forall ttr tr fr
+    forall l ttr tr fr
   . ( Typeable tr, Typeable fr
     )
   -- TODO:  see if we can just pass a Tags here
-  => CTag ttr -> VTag tr -> Proxy fr
-  -> (Repr Point tr -> Result (Repr Point fr))
-  -> Result (Repr ttr tr)
-  -> Result (Repr ttr fr)
-traversePipes0 ttr _ _ f t = do
+  => LTag l -> CTag ttr -> VTag tr -> Proxy fr
+  -> (Repr Point tr -> Result l (Repr Point fr))
+  -> Result l (Repr ttr tr)
+  -> Result l (Repr ttr fr)
+traversePipes0 LNow ttr _ _ f t = do
   tv <- t
   case tv :: Fallible (Repr ttr tr) of
     Left e -> pure $ Left e
@@ -227,14 +249,14 @@ traversePipes0 ttr _ _ f t = do
         CGraph -> fallM "traverse: Graph unsupported"
 
 traversePipes1 ::
-    forall tta ta ttr tr fr
+    forall l tta ta ttr tr fr
   . ( Typeable ta, Typeable tr, Typeable fr
     )
-  => CTag tta -> Proxy ta -> CTag ttr -> Proxy tr -> Proxy fr
-  -> (tr -> Result fr)
-  -> (Repr tta ta -> Result (Repr ttr tr))
-  -> (Repr tta ta -> Result (Repr ttr fr))
-traversePipes1 _ _ cb _ _ f t = \ra -> do
+  => LTag l -> CTag tta -> Proxy ta -> CTag ttr -> Proxy tr -> Proxy fr
+  -> (tr -> Result l fr)
+  -> (Repr tta ta -> Result l (Repr ttr tr))
+  -> (Repr tta ta -> Result l (Repr ttr fr))
+traversePipes1 LNow _ _ cb _ _ f t = \ra -> do
   tv <- t ra
   case tv :: Fallible (Repr ttr tr) of
     Left e -> pure $ Left e
@@ -277,40 +299,17 @@ _applyPipeFun f = \case
   VGraph x -> f x
 
 --------------------------------------------------------------------------------
--- * Running pipes
---
-runIOADynamic ::
-  forall c v o
-  . (o ~ CTagV c v, Typeable c, Typeable v)
-  => Dynamic.Dynamic
-  -> CTag c -> VTag v
-  -> Result (Value c v)
-runIOADynamic dyn c v =
-  case Dynamic.fromDynamic dyn :: Maybe (IOA Now '[] o) of
-    Nothing -> fallM $ "Not a runnable Ground IOA: " <>
-                        showSomeTypeRepNoKind (dynRep dyn)
-    Just ioa ->
-      runIOA ioa c v
-
-runIOA ::
-  (ReprOf o ~ Repr c v, HasCallStack)
-  => IOA l '[] o
-  -> CTag c -> VTag v
-  -> Result (Value c v)
-runIOA (IOA io _as _o) c v =
-  (mkValue c v <$>) <$> io
-
---------------------------------------------------------------------------------
 -- * Destructuring pipes
 --
 pattern P
-  :: Desc as o -> Name Pipe -> Struct -> SomeTypeRep -> p
+  :: Desc l as o -> Name Pipe -> Struct -> SomeTypeRep -> p
   -> [SomeType]   -> SomeType
+  -> LTag l
   -> NP Tags as -> Tags o
-  -> Pipe as o p
-pattern P { pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pArgs, pOut }
+  -> Pipe l as o p
+pattern P { pDesc_, pName, pStruct, pPipeRep, pPipe, pArgStys, pOutSty, pLiveness, pArgs, pOut }
   <- Pipe pDesc_@(Desc pName (Sig (fmap unI -> pArgStys) (I pOutSty)) pStruct
-                  pPipeRep pArgs pOut)
+                  pPipeRep pLiveness pArgs pOut)
           pPipe
 
 pattern IOATyCons

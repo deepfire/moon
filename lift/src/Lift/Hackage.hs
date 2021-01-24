@@ -76,6 +76,7 @@ import Dom.Cap
 import Dom.Error
 import Dom.Ground
 import Dom.Ground.Hask
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe.Pipe
 import Dom.Scope
@@ -104,9 +105,9 @@ pipeSpace :: QName Scope -> SomePipeSpace Dynamic
 pipeSpace graft = emptySomePipeSpace "Hackage"
   & spsAttachScopes graft
       [ pipeScope "Hackage"
-        [ somePipe0 "pkgNames" capsTSG         CVSet   hackagePackageNames
-        , somePipe0 "pkgs"     capsTS          CVSet   hackagePackages
-        , somePipe1 "cabal"    capsTS  CVPoint CVPoint getHackagePackageCabalDesc
+        [ somePipe0 "pkgNames" LNow capsTSG         CVSet   hackagePackageNames
+        , somePipe0 "pkgs"     LNow capsTS          CVSet   hackagePackages
+        , somePipe1 "cabal"    LNow capsTS  CVPoint CVPoint getHackagePackageCabalDesc
         ] ]
   & spsAttachScopes (graft <> "Cabal")
       [ $(dataProjPipeScope (Proxy @Cabal.GenericPackageDescription))

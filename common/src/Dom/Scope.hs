@@ -1,10 +1,10 @@
+{-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UndecidableInstances       #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 module Dom.Scope (module Dom.Scope) where
 
 import           Data.Coerce                        (coerce)
 import           Data.Map.Monoidal.Strict           (MonoidalMap(..))
-import qualified Data.Map.Monoidal.Strict         as MMap
 import qualified Data.Map.Strict                  as Map
 import qualified Data.Sequence                    as Seq
 import           GHC.Generics                       (Generic)

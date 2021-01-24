@@ -19,8 +19,6 @@ import Data.Parsing
 
 import Dom.Located
 
-import Basis (trace)
-
 
 --------------------------------------------------------------------------------
 -- * Generic names

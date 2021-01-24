@@ -42,6 +42,7 @@ import Dom.Cred
 import Dom.Error
 import Dom.Expr
 import Dom.Located
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
@@ -62,11 +63,11 @@ import Ground.Table
 
 import qualified Wire.MiniProtocols            as Wire
 import qualified Wire.Peer                     as Wire
-import qualified Wire.Protocol                 as Wire
 import qualified Wire.WSS                      as Wire
 
 import Lift hiding (main)
 import Lift.Pipe
+import Lift.Server
 import Execution
 
 import Reflex.SomeValue
@@ -114,8 +115,8 @@ mkRemoteExecutionPort ::
   -> VtyWidget t m (ExecutionPort t ())
 mkRemoteExecutionPort trs cs wsa setupE = mdo
   ep <- mkExecutionPort
-          (SP @() @'[] @(CTagV Point (PipeSpace (SomePipe ()))) mempty capsT $
-           Pipe (mkNullaryPipeDesc (Name @Pipe "space") CPoint VPipeSpace) ())
+          (SP @() @Now @'[] @(CTagV Point (PipeSpace (SomePipe ()))) mempty capsT $
+           Pipe (mkNullaryPipeDesc (Name @Pipe "space") LNow CPoint VPipeSpace) ())
           (\popExe ->
              selectEvents (selectExecutionReplies ep popExe) CPoint VPipeSpace
              <&> fmap stripCapValue)
@@ -138,7 +139,7 @@ mkRemoteExecutionPort trs cs wsa setupE = mdo
 
 liftClients ::
   forall rej m a t
-   . (rej ~ EPipe, m ~ IO, a ~ Wire.Reply)
+   . (rej ~ EPipe, m ~ IO, a ~ SomeValue)
   => Tracer m Text
   -> (Unique -> PFallible SomeValue -> IO ())
   -> ExecutionPort t ()
@@ -157,11 +158,11 @@ liftClients tr fire ExecutionPort{..} = do
  where
    fireMatchingReplies ::
         Unique
-     -> PFallible Wire.Reply
+     -> PFallible SomeValue
      -> Execution t p
      -> IO ()
    fireMatchingReplies unique reply Execution{..} = case reply of
-     Right (Wire.ReplyValue rep) ->
+     Right rep ->
        case withExpectedSomeValue eResCTag eResVTag rep stripValue of
          Right{} -> fire unique (Right rep)
          Left (Error e) -> traceWith tr $
@@ -185,7 +186,8 @@ mkLocalExecutionPort _tr initE = mdo
       threadDelay 1000000
       forever $ do
         e@Execution{..} <- Unagi.readChan epExecs
-        fire (eHandle e) =<< (left EExec <$> runSomePipe ePipe)
+        mapSomeResult (fire (eHandle e)) (runSomePipe ePipe)
+        -- fire (eHandle e) =<< (left EExec <$> runSomePipe ePipe)
   pure ep
 
 localPipeSpace :: TVar (SomePipeSpace Dyn.Dynamic)
@@ -197,7 +199,7 @@ getLocalPipeSpace = STM.readTVarIO localPipeSpace
 
 localSpacePipe :: SomePipe Dyn.Dynamic
 localSpacePipe =
-  somePipe0  "local-space" capsTS CVPoint (Right <$> getLocalPipeSpace)
+  somePipe0  "local-space" LNow capsTS CVPoint (Right <$> getLocalPipeSpace)
 
 initialPipeSpace :: SomePipeSpace Dyn.Dynamic
 initialPipeSpace

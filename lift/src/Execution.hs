@@ -29,6 +29,7 @@ import Dom.Cap
 import Dom.Error
 import Dom.Expr
 import Dom.Located
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
@@ -87,7 +88,7 @@ mkExecutionPort populationP selectSpaceEvents setupE portMain = mdo
     liftIO newChan
   epStreamsR <- liftIO $ IO.newIORef mempty
   epRepliesE <- performEventAsync $
-    ffor setupE \_unit (fire :: _) ->
+    ffor setupE \_unit (fire :: IntMap (PFallible SomeValue) -> IO ()) ->
       liftIO . (Async.link =<<) . Async.async $
         -- \exeSendR fire -> forever $ runSingleConnection tr wsa fire exeSendR
         -- fanInt :: Event t (IntMap a) -> EventSelectorInt t a
@@ -226,8 +227,8 @@ makePostRemoteExecution :: forall t m c v.
   -> m (Execution t MixedPipeGuts)
 makePostRemoteExecution ep c v txt = do
   fmap Left <$> makePostPipeExecution ep
-    (SP @() @'[] @(CTagV c v) mempty capsT $
-      Pipe (mkNullaryPipeDesc (Name @Pipe txt) c v) ())
+    (SP @() @Now @'[] @(CTagV c v) mempty capsT $
+      Pipe (mkNullaryPipeDesc (Name @Pipe txt) LNow c v) ())
 
 postMixedPipeRequest ::
      (Reflex t, MonadIO m)
@@ -255,7 +256,7 @@ mkExecution :: forall t p m. (MonadIO m, Reflex t)
   -> StandardRequest
   -> SomePipe p
   -> m (Execution t p)
-mkExecution ep txt sreq@(_id, req) sp@(SP _ _ (Pipe{pDesc} :: Pipe kas o p)) =
+mkExecution ep txt sreq@(_id, req) sp@(SP _ _ (Pipe{pDesc} :: Pipe l cas o p)) =
   case req of
     Run{} ->
       mkExecution' ep (descOutCTag pDesc :: CTag (CTagVC o))

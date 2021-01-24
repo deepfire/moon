@@ -68,12 +68,14 @@ import Dom.Expr
 import Dom.Ground.Hask
 import Dom.Ground.Hask qualified as Hask
 import Dom.Located
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
 import Dom.RequestReply
+import Dom.Result
 import Dom.Sig
 import Dom.SomeValue
 import Dom.Space.SomePipe
@@ -137,24 +139,24 @@ main = toplevelExceptionHandler $ do
             , trWss         = showTr
             , trBearer      = nullTracer
             }
-      runWssServer trs creds addr (serverLoop env)
+      runWssServer trs creds addr (startServer env)
     Exec rq ->
       handleRequest env (unsafeCoerceUnique 0, rq)
-      >>= print
+      >>= either print (mapSomeResult print)
 
  where
-   serverLoop ::
+   startServer ::
         Env
      -> IO (RequestServer EPipe IO (),
             RepliesServer EPipe IO StandardReply)
-   serverLoop env = do
+   startServer env = do
      (reqsW, reqsR) :: (InChan   StandardRequest,
                         OutChan  StandardRequest) <- newChan
      (repsW, repsR) :: (InChan   StandardReply,
                         OutChan  StandardReply)   <- newChan
 
      void $ Conc.async $
-       runLiftServer reqsR (liftServer env repsW)
+       liftRequestLoop env reqsR repsW
 
      pure $
        (,)

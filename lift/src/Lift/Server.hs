@@ -5,11 +5,15 @@ module Lift.Server (module Lift.Server) where
 import Control.Tracer
 import Control.Concurrent.Chan.Unagi    qualified as Unagi
 import Control.Concurrent.STM           qualified as STM
+import Control.Monad                                (forever)
 
 import Data.Time
+import Data.IntUnique
 
 import Reflex                                hiding (Request)
 import Reflex.Lift.Host
+
+import Unsafe.Coerce                    qualified as Unsafe
 
 import Basis
 
@@ -19,12 +23,15 @@ import Dom.Error
 import Dom.Expr
 import Dom.Ground.Hask
 import Dom.Located
+import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
 import Dom.Pipe.SomePipe
+import Dom.Reflex
 import Dom.RequestReply
+import Dom.Result
 import Dom.SomeValue
 import Dom.Space.Pipe
 import Dom.Value
@@ -35,43 +42,100 @@ import Lift.Pipe
 
 
 
+liftRequestLoop ::
+     Env
+  -> Unagi.OutChan StandardRequest
+  -> Unagi.InChan  StandardReply
+  -> IO ()
+liftRequestLoop env reqsR repsW = forever $ do
+  sreq@(rid, _) <- Unagi.readChan reqsR
+
+  res <- handleRequest env sreq
+  case res of
+    Left e -> Unagi.writeChan repsW (rid, Left e)
+    Right (SR LNow ioa) ->
+      ((rid,) . mapLeft EExec <$> ioa) >>= Unagi.writeChan repsW
+    Right (SR LLive{} network) ->
+      runLiftServer $
+      Unsafe.unsafeCoerce $
+      liftServer rid repsW $
+      network
+
+-- TODO:  make liftRequestloop use this
+mapSomeResult ::
+     (PFallible SomeValue -> IO ())
+  -> SomeResult
+  -> IO ()
+mapSomeResult f = \case
+  SR LNow    ioa -> fmap (mapLeft EExec) ioa >>= f
+  SR LLive{} net ->
+    runLiftServer $
+    Unsafe.unsafeCoerce $
+    reflexHandler net
+ where
+   reflexHandler ::
+     forall t m
+     . MonadReflex t m
+     => m (Event t (Fallible SomeValue))
+     -> m (Event t ())
+   reflexHandler net = do
+     repsE <-
+       fmap (mapLeft EExec) <$> net
+     void $ performEvent $
+       ffor repsE (liftIO . f)
+     pure never
+
 liftServer ::
   forall t m
-  . MonadLiftServer t m
-  => Env
-  -> Unagi.InChan  StandardReply
-  -> Event t StandardRequest
+  . MonadReflex t m
+  => Unique
+  -> Unagi.InChan StandardReply
+  -> m (Event t (Fallible SomeValue))
   -> m (Event t ())
-liftServer env repsW reqsE = do
-  repsE <- performEventAsync $
-    ffor reqsE \sreq@(rid, req) fire -> do
-      rep <- liftIO $ handleRequest env sreq
-      traceM $ mconcat [ show rid, ": processed ", show req, " to: ", show rep ]
-      liftIO $ fire (rid, rep)
-      pure ()
+liftServer rid repsW network = do
+  repsE :: Event t (PFallible SomeValue) <-
+    fmap (mapLeft EExec) <$> network
 
   void $ performEvent $
-    ffor repsE \(rid, rep) -> do
+    ffor repsE \rep -> do
       liftIO $ Unagi.writeChan repsW (rid, rep)
       traceM $ mconcat [ show rid, ": queued reply: ", show rep ]
 
-  pure $ never
+  pure never
+  --     \case
+  --       Left e -> putStrLn . unpack $ "runtime error: " <> showError e
+  --       Right _r -> pure ()
+  -- ReplyValue <$> newPipeExceptErr EExec (runSomePipe runnable)
 
-handleRequest :: Env -> StandardRequest -> IO (Either EPipe Reply)
+  -- repsE <- performEventAsync $
+  --   ffor reqsE \sreq@(rid, req) fire -> do
+  --     rep <- liftIO $ handleRequest env sreq
+  --     traceM $ mconcat [ show rid, ": processed ", show req, " to: ", show rep ]
+  --     liftIO $ fire (rid, rep)
+  --     pure ()
+
+  -- void $ performEvent $
+  --   ffor repsE \(rid, rep) -> do
+  --     liftIO $ Unagi.writeChan repsW (rid, rep)
+  --     traceM $ mconcat [ show rid, ": queued reply: ", show rep ]
+
+  -- pure $ never
+
+handleRequest :: Env -> StandardRequest -> IO (Either EPipe SomeResult)
 handleRequest Env{} req = runExceptT $ case snd req of
   Run      expr -> runRun      expr
-  Let name expr -> runLet name expr
+  -- Let name expr -> runLet name expr
 
-runRun :: HasCallStack => Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
+runRun :: HasCallStack => Expr (Located (QName Pipe)) -> ExceptT EPipe IO SomeResult
 runRun expr = do
   spc <- liftIO $ atomically getState
 
   runnable <- newExceptT . pure $
     compile opsFull (lookupSomePipe spc) expr
 
-  ReplyValue <$> newPipeExceptErr EExec (runSomePipe runnable)
+  pure $ runSomePipe runnable
 
-runLet :: QName Pipe -> Expr (Located (QName Pipe)) -> ExceptT EPipe IO Reply
+runLet :: QName Pipe -> Expr (Located (QName Pipe)) -> ExceptT EPipe IO SomeValue
 runLet name expr = do
     liftIO $ putStrLn $ unpack $ mconcat
       ["let ", showQName name, " = ", pack $ show (locVal <$> expr) ]
@@ -92,8 +156,8 @@ runLet name expr = do
     liftIO $
       putStrLn =<< unpack . showPipeSpace <$> atomically (STM.readTVar mutablePipeSpace)
 
-    liftIO $ ReplyValue
-      . SV CPoint . SVK VPipeSpace capsTSG
+    liftIO $
+      SV CPoint . SVK VPipeSpace capsTSG
       . mkValue CPoint VPipeSpace <$>
       getThePipeSpace
 

@@ -5,6 +5,7 @@ import           Generics.SOP                       (All)
 import           Type.Reflection                    (Typeable)
 
 import Dom.CTag
+import Dom.LTag
 import Dom.VTag
 
 
@@ -29,8 +30,10 @@ type ArgConstr (a :: *)
     , ReifyCTag (CTagVC a), ReifyVTag (CTagVV a)
     )
 
-type PipeConstr (as :: [*]) (o :: *)
+type PipeConstr (l :: Liveness) (as :: [*]) (o :: *)
   = ( ArgConstr o
+    , Typeable l
+    , LiveConstr' l
     , All Typeable as -- why do we need this, when we have IsCTagV?
     , All IsCTagV as
     )

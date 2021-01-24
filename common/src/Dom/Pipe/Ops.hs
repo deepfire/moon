@@ -32,29 +32,29 @@ import Dom.Value
 data Ops p where
   Ops ::
     { app
-      :: forall as as' o a
-      . ( PipeConstr as  o
-        , PipeConstr as' o
+      :: forall l as as' o a
+      . ( PipeConstr l as  o
+        , PipeConstr l as' o
         , as ~ (a : as')
         )
-      => Desc as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p
+      => Desc l as o -> Value (CTagVC a) (CTagVV a) -> p -> Fallible p
     , comp
-      :: forall vas vo fas fass ras fo
-      . ( PipeConstr vas vo
-        , PipeConstr fas fo
+      :: forall l vas vo fas fass ras fo
+      . ( PipeConstr l vas vo
+        , PipeConstr l fas fo
         , fas ~ (vo:fass)
         , ras ~ fass
         )
-      => Desc vas vo -> p -> Desc fas fo -> p -> Fallible p
+      => Desc l vas vo -> p -> Desc l fas fo -> p -> Fallible p
     , trav
-      :: forall fas fo a tas to
-      . ( PipeConstr fas fo
-        , PipeConstr tas to
+      :: forall l fas fo a tas to
+      . ( PipeConstr l fas fo
+        , PipeConstr l tas to
         , fas ~ (CTagV 'Point a ': '[])
         , tas ~ '[]
         , CTagVV to ~ a
         , CTagVC fo ~ 'Point)
-      => Desc fas fo -> p -> Desc tas to -> p -> Fallible p
+      => Desc l fas fo -> p -> Desc l tas to -> p -> Fallible p
     } -> Ops p
 
 opsFull :: Ops Dynamic
