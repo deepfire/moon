@@ -10,9 +10,9 @@ import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.IOA
-import Dom.Pipe.SomePipe
 import Dom.Result
 import Dom.Sig
+import Dom.SomePipe.SomePipe
 import Dom.SomeType
 import Dom.Struct
 import Dom.Tags
@@ -32,9 +32,9 @@ import Basis
 --   - the last function argument, if any, is #1
 --   and so on.
 pipe0 ::
-  forall ioa l c0 v0.
-  ( ioa ~ IOA Now '[] (CTagV c0 v0)
-  , ReifyCTag c0, ReifyVTag v0, Typeable c0, Typeable v0)
+  forall l c0 v0.
+  ( --ioa ~ IOA Now '[] (CTagV c0 v0) ,
+    ReifyCTag c0, ReifyVTag v0, Typeable c0, Typeable v0)
   => Name Pipe
   -> LTag l
   -> CTagV c0 v0
@@ -43,10 +43,19 @@ pipe0 ::
 pipe0 n l@LNow (typesTags -> ts0) mf =
   Pipe (Desc n sig str (dynRep dyn) l Nil ts0) dyn
  where
-   dyn = toDyn (IOA mf Proxy Proxy :: ioa)
+   dyn = toDyn (IOA mf Proxy Proxy :: IOA Now        '[] (CTagV c0 v0))
    sig = Sig [] (I $ tagsSomeType ts0)
    str = Struct G.empty
   --       graph   = G.vertex ty
+pipe0 n l@(LLive (_ :: TypeRep t) (_ :: TypeRep m)) (typesTags -> ts0) mf =
+  Pipe (Desc n sig str (dynRep dyn) l Nil ts0) dyn
+ where
+   dyn = toDyn (IOE mf (Proxy @t) (Proxy @m) (Proxy @'[]) (Proxy @(CTagV c0 v0)))
+        -- Expected type: PipeFunTy ('Live @* @(* -> *) t m) as0 (CTagV t0 t1)
+        -- Actual type: Result l (Repr c0 v0)
+        -- The type variables ‘as0’, ‘t0’, ‘t1’ are ambiguous
+   sig = Sig [] (I $ tagsSomeType ts0)
+   str = Struct G.empty
 
 pipe1 ::
   forall ioa l c1 v1 c0 v0.

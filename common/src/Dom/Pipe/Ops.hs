@@ -19,8 +19,8 @@ import Dom.Pipe.IOA
 import Dom.Pipe.Ops.Apply
 import Dom.Pipe.Ops.Compose
 import Dom.Pipe.Ops.Traverse
-import Dom.Pipe.SomePipe
 import Dom.Sig
+import Dom.SomePipe
 import Dom.SomeType
 import Dom.SomeValue
 import Dom.Value

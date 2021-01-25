@@ -48,6 +48,8 @@ data IOA (l :: Liveness) (as :: [*]) (o :: *) where
       -> IOA Now as o
   IOE :: PipeConstr (Live t m) as o
       => PipeFunTy (Live t m) as o
+      -> Proxy t
+      -> Proxy m
       -> Proxy as
       -> Proxy o
       -> IOA (Live t m) as o
@@ -77,7 +79,7 @@ runIOADynamic dyn l@LLive{} c v =
         Nothing -> pure never
                    -- fallM $ "Not a runnable Live IOE: " <>
                    --          showSomeTypeRepNoKind (dynRep dyn)
-        Just (IOE ioa _as _o) ->
+        Just (IOE ioa _t _m _as _o) ->
           fmap (mkValue c v <$>) <$> ioa
 
 --------------------------------------------------------------------------------

@@ -73,10 +73,11 @@ import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
-import Dom.Pipe.SomePipe
+import Dom.Reflex
 import Dom.RequestReply
 import Dom.Result
 import Dom.Sig
+import Dom.SomePipe.SomePipe
 import Dom.SomeValue
 import Dom.Space.SomePipe
 import Dom.Value
@@ -139,17 +140,19 @@ main = toplevelExceptionHandler $ do
             , trWss         = showTr
             , trBearer      = nullTracer
             }
-      runWssServer trs creds addr (startServer env)
-    Exec rq ->
-      handleRequest env (unsafeCoerceUnique 0, rq)
-      >>= either print (mapSomeResult print)
+      setupLLive
+      runWssServer trs creds addr (startWssClientThread env)
+    Exec rq -> do
+      setupLLive
+      sr <- handleRequest env (unsafeCoerceUnique 0, rq)
+      either print (mapSomeResult print) sr
 
  where
-   startServer ::
+   startWssClientThread ::
         Env
      -> IO (RequestServer EPipe IO (),
             RepliesServer EPipe IO StandardReply)
-   startServer env = do
+   startWssClientThread env = do
      (reqsW, reqsR) :: (InChan   StandardRequest,
                         OutChan  StandardRequest) <- newChan
      (repsW, repsR) :: (InChan   StandardReply,

@@ -5,8 +5,6 @@
 
 module Ground.Table (module Ground.Table) where
 
-import Codec.CBOR.Decoding qualified    as CBOR
-
 import Data.GADT.Compare
 import Data.SOP                         qualified as SOP
 import Data.Dynamic                     qualified as Dyn
@@ -21,17 +19,15 @@ import Dom.CTag
 import Dom.Cap
 import Dom.Expr
 import Dom.Ground
-import Dom.Ground.Cabal                 qualified as Cabal
 import Dom.Ground.Hask                  qualified as Hask
 import Dom.Located
 import Dom.LTag
 import Dom.Name
 import Dom.Parse
 import Dom.Pipe
-import Dom.Pipe.SomePipe
-import Dom.Reflex
 import Dom.Scope
 import Dom.Sig
+import Dom.SomePipe
 import Dom.SomeType
 import Dom.SomeValue
 import Dom.SomeVTag

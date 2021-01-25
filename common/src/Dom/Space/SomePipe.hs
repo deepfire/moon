@@ -11,10 +11,11 @@ import Basis
 
 import Dom.Name
 import Dom.Pipe
-import Dom.Pipe.SomePipe
 import Dom.Scope
 import Dom.Scope.SomePipe
 import Dom.Sig
+import Dom.SomePipe
+import Dom.SomePipe.Tools
 import Dom.Space
 import Dom.Space.Pipe
 import Dom.SomeType

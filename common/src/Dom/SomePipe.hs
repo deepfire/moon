@@ -1,12 +1,11 @@
-module Dom.Pipe.SomePipe (module Dom.Pipe.SomePipe) where
-
-import Generics.SOP                     qualified as SOP
+module Dom.SomePipe (module Dom.SomePipe,
+                     module Dom.SomePipe.SomePipe)
+where
 
 import Basis
 
 import Dom.CTag
 import Dom.Cap
-import Dom.Error
 import Dom.Ground
 import Dom.LTag
 import Dom.Name
@@ -15,6 +14,7 @@ import Dom.Pipe.Constr
 import Dom.Pipe.IOA
 import Dom.Result
 import Dom.Sig
+import Dom.SomePipe.SomePipe
 import Dom.SomeValue
 import Dom.SomeVTag
 import Dom.Struct
@@ -22,73 +22,23 @@ import Dom.Tags
 import Dom.VTag
 
 
---------------------------------------------------------------------------------
--- * Key types
---
--- | A wrapped cartesian product of all possible kinds of 'Pipe's:
---   - wire-transportable types (constrained 'Ground') vs. 'Top'-(un-)constrained
---   - saturated vs. unsaturated.
-data SomePipe (p :: *)
-  = forall (l :: Liveness) (cas :: [*]) (o :: *). (PipeConstr l cas o) =>
-    SP
-    { spQName :: !(QName Pipe)
-    , spCaps  :: !(Caps (CTagVV o))
-    , spPipe  :: !(Pipe (l :: Liveness) (cas :: [*]) (o :: *) (p :: *))
-    }
-
-pattern SPipeD :: Name Pipe -> ISig -> Struct -> SomeTypeRep -> SomePipe p
-pattern SPipeD name sig str rep <- SP _ _caps (PipeD name sig str rep _ _ _ _)
-
---------------------------------------------------------------------------------
--- * Instances
---
--- XXX: We risk equating different pipes with same names and types.
-instance Eq (SomePipe p) where
-  l' == r' =
-    withSomePipe l' $ \(pDesc -> l) ->
-    withSomePipe r' $ \(pDesc -> r) ->
-      (pdRep    l  == pdRep      r) &&
-      (pdName   l  == pdName     r) &&
-      (pdStruct l  == pdStruct   r)
-
--- XXX: We risk equating different pipes with same names and types.
-instance Ord (SomePipe p) where
-  l' `compare` r' =
-    withSomePipe l' $ \(pDesc -> l) ->
-    withSomePipe r' $ \(pDesc -> r) ->
-      pdRep l `compare` pdRep    r
-
-instance Read (SomePipe ()) where
-  readPrec = failRead
-
-instance Functor SomePipe where
-  fmap f (SP h c x) = SP h c (f <$> x)
-
-instance Foldable SomePipe where
-  foldMap toM = \case
-    SP _ _ (Pipe _ x) -> toM x
-
-instance Traversable SomePipe where
-  traverse f = \case
-    SP n c (Pipe d x) -> f x <&> \x' -> SP n c (Pipe d x')
-
-instance Show (SomePipe p) where
-  show (SP _ _ p) = "SomePipe "<>unpack (showPipe p)
-
 
 -- * Running
 --
 runSomePipe :: HasCallStack => SomePipe Dynamic -> SomeResult --Result l SomeValue
-runSomePipe SP{..} = case pDesc spPipe of
-  Desc{pdLTag=LNow} -> go spPipe spCaps
+runSomePipe SP{..} = go spPipe spCaps
  where
    go :: PipeConstr l cas o
       => Pipe l cas o Dynamic -> Caps (CTagVV o) -> SomeResult
    go Pipe{pDesc=Desc{pdLTag=LNow, pdOut=Tags{tCTag, tVTag}}
-          ,p} spCaps =
-     SR LNow $ (fmap (SV tCTag . SVK tVTag spCaps)
+          ,p} caps =
+     SR LNow $ (fmap (SV tCTag . SVK tVTag caps)
                 <$> runIOADynamic p LNow tCTag tVTag
                 :: Result Now SomeValue)
+   go Pipe{pDesc=Desc{pdLTag=ltag@LLive{}, pdOut=Tags{tCTag, tVTag}}
+          ,p} caps =
+     SR ltag $ (fmap (fmap (SV tCTag . SVK tVTag caps))
+                <$> runIOADynamic p ltag tCTag tVTag)
 
 recoverPipe ::
      QName Pipe
@@ -200,75 +150,3 @@ somePipeSomeLTag p = withSomePipe p $
 
 somePipeHasCap :: Cap c -> SomePipe p -> Bool
 somePipeHasCap c SP{..} = hasCap c spCaps
-
-withSomePipe
-  :: forall (p :: *) (a :: *)
-   . SomePipe p
-  -> (forall l (cas :: [*]) (o :: *)
-      . (PipeConstr l cas o)
-      => Pipe l cas  o  p -> a)
-  -> a
-withSomePipe SP{..} = ($ spPipe)
-
-somePipeUncons
-  :: forall (p :: *) (e :: *)
-  . ()
-  => SomePipe p
-  -> (forall (l :: Liveness) (cas :: [*]) (o :: *)
-      . (PipeConstr l cas o, cas ~ '[])
-      => Pipe l '[] o p -> e)
-  -> (forall l
-             (o :: *)
-             (ka :: *) (cas' :: [*])
-      . (PipeConstr l (ka:cas') o, PipeConstr l cas' o)
-      => Pipe l (ka:cas') o p -> Either e (Pipe l cas' o p))
-  -> Either e (SomePipe p)
-somePipeUncons (SP _ _ p@(Pipe Desc {pdArgs = Nil   } _)) nil _  = Left $ nil p
-somePipeUncons (SP n c p@(Pipe Desc {pdArgs = _ :* _} _)) _ cons = SP n c <$> cons p
-
-somePipeOutSomeCTagType :: SomePipe p -> (SomeCTag, SomeTypeRep)
-somePipeOutSomeCTagType p =
-  withSomePipe p pipeOutSomeCTagType
-
-somePipeTraverse
-  :: SomePipe p
-  -> SomePipe p
-  -> (forall l (fa :: *) (fo :: *) (to :: *)
-      . ( PipeConstr l (fa:'[]) fo
-        , PipeConstr l '[]      to)
-      => Pipe l (fa:'[]) fo p
-      -> Pipe l '[] to p
-      -> Fallible (Pipe l '[] (CTagV (CTagVC to) (CTagVV fo)) p))
-  -> Fallible (SomePipe p)
-somePipeTraverse (SP _ sf f@(Pipe Desc{pdArgs=_:* Nil, pdLTag = LNow} _)) (SP _ _ t@(Pipe Desc{pdArgs=Nil, pdLTag = LNow} _)) trav = SP mempty sf <$> trav f t
-somePipeTraverse f t _ = Left $
-  if | fA == 0 -> "Supposed function is saturated."
-     | fA  > 1 -> "Non-singular function, arity: "   <> showT fA & Error
-     | tA  > 0 -> "Unsaturated traversable, arity: " <> showT tA & Error
-     | True    -> "Unknown error."
- where fA = somePipeArity f
-       tA = somePipeArity t
-
-somePipeArity :: SomePipe p -> Int
-somePipeArity sp = withSomePipe sp $
-  \p -> length (SOP.hcollapse . SOP.hmap (K . const ()) . pdArgs $ pDesc p)
-
-somePipeArityCase
-  :: forall (p :: *) (r :: *)
-  .  SomePipe p
-  -- Zero.
-  -> (forall l o (as :: [*])
-      . (PipeConstr l as o, as ~ '[])
-      => Pipe l as o p -> r)
-  -- One.
-  -> (forall l o (as :: [*]) (a :: *)
-      . (PipeConstr l as o, as ~ (a:'[]),  PipeConstr l '[] o)
-      => Pipe l as o p -> r)
-  -- Infinity.
-  -> (forall l o (as :: [*]) (a :: *) (as' :: [*])
-      . (PipeConstr l as o, as ~ (a:as'), PipeConstr l as' o)
-      => Pipe l as o p -> r)
-  -> r
-somePipeArityCase (SP _ _ p@(Pipe Desc {pdArgs =      Nil} _)) z _ _ = z p
-somePipeArityCase (SP _ _ p@(Pipe Desc {pdArgs = _ :* Nil} _)) _ s _ = s p
-somePipeArityCase (SP _ _ p@(Pipe Desc {pdArgs = _ :* _}   _)) _ _ n = n p

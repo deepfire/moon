@@ -7,9 +7,9 @@ import Basis
 
 import Dom.Name
 import Dom.Pipe
-import Dom.Pipe.SomePipe
 import Dom.Scope
 import Dom.Sig
+import Dom.SomePipe
 import Dom.SomeType
 
 

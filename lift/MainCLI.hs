@@ -48,11 +48,11 @@ import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
 import Dom.Pipe.Pipe
-import Dom.Pipe.SomePipe
 import Dom.RequestReply
 import Dom.Scope
 import Dom.Scope.SomePipe
 import Dom.Sig
+import Dom.SomePipe
 import Dom.SomeType
 import Dom.SomeValue
 import Dom.Space.Pipe
@@ -77,7 +77,8 @@ import Reflex.SomeValue
 main :: IO ()
 main = withDotTracing "trace.dot" $ do
   traceM $ pave '-' <> pave '=' <> " main " <> pave '=' <> pave '-'
-  sealGround -- TODO:  fix the stupid name
+  sealGround -- TODO:  fix the stupid names of init fns
+  setupLLive
   mainWidget reflexVtyApp
 
 pave :: Char -> String

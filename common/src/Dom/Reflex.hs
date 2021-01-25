@@ -4,6 +4,7 @@ import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import Control.Monad.Ref
+import Type.Reflection (Typeable)
 
 import Data.IORef
 
@@ -31,4 +32,6 @@ type MonadReflex t m =
   , MonadIO m
   , MonadIO (Performable m)
   , Adjustable t m
+  , Typeable t
+  , Typeable m
   )

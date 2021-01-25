@@ -1,6 +1,16 @@
 SHELL := bash
 
-all: cli lift
+all: help
+
+help:
+	@echo "Available targets:"
+	@echo ""
+	@echo "  Exec: cli lift live"
+	@echo ""
+	@echo "  PM:   bug graph"
+	@echo ""
+	@echo "  Etc:  clean cls"
+	@echo ""
 
 .PHONY: lift cli certs cls clean
 client-certs:
@@ -21,6 +31,12 @@ cli vty xp:
 	@cat stderr.log
 	@echo
 	@{ read -ei "trace.pdf" -p "Trace pdf: " TRACEPDF && dot -Tpdf trace.dot > $$TRACEPDF && zathura $$TRACEPDF; }
+live:
+	cd lift
+	bash -c "time cabal -j build all"
+	cabal run -- exe:lift exec run 'seconds'
+tail:
+	tail -f stderr.log
 
 ghci-parse:
 	true ## cabal v2-repl cli -O0

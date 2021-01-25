@@ -11,7 +11,7 @@ import Dom.Name
 import Dom.Pipe
 import Dom.Scope
 import Dom.Sig
-import Dom.Pipe.SomePipe
+import Dom.SomePipe
 import Dom.Space
 
 

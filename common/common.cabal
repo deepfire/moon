@@ -52,7 +52,6 @@ library
                        Dom.Pipe.Ops.Traverse
                        Dom.Pipe.Pipe
                        Dom.Pipe.IOA
-                       Dom.Pipe.SomePipe
                        Dom.Reflex
                        Dom.Representable
                        Dom.RequestReply
@@ -62,6 +61,9 @@ library
                        Dom.Scope.SomePipe
                        Dom.Sig
                        Dom.Some
+                       Dom.SomePipe
+                       Dom.SomePipe.SomePipe
+                       Dom.SomePipe.Tools
                        Dom.SomeType
                        Dom.SomeVTag
                        Dom.SomeValue

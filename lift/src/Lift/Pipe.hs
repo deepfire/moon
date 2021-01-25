@@ -7,6 +7,8 @@ import Control.Concurrent.STM qualified        as STM
 import Control.Concurrent.STM                    (TVar)
 import System.IO.Unsafe qualified              as Unsafe
 
+import Reflex hiding (Dynamic)
+
 import Basis
 
 import Dom.CTag
@@ -17,11 +19,11 @@ import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.Pipe
-import Dom.Pipe.SomePipe
 import Dom.Result
 import Dom.Scope
 import Dom.Scope.SomePipe
 import Dom.Sig
+import Dom.SomePipe
 import Dom.SomeType
 import Dom.Space.Pipe
 import Dom.Space.SomePipe
@@ -35,7 +37,7 @@ import Lift.Haskell as Haskell
 
 initialPipeSpace :: SomePipeSpace Dynamic
 initialPipeSpace
-  =  rootPipeSpace
+  =  rootPipeSpace someLTagLive
   <> Hackage.pipeSpace       mempty
   <> Haskell.pipeSpace       "Hask"
 
@@ -66,10 +68,10 @@ addPipe name pipe = do
           STM.writeTVar mutablePipeSpace s'
           pure . Right $ somePipeSig pipe
 
-rootPipeSpace :: SomePipeSpace Dynamic
-rootPipeSpace =
+rootPipeSpace :: SomeLTag -> SomePipeSpace Dynamic
+rootPipeSpace l =
   emptySomePipeSpace "Root"
-  & spsInsertScopeAt mempty rootScope
+  & spsInsertScopeAt mempty (rootScope l)
 
 mkJust :: Typeable a => a -> Maybe a
 mkJust = Just
@@ -78,13 +80,18 @@ getThePipeSpace :: IO (PipeSpace (SomePipe ()))
 getThePipeSpace =
   STM.readTVarIO mutablePipeSpace <&> fmap void
 
-rootScope :: SomePipeScope Dynamic
-rootScope =
+rootScope :: SomeLTag -> SomePipeScope Dynamic
+rootScope (SomeLTag lLive@LLive{}) =
   pipeScope ""
      -- Generators:
      --
      [ somePipe0 "space" LNow capsTSG          CVPoint
        (Right <$> getThePipeSpace)
+
+     , somePipe0 "seconds" lLive capsTSG          CVPoint $
+       -- pure . Right $ Set.fromList groundTypeNames
+         tickLossyFromPostBuildTime 0.1
+           <&> fmap (Right . _tickInfo_n)
 
      , somePipe0 "ground" LNow capsTSG          CVSet $
        -- pure . Right $ Set.fromList groundTypeNames

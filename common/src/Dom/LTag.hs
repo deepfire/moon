@@ -59,7 +59,7 @@ instance Serialise SomeLTag where
       1 -> do
         SomeTypeRep (_ :: TypeRep t') <- decode
         SomeTypeRep (_ :: TypeRep m') <- decode
-        pure _someLTagLive
+        pure someLTagLive
       2 -> pure $ SomeLTag LNow
       _ -> fail $ "invalid SomeLTag encoding: tag="<>show cid
 
@@ -68,9 +68,9 @@ _someLTagLiveRef :: IO.IORef SomeLTag
 _someLTagLiveRef = IO.unsafePerformIO . IO.newIORef $
   error "someLTagLiveRef not yet initialised."
 
-{-# NOINLINE _someLTagLive #-}
-_someLTagLive :: SomeLTag
-_someLTagLive = IO.unsafePerformIO $ IO.readIORef _someLTagLiveRef
+{-# NOINLINE someLTagLive #-}
+someLTagLive :: SomeLTag
+someLTagLive = IO.unsafePerformIO $ IO.readIORef _someLTagLiveRef
 
 {-# NOINLINE setupSomeLTagLive #-}
 setupSomeLTagLive :: SomeLTag -> IO ()

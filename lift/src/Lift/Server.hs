@@ -28,10 +28,10 @@ import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
-import Dom.Pipe.SomePipe
 import Dom.Reflex
 import Dom.RequestReply
 import Dom.Result
+import Dom.SomePipe
 import Dom.SomeValue
 import Dom.Space.Pipe
 import Dom.Value
@@ -54,52 +54,30 @@ liftRequestLoop env reqsR repsW = forever $ do
   case res of
     Left e -> Unagi.writeChan repsW (rid, Left e)
     Right (SR LNow ioa) ->
-      ((rid,) . mapLeft EExec <$> ioa) >>= Unagi.writeChan repsW
+      ((rid,) . mapLeft EExec <$> ioa)
+      >>= Unagi.writeChan repsW
+      >> putStrLn ("processed request: " <> show sreq)
     Right (SR LLive{} network) ->
-      runLiftServer $
-      Unsafe.unsafeCoerce $
-      liftServer rid repsW $
-      network
+      runLiftEventServer $
+        Unsafe.unsafeCoerce $
+          liftEventServer rid repsW $
+            network
 
--- TODO:  make liftRequestloop use this
-mapSomeResult ::
-     (PFallible SomeValue -> IO ())
-  -> SomeResult
-  -> IO ()
-mapSomeResult f = \case
-  SR LNow    ioa -> fmap (mapLeft EExec) ioa >>= f
-  SR LLive{} net ->
-    runLiftServer $
-    Unsafe.unsafeCoerce $
-    reflexHandler net
- where
-   reflexHandler ::
-     forall t m
-     . MonadReflex t m
-     => m (Event t (Fallible SomeValue))
-     -> m (Event t ())
-   reflexHandler net = do
-     repsE <-
-       fmap (mapLeft EExec) <$> net
-     void $ performEvent $
-       ffor repsE (liftIO . f)
-     pure never
-
-liftServer ::
+liftEventServer ::
   forall t m
   . MonadReflex t m
   => Unique
   -> Unagi.InChan StandardReply
   -> m (Event t (Fallible SomeValue))
   -> m (Event t ())
-liftServer rid repsW network = do
+liftEventServer rid repsW network = do
   repsE :: Event t (PFallible SomeValue) <-
     fmap (mapLeft EExec) <$> network
 
   void $ performEvent $
     ffor repsE \rep -> do
+      traceM $ mconcat [ show rid, ": queuing reply: ", show rep ]
       liftIO $ Unagi.writeChan repsW (rid, rep)
-      traceM $ mconcat [ show rid, ": queued reply: ", show rep ]
 
   pure never
   --     \case
@@ -120,6 +98,45 @@ liftServer rid repsW network = do
   --     traceM $ mconcat [ show rid, ": queued reply: ", show rep ]
 
   -- pure $ never
+
+-- TODO:  make liftRequestloop use this
+mapSomeResult ::
+     (PFallible SomeValue -> IO ())
+  -> SomeResult
+  -> IO ()
+mapSomeResult f = \case
+  SR LNow    ioa -> fmap (mapLeft EExec) ioa >>= f
+  SR LLive{} net ->
+    runLiftEventServer $
+    Unsafe.unsafeCoerce $
+    reflexHandler net
+ where
+   reflexHandler ::
+     forall t m
+     . MonadReflex t m
+     => m (Event t (Fallible SomeValue))
+     -> m (Event t ())
+   reflexHandler net = do
+     repsE <-
+       fmap (mapLeft EExec) <$> net
+     void $ performEvent $
+       ffor repsE (liftIO . f)
+     pure never
+
+setupLLive :: IO ()
+setupLLive = do
+  runLiftEventServer collectLLive
+ where
+   collectLLive ::
+     forall (t :: *) (m :: * -> *)
+     . (MonadReflex t m, Typeable t, Typeable m)
+     => m (Event t ())
+   collectLLive = do
+     pb :: Event t () <- getPostBuild
+     performEvent $
+       ffor pb $
+         (const . liftIO $
+           setupSomeLTagLive (SomeLTag $ LLive (typeRep @t) (typeRep @m)))
 
 handleRequest :: Env -> StandardRequest -> IO (Either EPipe SomeResult)
 handleRequest Env{} req = runExceptT $ case snd req of

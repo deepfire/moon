@@ -34,8 +34,8 @@ import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.EPipe
 import Dom.Pipe.Ops
-import Dom.Pipe.SomePipe
 import Dom.RequestReply
+import Dom.SomePipe
 import Dom.SomeValue
 import Dom.Space.Pipe
 import Dom.Value

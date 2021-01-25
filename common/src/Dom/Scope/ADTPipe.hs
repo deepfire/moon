@@ -18,8 +18,8 @@ import Dom.Cap
 import Dom.LTag
 import Dom.Name
 import Dom.Pipe.Pipe
-import Dom.Pipe.SomePipe
 import Dom.Scope.SomePipe
+import Dom.SomePipe.SomePipe
 import Dom.VTag
 
 -- import Ground.Table

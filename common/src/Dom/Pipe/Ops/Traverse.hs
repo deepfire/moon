@@ -19,8 +19,9 @@ import Dom.Pipe.EPipe
 import Dom.Pipe.Constr
 import Dom.Pipe.IOA
 import Dom.Pipe.Pipe
-import Dom.Pipe.SomePipe
 import Dom.Sig
+import Dom.SomePipe
+import Dom.SomePipe.Tools
 import Dom.SomeType
 import Dom.Struct
 import Dom.Tags
