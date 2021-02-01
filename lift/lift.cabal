@@ -55,6 +55,7 @@ library
                      , data-default
                      , dependent-map
                      , dependent-sum
+                     , directory-contents
                      , extra
                      , filepath
                      , fingertree
@@ -77,6 +78,7 @@ library
                      , quiet
                      , ref-tf
                      , reflex
+                     , reflex-fsnotify
                      , reflex-vty
                      , req
                      , safe

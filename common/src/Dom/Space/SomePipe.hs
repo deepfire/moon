@@ -1,11 +1,8 @@
 module Dom.Space.SomePipe (module Dom.Space.SomePipe) where
 
-import           Codec.Serialise
-import           Data.Map.Monoidal.Strict           (MonoidalMap)
 import qualified Data.Map.Monoidal.Strict         as MMap
 import qualified Data.Set.Monad                   as Set
 import qualified Data.Text                        as Text
-import           Type.Reflection                    (typeRep)
 
 import Basis
 
@@ -15,7 +12,6 @@ import Dom.Scope
 import Dom.Scope.SomePipe
 import Dom.Sig
 import Dom.SomePipe
-import Dom.SomePipe.Tools
 import Dom.Space
 import Dom.Space.Pipe
 import Dom.SomeType

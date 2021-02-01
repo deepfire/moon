@@ -11,6 +11,18 @@
         "url": "https://github.com/input-output-hk/cardano-prelude/archive/196f1da881ee3ecc759607732fcd61815d397375.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
+    "directory-contents": {
+        "branch": "master",
+        "description": "Recursively build a tree of directory contents, avoiding symlink cycles",
+        "homepage": null,
+        "owner": "obsidiansystems",
+        "repo": "directory-contents",
+        "rev": "59f7e274648e4bb9ded4bf3d8698480af38a1bb8",
+        "sha256": "1f68n1m6p2nvgranj1j6r2hx5j3cvxg3rlspq5ajf7yx5mpgz6p4",
+        "type": "tarball",
+        "url": "https://github.com/obsidiansystems/directory-contents/archive/59f7e274648e4bb9ded4bf3d8698480af38a1bb8.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
     "generics-sop": {
         "branch": "master",
         "description": "Generic Programming using True Sums of Products",

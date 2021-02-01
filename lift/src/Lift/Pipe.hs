@@ -1,13 +1,19 @@
 module Lift.Pipe (module Lift.Pipe) where
 
-import Data.Text qualified                     as Text
-import Data.Vector qualified                   as Vec
+import Algebra.Graph
+import Data.Text                     qualified as Text
+import Data.Vector                   qualified as Vec
+import Data.Map.Strict               qualified as Map
 
-import Control.Concurrent.STM qualified        as STM
+import Control.Concurrent.STM        qualified as STM
 import Control.Concurrent.STM                    (TVar)
-import System.IO.Unsafe qualified              as Unsafe
+import System.IO.Unsafe              qualified as Unsafe
+
+import System.Directory.Contents     qualified as Sys
+import System.FilePath               qualified as Sys
 
 import Reflex hiding (Dynamic)
+import Reflex.FSNotify
 
 import Basis
 
@@ -19,6 +25,7 @@ import Dom.LTag
 import Dom.Name
 import Dom.Pipe
 import Dom.Pipe.Pipe
+import Dom.Reflex
 import Dom.Result
 import Dom.Scope
 import Dom.Scope.SomePipe
@@ -80,6 +87,26 @@ getThePipeSpace :: IO (PipeSpace (SomePipe ()))
 getThePipeSpace =
   STM.readTVarIO mutablePipeSpace <&> fmap void
 
+fsTreeWatcher ::
+  MonadReflex t m
+  => FilePath
+  -> m (Event t (Fallible (Graph Text)))
+fsTreeWatcher dir = do
+  i :: Event t () <- getPostBuild
+  tree :: Event t (Maybe (Sys.DirTree Text)) <-
+    performEvent . (i $>) . liftIO $
+      Sys.buildDirTree dir <&>
+        fmap (pack . Sys.takeFileName <$>)
+  pure $ fmapMaybe id tree <&> Right . dirTreeGraph
+ where
+   dirTreeGraph :: Sys.DirTree Text -> Graph Text
+   dirTreeGraph = \case
+     Sys.DirTree_Dir     dfp chis ->
+       Map.foldl' (\g dt -> overlay g (dirTreeGraph dt))
+         (vertex (pack dfp)) chis
+     Sys.DirTree_File    fp x -> vertex (pack fp)
+     Sys.DirTree_Symlink fp x -> mempty
+
 rootScope :: SomeLTag -> SomePipeScope Dynamic
 rootScope (SomeLTag lLive@LLive{}) =
   pipeScope ""
@@ -92,6 +119,10 @@ rootScope (SomeLTag lLive@LLive{}) =
        -- pure . Right $ Set.fromList groundTypeNames
          tickLossyFromPostBuildTime 0.1
            <&> fmap (Right . _tickInfo_n)
+         -- listDirectory :: FilePath -> IO [FilePath]
+
+     , somePipe1 "dir" lLive capsTSG    CVPoint CVTree $
+        fsTreeWatcher
 
      , somePipe0 "ground" LNow capsTSG          CVSet $
        -- pure . Right $ Set.fromList groundTypeNames

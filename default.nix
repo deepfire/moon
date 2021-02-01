@@ -62,6 +62,7 @@ in (import ./../reflex-platform {
                                       { subdir = "cardano-prelude"; };
     contra-tracer               = niv "iohk-monitoring-framework"
                                       { pkg = "contra-tracer"; };
+    directory-contents          = niv "directory-contents" {};
     io-sim                      = niv "ouroboros-network"
                                       { pkg = "io-sim"; };
     io-sim-classes              = niv "ouroboros-network"
